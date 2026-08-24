@@ -1,0 +1,148 @@
+// Reducer del proyecto con historial (deshacer/rehacer).
+
+import { newContact, newUnit, uid, sortedUnits } from './model.js'
+
+const LIMIT = 80
+
+export const initialState = (project) => ({ past: [], present: project, future: [] })
+
+const clone = (o) => (typeof structuredClone === 'function' ? structuredClone(o) : JSON.parse(JSON.stringify(o)))
+
+const touch = (p) => ({ ...p, updatedAt: new Date().toISOString() })
+
+const replaceIn = (arr, id, fn) => arr.map((it) => (it.id === id ? fn(it) : it))
+
+function apply(project, action) {
+  const p = project
+  switch (action.type) {
+    case 'patch':
+      return { ...p, ...action.patch }
+    case 'settings':
+      return { ...p, settings: { ...p.settings, ...action.patch } }
+    case 'georef':
+      return { ...p, georef: { ...p.georef, ...action.patch } }
+
+    case 'contour.add':
+      return { ...p, contours: [...p.contours, { id: uid('cv'), elevation: action.elevation, pts: action.pts }] }
+    case 'contour.update':
+      return { ...p, contours: replaceIn(p.contours, action.id, (c) => ({ ...c, ...action.patch })) }
+    case 'contour.delete':
+      return { ...p, contours: p.contours.filter((c) => c.id !== action.id) }
+    case 'contour.clear':
+      return { ...p, contours: [] }
+
+    case 'unit.add': {
+      const unit = newUnit(p, action.name)
+      const units = [...p.units, unit]
+      const prevTop = sortedUnits(p)[p.units.length - 1]
+      let contacts = p.contacts
+      if (prevTop) {
+        const c = newContact({ ...p, units }, prevTop.id, unit.id)
+        contacts = [...contacts, c]
+      }
+      return { ...p, units, contacts }
+    }
+    case 'unit.update':
+      return { ...p, units: replaceIn(p.units, action.id, (u) => ({ ...u, ...action.patch })) }
+    case 'unit.delete': {
+      const units = p.units.filter((u) => u.id !== action.id).map((u, i) => ({ ...u, order: i }))
+      const contacts = p.contacts.filter((c) => c.lowerUnitId !== action.id && c.upperUnitId !== action.id)
+      return { ...p, units, contacts }
+    }
+    case 'unit.move': {
+      const list = sortedUnits(p)
+      const i = list.findIndex((u) => u.id === action.id)
+      const j = i + action.delta
+      if (i < 0 || j < 0 || j >= list.length) return p
+      const copy = [...list]
+      ;[copy[i], copy[j]] = [copy[j], copy[i]]
+      return { ...p, units: copy.map((u, k) => ({ ...u, order: k })) }
+    }
+
+    case 'contact.add':
+      return { ...p, contacts: [...p.contacts, newContact(p, action.lowerUnitId, action.upperUnitId)] }
+    case 'contact.update':
+      return { ...p, contacts: replaceIn(p.contacts, action.id, (c) => ({ ...c, ...action.patch })) }
+    case 'contact.delete':
+      return { ...p, contacts: p.contacts.filter((c) => c.id !== action.id) }
+
+    case 'fault.add':
+      return { ...p, faults: [...p.faults, action.fault] }
+    case 'fault.update':
+      return { ...p, faults: replaceIn(p.faults, action.id, (f) => ({ ...f, ...action.patch })) }
+    case 'fault.delete':
+      return { ...p, faults: p.faults.filter((f) => f.id !== action.id) }
+
+    case 'trace.add': {
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      return {
+        ...p,
+        [key]: replaceIn(p[key], action.id, (it) => ({
+          ...it,
+          traces: [...it.traces, { id: uid('tr'), pts: action.pts }],
+        })),
+      }
+    }
+    case 'trace.delete': {
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      return {
+        ...p,
+        [key]: replaceIn(p[key], action.id, (it) => ({ ...it, traces: it.traces.filter((t) => t.id !== action.traceId) })),
+      }
+    }
+    case 'trace.update': {
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      return {
+        ...p,
+        [key]: replaceIn(p[key], action.id, (it) => ({
+          ...it,
+          traces: replaceIn(it.traces, action.traceId, (t) => ({ ...t, pts: action.pts })),
+        })),
+      }
+    }
+
+    case 'section.add':
+      return { ...p, sections: [...p.sections, action.section] }
+    case 'section.update':
+      return { ...p, sections: replaceIn(p.sections, action.id, (s) => ({ ...s, ...action.patch })) }
+    case 'section.delete':
+      return { ...p, sections: p.sections.filter((s) => s.id !== action.id) }
+
+    case 'well.add':
+      return { ...p, wells: [...p.wells, action.well] }
+    case 'well.update':
+      return { ...p, wells: replaceIn(p.wells, action.id, (w) => ({ ...w, ...action.patch })) }
+    case 'well.delete':
+      return { ...p, wells: p.wells.filter((w) => w.id !== action.id) }
+
+    default:
+      return p
+  }
+}
+
+export function reducer(state, action) {
+  switch (action.type) {
+    case 'history.undo': {
+      if (!state.past.length) return state
+      const past = state.past.slice(0, -1)
+      const present = state.past[state.past.length - 1]
+      return { past, present, future: [state.present, ...state.future].slice(0, LIMIT) }
+    }
+    case 'history.redo': {
+      if (!state.future.length) return state
+      const [present, ...future] = state.future
+      return { past: [...state.past, state.present].slice(-LIMIT), present, future }
+    }
+    case 'project.load':
+      return { past: [], present: action.project, future: [] }
+    default: {
+      const next = apply(state.present, action)
+      if (next === state.present) return state
+      return {
+        past: [...state.past, clone(state.present)].slice(-LIMIT),
+        present: touch(next),
+        future: [],
+      }
+    }
+  }
+}
