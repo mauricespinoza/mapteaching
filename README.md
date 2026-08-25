@@ -86,6 +86,11 @@ Todo funciona **sin necesidad de importar nada**: sobre terreno plano ya se ven
 los patrones de afloramiento. Si hay curvas de nivel digitalizadas, las trazas
 se calculan cortando la topografía real.
 
+En planta se pinta además el **mapa geológico**: recorriendo una grilla se
+evalúa qué unidad aflora en cada punto (la topografía queda por encima de su
+contacto basal y por debajo del que la limita arriba), de modo que los polígonos
+definidos por contactos sucesivos aparecen rellenos con el color de su unidad.
+
 ### 4. Contornos estructurales, rumbo y manteo
 
 Un contacto aflora donde su superficie corta la topografía, así que **cada
@@ -107,6 +112,14 @@ notaciones habituales: cuadrante (`N45°E / 30° SE`) y dirección de manteo
 
 Si una superficie tiene pocas intersecciones (una sola cota resuelta, un punto
 por cota), la app lo advierte y permite **imponer la actitud a mano**.
+
+El panel **Datos** incluye además una sección didáctica que dibuja, para cada
+par de contornos, el **triángulo rectángulo** del que sale el manteo —la
+diferencia de cotas Δh como cateto vertical y la separación horizontal d como
+cateto horizontal, con la fórmula `tan δ = Δh / d` resuelta con los números del
+ejercicio— y explica cómo se pasa de la distancia medida en el mapa al espesor
+real (`e = L·sen δ` o `e = V·cos δ`). Sin escala horizontal calibrada avisa de
+que el triángulo no se puede resolver.
 
 ### 5. Bloques de falla
 

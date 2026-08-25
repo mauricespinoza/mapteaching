@@ -117,6 +117,7 @@ export function render(ctx, opts) {
     hover,
     modelViews,
     edit,
+    unitRaster,
     width,
     height,
     dpr = 1,
@@ -151,6 +152,15 @@ export function render(ctx, opts) {
     ctx.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1])
   }
 
+  // --- Polígonos de unidades definidos por los contactos ---
+  if (show.unitFill && unitRaster && scene?.ready) {
+    drawWorldRaster(
+      ctx, view, scene.georef, unitRaster.canvas, unitRaster.bbox,
+      unitRaster.cell, unitRaster.ny, (L.units?.opacity ?? 0.6)
+    )
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  }
+
   // --- Modelos estructurales sintéticos ---
   if (show.models && modelViews?.length && scene?.ready) {
     for (const mv of modelViews) {
@@ -162,7 +172,10 @@ export function render(ctx, opts) {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       }
     }
+    ctx.save()
+    ctx.globalAlpha = alphaOf('models')
     for (const mv of modelViews) drawModelTraces(ctx, view, mv, selection)
+    ctx.restore()
   }
 
   // --- Curvas de nivel ---
@@ -177,10 +190,10 @@ export function render(ctx, opts) {
       const live = edit?.preview && edit.kind === 'contour' && edit.id === c.id ? edit.preview : c.pts
       ctx.strokeStyle = selected ? '#dc2626' : index ? '#92400e' : '#b45309'
       ctx.lineWidth = selected ? 2.6 : index ? 1.8 : 1.1
-      ctx.globalAlpha = 0.95
+      ctx.globalAlpha = 0.95 * alphaOf('contours')
       path(ctx, view, live)
       ctx.stroke()
-      ctx.globalAlpha = 1
+      ctx.globalAlpha = alphaOf('contours')
     }
     if (show.contourLabels) {
       for (const c of project.contours) {

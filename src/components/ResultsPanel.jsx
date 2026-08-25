@@ -4,13 +4,14 @@ import { fmtDistance } from '../lib/georef.js'
 import { kinematicsOf } from '../lib/model.js'
 import { downloadText } from '../lib/exportFile.js'
 import { Btn } from './ui.jsx'
+import ThicknessPanel from './ThicknessPanel.jsx'
 
 /** Rumbo y manteo por pares de contornos estructurales consecutivos. */
 export default function ResultsPanel({ scene, project }) {
   if (!scene?.ready) {
     return (
-      <div className="p-4 text-sm text-slate-500">
-        Calibra la escala del mapa para calcular contornos estructurales.
+      <div className="h-full overflow-y-auto p-3">
+        <ThicknessPanel scene={scene} project={project} />
       </div>
     )
   }
@@ -89,6 +90,11 @@ export default function ResultsPanel({ scene, project }) {
           </div>
         ))}
       </div>
+
+      <h3 className="mb-2 mt-6 border-t border-slate-200 pt-4 text-sm font-semibold text-slate-700">
+        Cómo se obtienen manteo y espesor
+      </h3>
+      <ThicknessPanel scene={scene} project={project} />
 
       <div className="mt-4 rounded-xl bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
         <p className="mb-1 font-semibold text-slate-700">Cómo se calcula</p>

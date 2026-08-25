@@ -38,6 +38,7 @@ import { newProject, newSection, newWell, uid, countVertices } from './lib/model
 import { buildScene } from './lib/scene.js'
 import { buildSampleProject } from './lib/sample.js'
 import { buildModelViews, newStructuralModel } from './lib/models.js'
+import { buildUnitRaster } from './lib/geomap.js'
 import { dist, norm, sub } from './lib/geom.js'
 import * as db from './lib/db.js'
 import { downloadText, downloadCanvasPng } from './lib/exportFile.js'
@@ -55,6 +56,7 @@ const DEFAULT_SHOW = {
   wells: true,
   hillshade: true,
   models: true,
+  unitFill: true,
   onlySelectedSC: false,
 }
 
@@ -70,6 +72,13 @@ export default function App() {
     [deferredProject, recalcNonce]
   )
   const modelViews = useMemo(() => buildModelViews(deferredProject, scene), [deferredProject, scene])
+  const [show, setShow] = useState(DEFAULT_SHOW)
+  // El relleno geológico recorre una grilla evaluando cada contacto, así que
+  // sólo se calcula cuando la capa está encendida.
+  const unitRaster = useMemo(
+    () => (show.unitFill ? buildUnitRaster(scene) : null),
+    [scene, show.unitFill]
+  )
 
   const [tab, setTab] = useState('mapa')
   const [panel, setPanel] = useState('capas')
@@ -81,7 +90,6 @@ export default function App() {
   const [selection, setSelection] = useState(null)
   const [activeIds, setActiveIds] = useState({ contact: null, fault: null })
   const [view, setView] = useState(null)
-  const [show, setShow] = useState(DEFAULT_SHOW)
   const [sectionId, setSectionId] = useState(null)
   const [wellId, setWellId] = useState(null)
   const [image, setImage] = useState(null)
@@ -488,6 +496,7 @@ export default function App() {
                   ['sections', 'Perfiles'],
                   ['wells', 'Pozos'],
                   ['hillshade', 'Relieve'],
+                  ['unitFill', 'Unidades'],
                   ['models', 'Modelos'],
                 ].map(([k, label]) => (
                   <button
@@ -578,6 +587,7 @@ export default function App() {
                   status={status}
                   mapRect={mapRect}
                   modelViews={modelViews}
+                  unitRaster={unitRaster}
                   canvasRef={mapCanvasRef}
                 />
               </div>

@@ -88,6 +88,7 @@ export function newProject(name = 'Ejercicio sin título') {
       layers: {
         image: { opacity: 1, locked: false },
         contours: { opacity: 1, locked: false },
+        units: { opacity: 0.6, locked: false },
         contacts: { opacity: 1, locked: false },
         faults: { opacity: 1, locked: false },
         models: { opacity: 1, locked: false },

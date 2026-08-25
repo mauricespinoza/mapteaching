@@ -36,6 +36,7 @@ export default function MapView({
   dispatch,
   status,
   modelViews,
+  unitRaster,
   canvasRef: externalCanvasRef,
 }) {
   const innerRef = useRef(null)
@@ -144,12 +145,13 @@ export default function MapView({
       draft,
       hover: cursor,
       modelViews,
+      unitRaster,
       edit: edit ? { ...edit, preview: editPreview } : null,
       width: size.width,
       height: size.height,
       dpr,
     })
-  }, [view, project, scene, image, hillshade, show, selection, draft, cursor, size, modelViews, edit, editPreview])
+  }, [view, project, scene, image, hillshade, show, selection, draft, cursor, size, modelViews, unitRaster, edit, editPreview])
 
   const toImg = useCallback((ev) => {
     const rect = canvasRef.current.getBoundingClientRect()

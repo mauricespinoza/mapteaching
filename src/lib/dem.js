@@ -124,18 +124,33 @@ export function buildDem(levels, bbox, res = 120, smoothPasses = 2) {
       // plana a la cota de esa curva — los escalones del relieve.
       const dot = f1.vx[k] * f2.vx[k] + f1.vy[k] * f2.vy[k]
       const norms = Math.max(1e-9, d1 * d2)
+      // Reparto lineal de la cota según la distancia a cada curva: es el
+      // equiespaciado gradual entre una curva y la siguiente, y es la base del
+      // relieve en todas partes.
+      const interp = z1 + (z2 - z1) * (d1 / (d1 + d2))
+      // El alineamiento de los dos vectores dice si el nodo está entre las dos
+      // curvas o más allá de la primera (cumbre o fondo cerrado). Se mezcla de
+      // forma continua en vez de conmutar: el corte brusco entre ambos criterios
+      // era lo que dejaba escalones al unir las zonas con curvas.
+      const t = smoothstep(0.35, 0.85, dot / norms)
       if (d1 < EPS) {
         value = z1
-      } else if (dot / norms > 0.2) {
-        // Pendiente local entre las dos curvas, prolongada hacia afuera.
-        const spacing = Math.max(cell, d2 - d1)
-        const grad = Math.abs(z1 - z2) / spacing
+      } else if (t > 0) {
+        // Separación real entre las dos curvas: la distancia entre sus puntos
+        // más cercanos. Usar (d2 − d1) se anulaba donde las curvas casi se
+        // tocan y disparaba el gradiente, que es lo que producía los picos.
+        const sx = f2.vx[k] - f1.vx[k]
+        const sy = f2.vy[k] - f1.vy[k]
+        const spacing = Math.max(cell, Math.hypot(sx, sy))
+        const interval = Math.abs(z1 - z2)
         const dir = Math.sign(z1 - z2) || 1
-        // La prolongación se limita a dos espaciados: más lejos no hay dato
-        // que la respalde.
-        value = z1 + dir * grad * Math.min(d1, spacing * 2)
+        // La cumbre (o el fondo) queda entre la última curva dibujada y la
+        // siguiente que no se dibujó: por eso la prolongación se acota a un
+        // intervalo de equidistancia. Así no hay mesetas ni picos.
+        const rise = Math.min((interval / spacing) * d1, interval * 0.98)
+        value = interp + t * (z1 + dir * rise - interp)
       } else {
-        value = z1 + (z2 - z1) * (d1 / (d1 + d2))
+        value = interp
       }
     }
     z[k] = value
@@ -184,6 +199,12 @@ function smooth(z, nx, ny, passes = 2) {
     dst = tmp
   }
   return src
+}
+
+/** Transición suave (Hermite) entre a y b: evita cortes bruscos. */
+function smoothstep(a, b, x) {
+  const u = Math.max(0, Math.min(1, (x - a) / (b - a)))
+  return u * u * (3 - 2 * u)
 }
 
 function makeDem(bbox, nx, ny, cell, z, zmin, zmax, valid) {

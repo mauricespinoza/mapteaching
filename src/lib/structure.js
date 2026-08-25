@@ -200,6 +200,7 @@ export function buildMls(points3D, globalPlane) {
   const hCeil = Math.max(spread * 1.5, hFloor * 4)
   const eps2 = Math.pow(Math.max(spread * 1e-4, 1e-6), 2)
   const d2s = new Float64Array(n)
+  const kbuf = new Float64Array(Math.max(1, Math.min(n, 8)))
   // Regularización hacia el plano global: evita que un grupo de puntos casi
   // alineados (lo habitual en una traza) produzca un ajuste inestable.
   const g = globalPlane || { a: 0, b: 0, c: points3D.reduce((s2, p) => s2 + p[2], 0) / n }
@@ -212,9 +213,28 @@ export function buildMls(points3D, globalPlane) {
       const dy = points3D[i][1] - y
       d2s[i] = dx * dx + dy * dy
     }
-    // k-ésima distancia sin ordenar del todo: basta una selección parcial.
-    const sorted = Array.prototype.slice.call(d2s).sort((a2, b2) => a2 - b2)
-    const h = Math.min(hCeil, Math.max(hFloor, Math.sqrt(sorted[K - 1]) * 1.1))
+    // k-ésima distancia por inserción en un búfer de tamaño K: ordenar las N
+    // distancias en cada consulta hacía inviable rellenar una grilla entera.
+    let filled = 0
+    for (let i = 0; i < n; i++) {
+      const v = d2s[i]
+      if (filled < K) {
+        let j = filled++
+        while (j > 0 && kbuf[j - 1] > v) {
+          kbuf[j] = kbuf[j - 1]
+          j--
+        }
+        kbuf[j] = v
+      } else if (v < kbuf[K - 1]) {
+        let j = K - 1
+        while (j > 0 && kbuf[j - 1] > v) {
+          kbuf[j] = kbuf[j - 1]
+          j--
+        }
+        kbuf[j] = v
+      }
+    }
+    const h = Math.min(hCeil, Math.max(hFloor, Math.sqrt(kbuf[filled - 1]) * 1.1))
     const h2 = h * h
     // Sistema normal 3x3 de z = a·(x−x0) + b·(y−y0) + c, centrado en la consulta.
     let m00 = lambda

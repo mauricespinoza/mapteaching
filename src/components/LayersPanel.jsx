@@ -33,6 +33,7 @@ export default function LayersPanel({
           {[
             ['image', 'Imagen base', project.image ? project.image.name || 'imagen' : 'sin imagen'],
             ['contours', 'Curvas de nivel', `${project.contours.length}`],
+            ['units', 'Relleno de unidades', `${project.units.length}`],
             ['contacts', 'Contactos', `${project.contacts.length}`],
             ['faults', 'Fallas', `${project.faults.length}`],
             ['models', 'Modelos', `${(project.models || []).length}`],
