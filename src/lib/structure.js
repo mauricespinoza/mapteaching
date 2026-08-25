@@ -47,24 +47,30 @@ export function intersectWithContours(traces, contours, tol = 1) {
 }
 
 /** Agrupa los puntos 3D por cota y ajusta una recta a cada grupo. */
-export function structureContours(points3D, tol = 1) {
+export function structureContours(points3D, tol = 1, limbOf = null) {
   const byZ = new Map()
   for (const p of points3D) {
-    const key = p[2]
+    // Con `limbOf` los puntos de una misma cota se separan por limbo: en un
+    // pliegue, ajustar una sola recta a los dos flancos promediaría a través
+    // de la charnela y daría un rumbo que no existe.
+    const limb = limbOf ? limbOf(p) : 0
+    const key = `${p[2]}|${limb}`
     let arr = byZ.get(key)
-    if (!arr) byZ.set(key, (arr = []))
-    arr.push([p[0], p[1]])
+    if (!arr) byZ.set(key, (arr = { elevation: p[2], limb, pts: [] }))
+    arr.pts.push([p[0], p[1]])
   }
   const out = []
-  for (const [elevation, pts] of byZ) {
+  for (const group of byZ.values()) {
+    const { elevation, limb } = group
+    const pts = group.pts
     if (pts.length < 2) {
-      out.push({ elevation, points: pts, fit: null, n: pts.length })
+      out.push({ elevation, limb, points: pts, fit: null, n: pts.length })
       continue
     }
     const fit = fitLine(pts)
     if (!fit || fit.spread < tol * 1.5) {
       // Puntos prácticamente coincidentes: no definen una dirección de rumbo.
-      out.push({ elevation, points: pts, fit: null, n: pts.length })
+      out.push({ elevation, limb, points: pts, fit: null, n: pts.length })
       continue
     }
     // Extensión del contorno: proyección de los puntos sobre la recta.
@@ -75,10 +81,35 @@ export function structureContours(points3D, tol = 1) {
       if (t < tmin) tmin = t
       if (t > tmax) tmax = t
     }
-    out.push({ elevation, points: pts, fit, tmin, tmax, n: pts.length })
+    out.push({ elevation, limb, points: pts, fit, tmin, tmax, n: pts.length })
   }
-  out.sort((a, b) => a.elevation - b.elevation)
+  out.sort((a, b) => a.limb - b.limb || a.elevation - b.elevation)
   return out
+}
+
+/**
+ * Agrupa azimuts en familias separadas por más de `tolDeg`. Se usa para
+ * separar los flancos de un pliegue por su dirección de manteo.
+ */
+export function clusterAzimuths(azimuths, tolDeg = 55) {
+  const centers = []
+  const labels = azimuths.map((az) => {
+    for (let i = 0; i < centers.length; i++) {
+      const diff = Math.abs(((az - centers[i].mean + 540) % 360) - 180)
+      if (diff <= tolDeg) {
+        const c = centers[i]
+        // Media circular incremental.
+        c.sx += Math.sin(az * RAD)
+        c.sy += Math.cos(az * RAD)
+        c.mean = azimuthWorld([c.sx, c.sy])
+        c.n++
+        return i
+      }
+    }
+    centers.push({ mean: az, sx: Math.sin(az * RAD), sy: Math.cos(az * RAD), n: 1 })
+    return centers.length - 1
+  })
+  return labels
 }
 
 /** Promedio circular de direcciones de recta (módulo 180°). */
@@ -138,19 +169,185 @@ function attitudeFromPlane(plane) {
 }
 
 /**
+ * Ajuste local móvil (moving least squares): en cada punto se ajusta un plano
+ * ponderando los datos por su distancia. El resultado es una superficie
+ * continua y derivable que sigue los pliegues en vez de promediarlos, y que da
+ * la orientación local en cualquier punto. Con datos planos degenera
+ * exactamente en el plano global, así que sustituye al ajuste plano sin
+ * cambiar los casos sencillos.
+ */
+export function buildMls(points3D, globalPlane) {
+  const n = points3D.length
+  if (n < 4) return null
+  // Ancho de banda: suficiente para que cada ajuste vea varios puntos, pero
+  // menor que la longitud de onda de un pliegue.
+  let sx = 0
+  let sy = 0
+  for (const p of points3D) {
+    sx += p[0]
+    sy += p[1]
+  }
+  const cx = sx / n
+  const cy = sy / n
+  let spread = 0
+  for (const p of points3D) spread += Math.hypot(p[0] - cx, p[1] - cy)
+  spread /= n
+  // El ancho de banda se adapta en cada consulta a la distancia del k-ésimo
+  // punto más cercano: estrecho donde hay datos densos (sigue el pliegue) y
+  // ancho donde son escasos (se mantiene estable).
+  const K = Math.min(n, 8)
+  const hFloor = Math.max(spread * 0.06, 1e-6)
+  const hCeil = Math.max(spread * 1.5, hFloor * 4)
+  const eps2 = Math.pow(Math.max(spread * 1e-4, 1e-6), 2)
+  const d2s = new Float64Array(n)
+  // Regularización hacia el plano global: evita que un grupo de puntos casi
+  // alineados (lo habitual en una traza) produzca un ajuste inestable.
+  const g = globalPlane || { a: 0, b: 0, c: points3D.reduce((s2, p) => s2 + p[2], 0) / n }
+  const lambda = 1e-9
+  const MU = 0.15
+
+  function fit(x, y) {
+    for (let i = 0; i < n; i++) {
+      const dx = points3D[i][0] - x
+      const dy = points3D[i][1] - y
+      d2s[i] = dx * dx + dy * dy
+    }
+    // k-ésima distancia sin ordenar del todo: basta una selección parcial.
+    const sorted = Array.prototype.slice.call(d2s).sort((a2, b2) => a2 - b2)
+    const h = Math.min(hCeil, Math.max(hFloor, Math.sqrt(sorted[K - 1]) * 1.1))
+    const h2 = h * h
+    // Sistema normal 3x3 de z = a·(x−x0) + b·(y−y0) + c, centrado en la consulta.
+    let m00 = lambda
+    let m01 = 0
+    let m02 = 0
+    let m11 = lambda
+    let m12 = 0
+    let m22 = lambda
+    let r0 = lambda * g.a
+    let r1 = lambda * g.b
+    let r2 = lambda * (g.a * x + g.b * y + g.c)
+    let wsum = 0
+    for (let i = 0; i < n; i++) {
+      const p = points3D[i]
+      const dx = p[0] - x
+      const dy = p[1] - y
+      const rr = dx * dx + dy * dy
+      // Peso singular (Shepard): tiende a infinito en el dato, de modo que la
+      // superficie interpola los puntos observados en vez de sólo aproximarlos.
+      const w = Math.exp(-rr / h2) / (rr + eps2)
+      if (!Number.isFinite(w)) return { z: points3D[i][2], a: g.a, b: g.b }
+      if (w < 1e-12) continue
+      wsum += w
+      m00 += w * dx * dx
+      m01 += w * dx * dy
+      m02 += w * dx
+      m11 += w * dy * dy
+      m12 += w * dy
+      m22 += w
+      r0 += w * dx * p[2]
+      r1 += w * dy * p[2]
+      r2 += w * p[2]
+    }
+    // Regularización proporcional a la masa de datos: tira del *gradiente*
+    // hacia el plano global sin tocar la cota local, así la superficie sigue
+    // interpolando los puntos pero no inventa pendientes donde los datos están
+    // alineados sobre una traza y no determinan la dirección transversal.
+    const tau = MU * m22 * h2
+    m00 += tau
+    m11 += tau
+    r0 += tau * g.a
+    r1 += tau * g.b
+    if (wsum < 1e-9) return { z: g.a * x + g.b * y + g.c, a: g.a, b: g.b }
+    // Resolución directa del sistema simétrico 3x3.
+    const A = [
+      [m00, m01, m02],
+      [m01, m11, m12],
+      [m02, m12, m22],
+    ]
+    const r = [r0, r1, r2]
+    const sol = solve3(A, r)
+    if (!sol) return { z: g.a * x + g.b * y + g.c, a: g.a, b: g.b }
+    return { z: sol[2], a: sol[0], b: sol[1] }
+  }
+
+  return { evaluate: fit, n }
+}
+
+/** Eliminación gaussiana con pivoteo para un sistema 3x3. */
+function solve3(A, r) {
+  const m = [
+    [A[0][0], A[0][1], A[0][2], r[0]],
+    [A[1][0], A[1][1], A[1][2], r[1]],
+    [A[2][0], A[2][1], A[2][2], r[2]],
+  ]
+  for (let c = 0; c < 3; c++) {
+    let piv = c
+    for (let i = c + 1; i < 3; i++) if (Math.abs(m[i][c]) > Math.abs(m[piv][c])) piv = i
+    if (Math.abs(m[piv][c]) < 1e-12) return null
+    if (piv !== c) {
+      const t = m[c]
+      m[c] = m[piv]
+      m[piv] = t
+    }
+    for (let i = 0; i < 3; i++) {
+      if (i === c) continue
+      const f = m[i][c] / m[c][c]
+      for (let j = c; j < 4; j++) m[i][j] -= f * m[c][j]
+    }
+  }
+  return [m[0][3] / m[0][0], m[1][3] / m[1][1], m[2][3] / m[2][2]]
+}
+
+/** Actitud local a partir del gradiente de la superficie. */
+export function attitudeFromGradient(a, b) {
+  const grad = Math.hypot(a, b)
+  const dip = Math.atan(grad) * DEG
+  const dipDir = grad < 1e-9 ? 0 : azimuthWorld([-a, -b])
+  return { dip, dipDir, ...formatAttitude(dipDir, dip) }
+}
+
+/**
  * Construye el modelo de una superficie geológica a partir de sus contornos
  * estructurales. `elevationAt(x, y)` interpola entre contornos consecutivos
  * (permite pliegues cilíndricos) y extrapola con el gradiente de los extremos.
  */
 export function buildSurface({ traces, contours, manual = null, name = '', color = '#000', tol = 1 }) {
   const points3D = intersectWithContours(traces, contours, tol)
-  const scs = structureContours(points3D, tol)
-  const usable = scs.filter((s) => s.fit)
   const plane = fitPlane(points3D)
+  // Ajuste local móvil: da la orientación en cualquier punto y permite que la
+  // superficie se pliegue manteniendo la continuidad.
+  const mls = points3D.length >= 6 ? buildMls(points3D, plane) : null
+
+  // Cada punto se etiqueta con su limbo según la dirección de manteo local:
+  // así los contornos estructurales de un mismo flanco se ajustan juntos.
+  let limbOf = null
+  let limbCount = 1
+  if (mls) {
+    const dirs = points3D.map((p) => {
+      const m = mls.evaluate(p[0], p[1])
+      return azimuthWorld([-m.a, -m.b])
+    })
+    const labels = clusterAzimuths(dirs, 55)
+    limbCount = Math.max(1, new Set(labels).size)
+    const index = new Map(points3D.map((p, i) => [p, labels[i]]))
+    limbOf = (p) => index.get(p) ?? 0
+  }
+
+  const scs = structureContours(points3D, tol, limbOf)
+  const usable = scs.filter((s) => s.fit)
   const pairs = []
-  for (let i = 1; i < usable.length; i++) {
-    const a = attitudeBetween(usable[i - 1], usable[i])
-    if (a) pairs.push(a)
+  // Los pares se forman dentro de cada limbo, entre cotas consecutivas.
+  const byLimb = new Map()
+  for (const sc of usable) {
+    if (!byLimb.has(sc.limb)) byLimb.set(sc.limb, [])
+    byLimb.get(sc.limb).push(sc)
+  }
+  for (const list of byLimb.values()) {
+    list.sort((a, b) => a.elevation - b.elevation)
+    for (let i = 1; i < list.length; i++) {
+      const a = attitudeBetween(list[i - 1], list[i])
+      if (a) pairs.push({ ...a, limb: list[i].limb })
+    }
   }
 
   let mean = null
@@ -211,6 +408,9 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
   const tanDip = mean ? Math.tan(mean.dip * RAD) : 0
 
   function elevationAt(x, y) {
+    // El ajuste local móvil es el modelo preferente: es continuo, sigue los
+    // pliegues y con datos planos reproduce exactamente el plano.
+    if (mls && !manual) return mls.evaluate(x, y).z
     if (nodes.length >= 2) {
       const s = dot([x, y], axis)
       if (s <= nodes[0].s) {
@@ -270,10 +470,20 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
           ? 'una-cota'
           : 'insuficiente'
 
+  const attitudeAt = mls
+    ? (x, y) => {
+        const m = mls.evaluate(x, y)
+        return attitudeFromGradient(m.a, m.b)
+      }
+    : () => mean
+
   return {
     name,
     color,
     points3D,
+    mls,
+    limbCount,
+    attitudeAt,
     structureContours: scs,
     pairs,
     mean,

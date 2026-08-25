@@ -122,6 +122,8 @@ export function render(ctx, opts) {
     dpr = 1,
   } = opts
 
+  const L = project.settings?.layers || {}
+  const alphaOf = (k) => (L[k]?.opacity ?? 1)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, width, height)
   ctx.fillStyle = '#f8fafc'
@@ -131,6 +133,7 @@ export function render(ctx, opts) {
   if (image) {
     ctx.save()
     ctx.imageSmoothingQuality = 'high'
+    ctx.globalAlpha = alphaOf('image')
     const p = toScreen(view, [0, 0])
     ctx.drawImage(image, p[0], p[1], image.width * view.scale, image.height * view.scale)
     ctx.restore()
@@ -154,7 +157,7 @@ export function render(ctx, opts) {
       if (mv.raster) {
         drawWorldRaster(
           ctx, view, scene.georef, mv.raster.canvas, mv.raster.bbox,
-          mv.raster.cell, mv.raster.ny, mv.model.opacity ?? 0.55
+          mv.raster.cell, mv.raster.ny, (mv.model.opacity ?? 0.55) * alphaOf('models')
         )
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       }
@@ -164,6 +167,8 @@ export function render(ctx, opts) {
 
   // --- Curvas de nivel ---
   if (show.contours) {
+    ctx.save()
+    ctx.globalAlpha = alphaOf('contours')
     for (const c of project.contours) {
       const selected = selection?.kind === 'contour' && selection.id === c.id
       const index = project.settings.contourInterval
@@ -185,6 +190,7 @@ export function render(ctx, opts) {
         label(ctx, p[0], p[1], `${c.elevation}`, { color: '#7c2d12', size: 10 })
       }
     }
+    ctx.restore()
   }
 
   // --- Contornos estructurales ---
@@ -207,6 +213,8 @@ export function render(ctx, opts) {
 
   // --- Contactos ---
   if (show.contacts) {
+    ctx.save()
+    ctx.globalAlpha = alphaOf('contacts')
     for (const c of project.contacts) {
       const selected = selection?.kind === 'contact' && selection.id === c.id
       for (const tr of c.traces) {
@@ -221,10 +229,13 @@ export function render(ctx, opts) {
         ctx.setLineDash([])
       }
     }
+    ctx.restore()
   }
 
   // --- Fallas ---
   if (show.faults) {
+    ctx.save()
+    ctx.globalAlpha = alphaOf('faults')
     for (const f of project.faults) {
       const kin = kinematicsOf(f.kinematics)
       const selected = selection?.kind === 'fault' && selection.id === f.id
@@ -244,6 +255,7 @@ export function render(ctx, opts) {
         drawFaultSymbols(ctx, view, scene, live, f, kin, surf)
       }
     }
+    ctx.restore()
   }
 
   // --- Símbolos de rumbo y manteo ---

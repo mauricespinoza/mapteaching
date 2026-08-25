@@ -61,7 +61,7 @@ function distanceField(samples, bbox, nx, ny, cell) {
   }
   const out = new Float64Array(n)
   for (let k = 0; k < n; k++) out[k] = Math.sqrt(d2[k])
-  return out
+  return { d: out, vx, vy }
 }
 
 /**
@@ -98,22 +98,45 @@ export function buildDem(levels, bbox, res = 120, smoothPasses = 2) {
     let k1 = -1
     let k2 = -1
     for (let m = 0; m < fields.length; m++) {
-      const d = fields[m][k]
-      if (k1 < 0 || d < fields[k1][k]) {
+      const d = fields[m].d[k]
+      if (k1 < 0 || d < fields[k1].d[k]) {
         k2 = k1
         k1 = m
-      } else if (k2 < 0 || d < fields[k2][k]) {
+      } else if (k2 < 0 || d < fields[k2].d[k]) {
         k2 = m
       }
     }
-    const d1 = fields[k1][k]
-    const d2v = k2 >= 0 ? fields[k2][k] : Infinity
+    const f1 = fields[k1]
+    const d1 = f1.d[k]
     let value
-    if (d1 < EPS || !Number.isFinite(d2v) || k2 === k1) value = usable[k1].elevation
-    else {
+    if (k2 < 0) {
+      value = usable[k1].elevation
+    } else {
+      const f2 = fields[k2]
+      const d2 = f2.d[k]
       const z1 = usable[k1].elevation
       const z2 = usable[k2].elevation
-      value = z1 + (z2 - z1) * (d1 / (d1 + d2v))
+      // Los campos de distancia guardan el vector al punto más cercano de cada
+      // curva. Si ambos vectores apuntan al mismo lado, el nodo no está entre
+      // las dos curvas sino más allá de la primera: es una cima o un fondo
+      // cerrado, y hay que prolongar la pendiente en vez de interpolar. Sin
+      // esto toda cumbre rodeada por una curva cerrada quedaba como una meseta
+      // plana a la cota de esa curva — los escalones del relieve.
+      const dot = f1.vx[k] * f2.vx[k] + f1.vy[k] * f2.vy[k]
+      const norms = Math.max(1e-9, d1 * d2)
+      if (d1 < EPS) {
+        value = z1
+      } else if (dot / norms > 0.2) {
+        // Pendiente local entre las dos curvas, prolongada hacia afuera.
+        const spacing = Math.max(cell, d2 - d1)
+        const grad = Math.abs(z1 - z2) / spacing
+        const dir = Math.sign(z1 - z2) || 1
+        // La prolongación se limita a dos espaciados: más lejos no hay dato
+        // que la respalde.
+        value = z1 + dir * grad * Math.min(d1, spacing * 2)
+      } else {
+        value = z1 + (z2 - z1) * (d1 / (d1 + d2))
+      }
     }
     z[k] = value
   }

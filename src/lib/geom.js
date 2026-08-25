@@ -107,6 +107,28 @@ export function thin(pts, minDist = 1.2) {
   return out
 }
 
+/**
+ * Suavizado de Chaikin: cada segmento se sustituye por dos puntos a 1/4 y 3/4,
+ * lo que redondea las esquinas sin alejarse del trazo. Dos pasadas bastan para
+ * que un trazo a mano alzada pierda el temblor del pulso.
+ */
+export function chaikin(pts, iterations = 2, keepEnds = true) {
+  let cur = pts
+  for (let it = 0; it < iterations; it++) {
+    if (cur.length < 3) return cur
+    const out = keepEnds ? [cur[0]] : []
+    for (let i = 0; i < cur.length - 1; i++) {
+      const a = cur[i]
+      const b = cur[i + 1]
+      out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25])
+      out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75])
+    }
+    if (keepEnds) out.push(cur[cur.length - 1])
+    cur = out
+  }
+  return cur
+}
+
 /** Muestreo uniforme de una polilínea cada `step` unidades. */
 export function resample(pts, step) {
   if (pts.length < 2) return pts.slice()

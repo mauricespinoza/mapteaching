@@ -80,15 +80,15 @@ export function buildSampleProject() {
 
   const uBasal = newUnit(project, 'Fm. Quebrada Honda (basal)')
   uBasal.lithology = 'Areniscas y lutitas'
-  uBasal.color = '#a3b8d8'
+  uBasal.color = '#68C7D8' // Jurásico
   project.units.push(uBasal)
   const uMedia = newUnit(project, 'Fm. Cerro Blanco (media)')
   uMedia.lithology = 'Calizas'
-  uMedia.color = '#7dd3fc'
+  uMedia.color = '#9BD46F' // Cretácico
   project.units.push(uMedia)
   const uSup = newUnit(project, 'Fm. Los Maitenes (superior)')
   uSup.lithology = 'Volcanoclásticas'
-  uSup.color = '#fcd34d'
+  uSup.color = '#FDB06E' // Paleógeno
   project.units.push(uSup)
 
   const contactA = newContact(project, uBasal.id, uMedia.id)

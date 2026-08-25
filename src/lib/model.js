@@ -9,11 +9,29 @@ export function uid(prefix = 'x') {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
 }
 
-export const UNIT_COLORS = [
-  '#f9a8d4', '#fcd34d', '#86efac', '#7dd3fc', '#c4b5fd',
-  '#fdba74', '#a3e635', '#67e8f9', '#f0abfc', '#fca5a5',
-  '#bef264', '#5eead4',
+/**
+ * Colores de la tabla cronoestratigráfica internacional (CGMW/ICS), ordenados
+ * de la unidad más antigua a la más moderna: como las unidades se numeran de
+ * base a techo, la primera capa recibe el color más antiguo. Los tonos más
+ * oscuros van algo aclarados para que las trazas y los rótulos se lean encima.
+ */
+export const ICS_COLORS = [
+  { id: 'precambrico', label: 'Precámbrico', color: '#F4789E' },
+  { id: 'cambrico', label: 'Cámbrico', color: '#96B06B' },
+  { id: 'ordovicico', label: 'Ordovícico', color: '#5FBB93' },
+  { id: 'silurico', label: 'Silúrico', color: '#B3E1C4' },
+  { id: 'devonico', label: 'Devónico', color: '#D9A55C' },
+  { id: 'carbonifero', label: 'Carbonífero', color: '#8CBCB0' },
+  { id: 'permico', label: 'Pérmico', color: '#F0705C' },
+  { id: 'triasico', label: 'Triásico', color: '#B978B9' },
+  { id: 'jurasico', label: 'Jurásico', color: '#68C7D8' },
+  { id: 'cretacico', label: 'Cretácico', color: '#9BD46F' },
+  { id: 'paleogeno', label: 'Paleógeno', color: '#FDB06E' },
+  { id: 'neogeno', label: 'Neógeno', color: '#FFE95C' },
+  { id: 'cuaternario', label: 'Cuaternario', color: '#FBFBA6' },
 ]
+
+export const UNIT_COLORS = ICS_COLORS.map((c) => c.color)
 
 export const CONTACT_TYPES = [
   { id: 'concordante', label: 'Concordante', dash: null },
@@ -65,6 +83,15 @@ export function newProject(name = 'Ejercicio sin título') {
       vExag: 1,
       demResolution: 200,
       demSmoothing: 2, // pasadas de suavizado del relieve
+      // Visibilidad, opacidad y bloqueo por capa. Una capa bloqueada no se
+      // puede seleccionar ni editar en el mapa.
+      layers: {
+        image: { opacity: 1, locked: false },
+        contours: { opacity: 1, locked: false },
+        contacts: { opacity: 1, locked: false },
+        faults: { opacity: 1, locked: false },
+        models: { opacity: 1, locked: false },
+      },
       blockCell: 0, // 0 = automático
     },
   }

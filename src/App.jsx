@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Maximize2,
   Minimize2,
+  Menu,
 } from 'lucide-react'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
 import MapView from './components/MapView.jsx'
@@ -75,6 +76,7 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(true)
   const [tool, setTool] = useState('pan')
   const [fullscreen, setFullscreen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [penOnly, setPenOnly] = useState(true)
   const [selection, setSelection] = useState(null)
   const [activeIds, setActiveIds] = useState({ contact: null, fault: null })
@@ -164,20 +166,30 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const toggleFullscreen = useCallback(async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen()
-      else await document.documentElement.requestFullscreen()
-    } catch {
-      // Algunos navegadores lo bloquean fuera de un gesto del usuario.
-    }
+  // El «modo enfoque» es propio: oculta la interfaz y deja el mapa a pantalla
+  // completa por CSS. Se intenta además la pantalla completa del navegador,
+  // pero no se depende de ella —en iPad no existe y en escritorio se sale sola
+  // con Esc o con ciertos gestos, que era justo lo que rompía el modo.
+  const toggleFullscreen = useCallback(() => {
+    setFullscreen((on) => {
+      const next = !on
+      try {
+        if (next && !document.fullscreenElement) document.documentElement.requestFullscreen?.()
+        else if (!next && document.fullscreenElement) document.exitFullscreen?.()
+      } catch {
+        // Sin permiso del navegador: el modo enfoque funciona igual.
+      }
+      return next
+    })
   }, [])
 
   useEffect(() => {
-    const onChange = () => setFullscreen(Boolean(document.fullscreenElement))
-    document.addEventListener('fullscreenchange', onChange)
-    return () => document.removeEventListener('fullscreenchange', onChange)
-  }, [])
+    const onKey = (e) => {
+      if (e.key === 'Escape' && fullscreen) setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
 
   const mapRect = project.image || project.virtualSize || { width: 1200, height: 900 }
 
@@ -328,7 +340,9 @@ export default function App() {
   return (
     <div className="flex h-full w-full flex-col bg-slate-100 text-slate-900">
       {/* Barra superior */}
-      <header className="flex flex-wrap items-center gap-2 border-b border-slate-800/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-3 py-2 text-slate-100 shadow-sm">
+      <header
+        className={`${fullscreen ? 'hidden' : 'flex'} flex-wrap items-center gap-2 border-b border-slate-800/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-3 py-2 text-slate-100 shadow-sm`}
+      >
         <div className="flex items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-emerald-400 text-slate-900 shadow">
             <Mountain size={18} strokeWidth={2.4} />
@@ -351,29 +365,51 @@ export default function App() {
             <Redo2 size={14} />
           </Btn>
         </div>
-        <div className="flex flex-wrap items-center gap-1">
-          <Btn variant="onDark" onClick={() => fileRef.current?.click()}>
-            <ImageIcon size={14} /> Imagen
+        {/* Las acciones de archivo van en un menú: la fila superior queda para
+            lo que se usa a cada momento (nombre, deshacer, pestañas). */}
+        <div className="relative">
+          <Btn variant="onDark" onClick={() => setMenuOpen((o) => !o)} title="Archivo">
+            <Menu size={14} /> Archivo
           </Btn>
-          <Btn variant="onDark" onClick={startNew}>
-            <FilePlus2 size={14} /> Nuevo
-          </Btn>
-          <Btn variant="onDark" onClick={openProjects}>
-            <FolderOpen size={14} /> Abrir
-          </Btn>
-          <Btn variant="onDark" onClick={exportProject}>
-            <Download size={14} /> Exportar
-          </Btn>
-          <Btn variant="onDark" onClick={() => projectFileRef.current?.click()}>
-            <Upload size={14} /> Importar
-          </Btn>
-          <Btn variant="onDark" onClick={() => setDialog({ kind: 'clear' })} title="Vaciar el ejercicio">
-            <Trash2 size={14} /> Borrar todo
-          </Btn>
-          <Btn variant="primary" onClick={loadSample}>
-            <Sparkles size={14} /> Ejemplo
-          </Btn>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+              <div className="absolute left-0 top-full z-30 mt-1 w-56 overflow-hidden rounded-xl bg-white py-1 text-slate-700 shadow-2xl ring-1 ring-black/10">
+                {[
+                  ['Importar imagen base', ImageIcon, () => fileRef.current?.click()],
+                  ['Ejercicio nuevo', FilePlus2, startNew],
+                  ['Abrir proyecto…', FolderOpen, openProjects],
+                  ['Exportar ejercicio', Download, exportProject],
+                  ['Importar ejercicio', Upload, () => projectFileRef.current?.click()],
+                ].map(([label, Icon, fn]) => (
+                  <button
+                    key={label}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-slate-100"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      fn()
+                    }}
+                  >
+                    <Icon size={15} className="text-slate-500" /> {label}
+                  </button>
+                ))}
+                <div className="my-1 border-t border-slate-200" />
+                <button
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-rose-700 hover:bg-rose-50"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setDialog({ kind: 'clear' })
+                  }}
+                >
+                  <Trash2 size={15} /> Borrar todo
+                </button>
+              </div>
+            </>
+          )}
         </div>
+        <Btn variant="primary" onClick={loadSample}>
+          <Sparkles size={14} /> Ejemplo
+        </Btn>
         <input
           ref={fileRef}
           type="file"
@@ -527,6 +563,10 @@ export default function App() {
                   onStroke={onStroke}
                   onTwoPoint={onTwoPoint}
                   onTapPoint={onTapPoint}
+                  onEditRequest={(hit) => {
+                    setTool('select')
+                    setSelection(hit)
+                  }}
                   onPick={(hit) => {
                     setSelection(hit)
                     if (hit?.kind === 'contact') setActiveIds((s) => ({ ...s, contact: hit.id }))
@@ -579,7 +619,7 @@ export default function App() {
 
         {/* Panel derecho */}
         <aside
-          className={`flex shrink-0 flex-col border-l border-slate-200 bg-white transition-all ${
+          className={`${fullscreen ? 'hidden' : 'flex'} shrink-0 flex-col border-l border-slate-200 bg-white transition-all ${
             panelOpen ? 'w-[320px] md:w-[360px]' : 'w-11'
           }`}
         >
@@ -625,6 +665,7 @@ export default function App() {
                     setSectionId(id)
                     setTab('perfil')
                   }}
+                  onDeleteImage={() => setDialog({ kind: 'delete-image' })}
                 />
               )}
               {panel === 'modelos' && (
@@ -649,6 +690,16 @@ export default function App() {
           )}
         </aside>
       </div>
+
+      {fullscreen && (
+        <button
+          className="fixed right-3 top-3 z-40 flex items-center gap-1.5 rounded-full bg-slate-900/85 px-3 py-2 text-xs font-semibold text-white shadow-lg hover:bg-slate-900"
+          onClick={toggleFullscreen}
+          title="Salir del modo enfoque (Esc)"
+        >
+          <Minimize2 size={14} /> Salir
+        </button>
+      )}
 
       {/* Diálogos */}
       {dialog?.kind === 'contour' && (

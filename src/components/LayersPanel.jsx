@@ -1,4 +1,4 @@
-import { Plus, Trash2, Pencil, ArrowUp, ArrowDown, Eraser } from 'lucide-react'
+import { Plus, Trash2, Pencil, ArrowUp, ArrowDown, Eraser, Lock, Unlock, Image as ImageIcon } from 'lucide-react'
 import { Collapsible, Field, inputCls, Btn } from './ui.jsx'
 import { CONTACT_TYPES, KINEMATICS, newFault, sortedUnits, sortedContacts } from '../lib/model.js'
 
@@ -12,6 +12,7 @@ export default function LayersPanel({
   setTool,
   setActiveIds,
   onOpenSection,
+  onDeleteImage,
 }) {
   const units = sortedUnits(project).slice().reverse() // techo arriba, como una columna
   const contacts = sortedContacts(project)
@@ -22,8 +23,71 @@ export default function LayersPanel({
     onSelect({ kind, id })
   }
 
+  const layers = project.settings?.layers || {}
+  const setLayer = (layer, patch) => dispatch({ type: 'layer', layer, patch })
+
   return (
     <div className="h-full overflow-y-auto bg-white">
+      <Collapsible title="Capas del mapa" badge={null} defaultOpen>
+        <div className="space-y-1">
+          {[
+            ['image', 'Imagen base', project.image ? project.image.name || 'imagen' : 'sin imagen'],
+            ['contours', 'Curvas de nivel', `${project.contours.length}`],
+            ['contacts', 'Contactos', `${project.contacts.length}`],
+            ['faults', 'Fallas', `${project.faults.length}`],
+            ['models', 'Modelos', `${(project.models || []).length}`],
+          ].map(([key, label, hint]) => {
+            const st = layers[key] || { opacity: 1, locked: false }
+            const disabled = key === 'image' && !project.image
+            return (
+              <div
+                key={key}
+                className={`rounded-lg border px-2 py-1.5 ${
+                  disabled ? 'border-slate-100 bg-slate-50 opacity-60' : 'border-slate-200'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  {key === 'image' && <ImageIcon size={13} className="shrink-0 text-slate-400" />}
+                  <span className="flex-1 truncate text-xs font-medium text-slate-700">{label}</span>
+                  <span className="truncate text-[10px] text-slate-400">{hint}</span>
+                  <Btn
+                    variant="ghost"
+                    title={st.locked ? 'Desbloquear para poder editar' : 'Bloquear: impide seleccionar y editar'}
+                    onClick={() => setLayer(key, { locked: !st.locked })}
+                  >
+                    {st.locked ? <Lock size={13} className="text-amber-600" /> : <Unlock size={13} />}
+                  </Btn>
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="w-14 shrink-0 text-[10px] text-slate-500">
+                    {Math.round((st.opacity ?? 1) * 100)}%
+                  </span>
+                  <input
+                    type="range"
+                    className="h-1 flex-1 accent-sky-600"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={st.opacity ?? 1}
+                    disabled={disabled}
+                    onChange={(e) => setLayer(key, { opacity: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {project.image && (
+          <Btn
+            variant="danger"
+            className="mt-2 w-full"
+            onClick={() => onDeleteImage?.()}
+          >
+            <Trash2 size={13} /> Borrar imagen base
+          </Btn>
+        )}
+      </Collapsible>
+
       <Collapsible
         title="Unidades (columna)"
         badge={project.units.length}

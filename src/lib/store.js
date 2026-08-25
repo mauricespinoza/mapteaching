@@ -17,6 +17,17 @@ function apply(project, action) {
   switch (action.type) {
     case 'patch':
       return { ...p, ...action.patch }
+    case 'layer':
+      return {
+        ...p,
+        settings: {
+          ...p.settings,
+          layers: {
+            ...(p.settings.layers || {}),
+            [action.layer]: { ...(p.settings.layers?.[action.layer] || {}), ...action.patch },
+          },
+        },
+      }
     case 'settings':
       return { ...p, settings: { ...p.settings, ...action.patch } }
     case 'georef':

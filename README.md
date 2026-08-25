@@ -51,7 +51,14 @@ y vértice anguloso. La polilínea que consume el motor se regenera a partir de
 las curvas, así que la edición no altera ningún cálculo.
 
 **Gestos en tablet**: doble toque con dos dedos deshace, con tres dedos rehace.
-El botón de pantalla completa aprovecha toda la pantalla para dibujar.
+Una **pulsación larga** sobre una línea entra directamente en edición de
+vértices. El **modo enfoque** oculta la interfaz y deja el mapa a pantalla
+completa (no depende de la API del navegador, así que no se cae al arrastrar).
+
+**Capas**: la imagen base, las curvas, los contactos, las fallas y los modelos
+tienen control de **opacidad** y un **candado** que impide seleccionarlos y
+editarlos. Las unidades nuevas toman por defecto los colores de la tabla
+cronoestratigráfica internacional (CGMW/ICS), del Precámbrico al Cuaternario.
 
 ### 3. Modelos estructurales sintéticos
 
@@ -116,8 +123,13 @@ falla con su **manteo aparente** y flechas de movimiento, y los pozos del
 corredor proyectados sobre el perfil. Exageración vertical y profundidad
 ajustables; exportación a **SVG** y **PNG**.
 
-La geometría en profundidad se interpola entre contornos estructurales, así que
-una superficie plegada (contornos no paralelos) se dibuja curva, no como un plano.
+La geometría en profundidad sale de un **ajuste local móvil** (moving least
+squares) sobre los puntos observados: la superficie interpola exactamente los
+datos, sigue los pliegues en vez de promediarlos a través de la charnela y da la
+orientación local en cualquier punto. Donde faltan datos degrada suavemente
+hacia el plano global, y con datos planos lo reproduce de forma exacta. Los
+contornos estructurales se agrupan además **por limbo**, según la dirección de
+manteo local, de modo que las rectas de un mismo flanco se ajustan juntas.
 
 ### 7. Vista 3D
 

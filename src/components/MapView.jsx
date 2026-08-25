@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { render, toImagePt, renderHillshade } from '../lib/render2d.js'
-import { thin, simplify, pointPolyline, dist } from '../lib/geom.js'
+import { thin, simplify, pointPolyline, dist, chaikin } from '../lib/geom.js'
 import {
   nodesOf,
   flattenNodes,
@@ -32,6 +32,7 @@ export default function MapView({
   onTwoPoint,
   onTapPoint,
   onPick,
+  onEditRequest,
   dispatch,
   status,
   modelViews,
@@ -49,6 +50,7 @@ export default function MapView({
   const gesture = useRef(null)
   const drag = useRef(null)
   const flashTimer = useRef(null)
+  const holdTimer = useRef(null)
   const taps = useRef({ startedAt: 0, maxFingers: 0, moved: false, origins: new Map(), lastAt: 0, lastFingers: 0 })
 
   // Encuadre inicial automático: se calcula al conocer el tamaño del lienzo.
@@ -158,6 +160,8 @@ export default function MapView({
   const hitTest = useCallback(
     (p, tolPx = 16) => {
       const tol = tolPx / view.scale
+      const layers = project.settings?.layers || {}
+      const locked = (k) => layers[k]?.locked
       let best = null
       const consider = (cand, d) => {
         if (d <= tol && (!best || d < best.d)) best = { ...cand, d }
@@ -169,13 +173,16 @@ export default function MapView({
         consider({ kind: 'section', id: s.id, handle: 'b' }, dist(p, s.b))
         consider({ kind: 'section', id: s.id }, pointPolyline(p, [s.a, s.b]).d)
       }
-      for (const f of project.faults)
-        for (const tr of f.traces) consider({ kind: 'fault', id: f.id, traceId: tr.id }, pointPolyline(p, tr.pts).d)
-      for (const c of project.contacts)
-        for (const tr of c.traces) consider({ kind: 'contact', id: c.id, traceId: tr.id }, pointPolyline(p, tr.pts).d)
-      for (const c of project.contours) consider({ kind: 'contour', id: c.id }, pointPolyline(p, c.pts).d)
+      if (!locked('faults'))
+        for (const f of project.faults)
+          for (const tr of f.traces) consider({ kind: 'fault', id: f.id, traceId: tr.id }, pointPolyline(p, tr.pts).d)
+      if (!locked('contacts'))
+        for (const c of project.contacts)
+          for (const tr of c.traces) consider({ kind: 'contact', id: c.id, traceId: tr.id }, pointPolyline(p, tr.pts).d)
+      if (!locked('contours'))
+        for (const c of project.contours) consider({ kind: 'contour', id: c.id }, pointPolyline(p, c.pts).d)
       // La imagen base va al final: sólo se selecciona si no hay nada encima.
-      if (!best && project.image) {
+      if (!best && project.image && !locked('image')) {
         const { width, height } = project.image
         if (p[0] >= 0 && p[1] >= 0 && p[0] <= width && p[1] <= height) best = { kind: 'image', d: tol }
       }
@@ -188,8 +195,11 @@ export default function MapView({
     (pts) => {
       setDraft(null)
       if (!pts || pts.length < 2) return
-      const cleaned = simplify(thin(pts, 1.2 / view.scale), 1.1 / view.scale)
-      onStroke(cleaned)
+      // Trazo a mano: se adelgaza, se suaviza con Chaikin y sólo después se
+      // simplifica, de modo que el resultado sigue el gesto sin el temblor.
+      const thinned = thin(pts, 1.5 / view.scale)
+      const smoothed = thinned.length >= 4 ? chaikin(thinned, 2) : thinned
+      onStroke(simplify(smoothed, 0.9 / view.scale))
     },
     [onStroke, view.scale]
   )
@@ -286,6 +296,22 @@ export default function MapView({
     registerTapDown(ev)
     const p = toImg(ev)
 
+    // Pulsación larga sobre una línea: entra en edición de vértices. Es la vía
+    // natural en tablet, donde no hay clic derecho ni teclas.
+    clearTimeout(holdTimer.current)
+    if (tool !== 'select' && pointers.current.size === 1) {
+      const hitNow = hitTest(p, touchTol(ev, 18))
+      if (hitNow && ['contact', 'fault', 'contour'].includes(hitNow.kind)) {
+        holdTimer.current = setTimeout(() => {
+          if (drag.current?.stroke) return // se convirtió en trazo: no interrumpir
+          drag.current = null
+          setDraft(null)
+          onEditRequest?.(hitNow)
+          flash('Editar vértices')
+        }, 550)
+      }
+    }
+
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()]
       const rect = canvas.getBoundingClientRect()
@@ -315,7 +341,7 @@ export default function MapView({
     }
 
     if (tool === 'erase') {
-      const hit = hitTest(p)
+      const hit = hitTest(p, touchTol(ev, 16))
       if (hit && hit.kind !== 'image') deleteHit(hit, dispatch)
       return
     }
@@ -323,7 +349,7 @@ export default function MapView({
     if (tool === 'select') {
       // Primero los nodos del trazo en edición.
       if (edit?.nodes?.length) {
-        const h = hitTestNodes(edit.nodes, p, 12 / view.scale, edit.activeIndex)
+        const h = hitTestNodes(edit.nodes, p, touchTol(ev, 12) / view.scale, edit.activeIndex)
         if (h?.type === 'node' || h?.type === 'hIn' || h?.type === 'hOut') {
           drag.current = { mode: 'nodes', kind: h.type, index: h.index }
           setEdit((e) => ({ ...e, activeIndex: h.index }))
@@ -337,7 +363,7 @@ export default function MapView({
           return
         }
       }
-      const hit = hitTest(p)
+      const hit = hitTest(p, touchTol(ev, 16))
       onPick(hit)
       if (hit?.kind === 'well') drag.current = { mode: 'well', id: hit.id }
       else if (hit?.kind === 'model') drag.current = { mode: 'model', id: hit.id }
@@ -367,6 +393,7 @@ export default function MapView({
   const onPointerMove = (ev) => {
     if (pointers.current.has(ev.pointerId)) pointers.current.set(ev.pointerId, ev)
     registerTapMove(ev)
+    if (holdTimer.current && drag.current?.stroke !== false) clearTimeout(holdTimer.current)
     const p = toImg(ev)
     if (ev.pointerType !== 'touch') setCursor(p)
 
@@ -418,6 +445,7 @@ export default function MapView({
   }
 
   const endPointer = (ev) => {
+    clearTimeout(holdTimer.current)
     pointers.current.delete(ev.pointerId)
     if (pointers.current.size < 2) gesture.current = null
     const d = drag.current
@@ -429,8 +457,9 @@ export default function MapView({
     if (!d) return
 
     if (d.mode === 'pan' && d.tapCandidate) {
-      // Toque limpio con el dedo: selecciona en vez de navegar.
-      const hit = hitTest(d.at)
+      // Toque limpio con el dedo: selecciona en vez de navegar. La tolerancia
+      // es mayor que con el lápiz porque el dedo apunta con menos precisión.
+      const hit = hitTest(d.at, 30)
       onPick(hit)
       return
     }
@@ -594,6 +623,11 @@ export default function MapView({
       )}
     </div>
   )
+}
+
+/** El dedo apunta con menos precisión que el lápiz: se le da más margen. */
+function touchTol(ev, base) {
+  return ev?.pointerType === 'touch' ? base * 1.9 : base
 }
 
 function fitTo(size, rect) {

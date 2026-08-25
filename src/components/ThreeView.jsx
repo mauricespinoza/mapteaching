@@ -12,7 +12,7 @@ import { buildWellModel } from '../lib/wells.js'
 export default function ThreeView({ project, scene, image }) {
   const mountRef = useRef(null)
   const stateRef = useRef(null)
-  const [vExag, setVExag] = useState(1.6)
+  const [vExag, setVExag] = useState(1)
   const [show, setShow] = useState({
     topo: true,
     contours: true,
