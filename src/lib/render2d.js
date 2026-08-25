@@ -1,7 +1,7 @@
 // Dibujo del mapa geológico sobre canvas 2D. Todo se dibuja en coordenadas de
 // pantalla; `view` transforma píxeles de imagen → pantalla.
 
-import { toImage, basis } from './georef.js'
+import { toImage, basis, fmtDistance } from './georef.js'
 import { kinematicsOf } from './model.js'
 import { contourSegment } from './structure.js'
 import { norm, perp, dist } from './geom.js'
@@ -118,6 +118,7 @@ export function render(ctx, opts) {
     show,
     selection,
     draft,
+    measure,
     hover,
     modelViews,
     edit,
@@ -436,9 +437,88 @@ export function render(ctx, opts) {
     ctx.stroke()
   }
 
+  if (measure) drawMeasure(ctx, view, project, measure)
+
   if (edit?.nodes?.length) drawEditNodes(ctx, view, edit)
 
   drawOverlays(ctx, opts)
+}
+
+/** La regla: segmento acotado, con marca de escuadra si va perpendicular. */
+function drawMeasure(ctx, view, project, m) {
+  const a = toScreen(view, m.a)
+  const b = toScreen(view, m.b)
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  const L = Math.hypot(dx, dy)
+  const color = '#0f766e'
+
+  // Las trazas a las que se pegó, resaltadas para que se vea de qué se mide.
+  ctx.lineCap = 'round'
+  for (const [t, alpha] of [[m.anchor, 0.9], [m.end, 0.55]]) {
+    if (!t?.pts) continue
+    ctx.strokeStyle = `rgba(5,150,105,${alpha})`
+    ctx.lineWidth = 3
+    path(ctx, view, t.pts)
+    ctx.stroke()
+  }
+
+  // Funda blanca bajo la cota: el mapa de debajo puede ser de cualquier color.
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+  ctx.lineWidth = 5.5
+  ctx.beginPath()
+  ctx.moveTo(a[0], a[1])
+  ctx.lineTo(b[0], b[1])
+  ctx.stroke()
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2.4
+  ctx.beginPath()
+  ctx.moveTo(a[0], a[1])
+  ctx.lineTo(b[0], b[1])
+  ctx.stroke()
+
+  if (L > 1) {
+    // Topes en los extremos, como en una cota de plano.
+    const ux = dx / L
+    const uy = dy / L
+    for (const [p, s] of [[a, 1], [b, -1]]) {
+      ctx.beginPath()
+      ctx.moveTo(p[0] - uy * 7, p[1] + ux * 7)
+      ctx.lineTo(p[0] + uy * 7, p[1] - ux * 7)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(p[0], p[1])
+      ctx.lineTo(p[0] + ux * 10 * s, p[1] + uy * 10 * s)
+      ctx.stroke()
+    }
+    // Escuadra en el anclaje: deja claro que la lectura es la ortogonal.
+    if (m.orthogonal && m.anchor?.dir) {
+      const t = norm(toScreenDir(view, m.anchor.dir))
+      const k = 11
+      ctx.strokeStyle = '#10b981'
+      ctx.lineWidth = 1.6
+      ctx.beginPath()
+      ctx.moveTo(a[0] + t[0] * k, a[1] + t[1] * k)
+      ctx.lineTo(a[0] + t[0] * k + ux * k, a[1] + t[1] * k + uy * k)
+      ctx.lineTo(a[0] + ux * k, a[1] + uy * k)
+      ctx.stroke()
+    }
+  }
+
+  const mpp = project.georef?.metersPerPx
+  const world = mpp ? fmtDistance(dist(m.a, m.b) * mpp) : `${dist(m.a, m.b).toFixed(0)} px`
+  // El rótulo se aparta de la cota, no la tapa.
+  const off = L > 1 ? [(-dy / L) * 16, (dx / L) * 16] : [0, -16]
+  label(ctx, (a[0] + b[0]) / 2 + off[0], (a[1] + b[1]) / 2 + off[1], world, {
+    color: '#0f766e',
+    size: 12,
+    bg: 'rgba(255,255,255,0.92)',
+  })
+}
+
+/** Dirección en píxeles de imagen → dirección en pantalla (sin traslación). */
+function toScreenDir(view, d) {
+  return [d[0] * view.scale, d[1] * view.scale]
 }
 
 /** Trazas de los contactos de un modelo sintético. */
@@ -606,8 +686,10 @@ function drawStructureContours(ctx, view, scene, surf, color) {
 }
 
 function midpointOfPair(pair, surf) {
-  const lo = surf.structureContours.find((s) => s.elevation === pair.z1 && s.fit)
-  const hi = surf.structureContours.find((s) => s.elevation === pair.z2 && s.fit)
+  // El limbo forma parte de la identidad del contorno: en un pliegue hay dos
+  // contornos de la misma cota, uno en cada flanco.
+  const lo = surf.structureContours.find((s) => s.elevation === pair.z1 && s.limb === pair.limb && s.fit)
+  const hi = surf.structureContours.find((s) => s.elevation === pair.z2 && s.limb === pair.limb && s.fit)
   if (!lo || !hi) return null
   return [(lo.fit.c[0] + hi.fit.c[0]) / 2, (lo.fit.c[1] + hi.fit.c[1]) / 2]
 }

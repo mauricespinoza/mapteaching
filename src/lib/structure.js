@@ -6,9 +6,14 @@
 // puntos de igual cota se obtiene el *contorno estructural* de esa cota. Entre dos
 // contornos consecutivos, el rumbo es la dirección de las rectas y el manteo
 // sale de atan(Δcota / separación horizontal).
+//
+// Antes de ajustar nada los puntos se reparten en dominios (domains.js), porque
+// una superficie plegada cambia de manteo: unir los puntos de igual cota a través
+// de una charnela daría un contorno estructural que no existe en el mapa.
 
 import { fitLine, fitPlane, polylineIntersections, dot, sub, norm, perp, clipLineToRect } from './geom.js'
 import { azimuthWorld, formatAttitude, norm360 } from './georef.js'
+import { structuralDomains, domainPlaneField } from './domains.js'
 
 const RAD = Math.PI / 180
 const DEG = 180 / Math.PI
@@ -88,28 +93,17 @@ export function structureContours(points3D, tol = 1, limbOf = null) {
 }
 
 /**
- * Agrupa azimuts en familias separadas por más de `tolDeg`. Se usa para
- * separar los flancos de un pliegue por su dirección de manteo.
+ * Desajuste en cota que se admite dentro de un mismo dominio. Se mide contra el
+ * intervalo entre curvas de nivel: un cuarto de intervalo separa limbos sin
+ * partir un panel por el error de digitalización.
  */
-export function clusterAzimuths(azimuths, tolDeg = 55) {
-  const centers = []
-  const labels = azimuths.map((az) => {
-    for (let i = 0; i < centers.length; i++) {
-      const diff = Math.abs(((az - centers[i].mean + 540) % 360) - 180)
-      if (diff <= tolDeg) {
-        const c = centers[i]
-        // Media circular incremental.
-        c.sx += Math.sin(az * RAD)
-        c.sy += Math.cos(az * RAD)
-        c.mean = azimuthWorld([c.sx, c.sy])
-        c.n++
-        return i
-      }
-    }
-    centers.push({ mean: az, sx: Math.sin(az * RAD), sy: Math.cos(az * RAD), n: 1 })
-    return centers.length - 1
-  })
-  return labels
+function domainTolerance(points3D, tol) {
+  const zs = [...new Set(points3D.map((p) => p[2]))].sort((a, b) => a - b)
+  if (zs.length < 2) return Math.max(tol * 3, 1)
+  const gaps = []
+  for (let i = 1; i < zs.length; i++) gaps.push(zs[i] - zs[i - 1])
+  gaps.sort((a, b) => a - b)
+  return Math.max(gaps[gaps.length >> 1] * 0.25, tol * 3)
 }
 
 /** Promedio circular de direcciones de recta (módulo 180°). */
@@ -176,7 +170,7 @@ function attitudeFromPlane(plane) {
  * exactamente en el plano global, así que sustituye al ajuste plano sin
  * cambiar los casos sencillos.
  */
-export function buildMls(points3D, globalPlane) {
+export function buildMls(points3D, basePlane) {
   const n = points3D.length
   if (n < 4) return null
   // Ancho de banda: suficiente para que cada ajuste vea varios puntos, pero
@@ -201,13 +195,19 @@ export function buildMls(points3D, globalPlane) {
   const eps2 = Math.pow(Math.max(spread * 1e-4, 1e-6), 2)
   const d2s = new Float64Array(n)
   const kbuf = new Float64Array(Math.max(1, Math.min(n, 8)))
-  // Regularización hacia el plano global: evita que un grupo de puntos casi
-  // alineados (lo habitual en una traza) produzca un ajuste inestable.
-  const g = globalPlane || { a: 0, b: 0, c: points3D.reduce((s2, p) => s2 + p[2], 0) / n }
+  // Regularización hacia un plano de referencia: evita que un grupo de puntos
+  // casi alineados (lo habitual en una traza) produzca un ajuste inestable. Ese
+  // plano es el del dominio estructural que corresponde a cada zona, no el plano
+  // global: si fuese el global, la superficie tendería al promedio de los dos
+  // limbos y el pliegue se aplanaría justo donde importa.
+  const zMean = points3D.reduce((s2, p) => s2 + p[2], 0) / n
+  const flat = { a: 0, b: 0, c: zMean }
+  const planeOf = typeof basePlane === 'function' ? basePlane : () => basePlane
   const lambda = 1e-9
   const MU = 0.15
 
   function fit(x, y) {
+    const g = planeOf(x, y) || flat
     for (let i = 0; i < n; i++) {
       const dx = points3D[i][0] - x
       const dy = points3D[i][1] - y
@@ -334,24 +334,27 @@ export function attitudeFromGradient(a, b) {
 export function buildSurface({ traces, contours, manual = null, name = '', color = '#000', tol = 1 }) {
   const points3D = intersectWithContours(traces, contours, tol)
   const plane = fitPlane(points3D)
-  // Ajuste local móvil: da la orientación en cualquier punto y permite que la
-  // superficie se pliegue manteniendo la continuidad.
-  const mls = points3D.length >= 6 ? buildMls(points3D, plane) : null
 
-  // Cada punto se etiqueta con su limbo según la dirección de manteo local:
-  // así los contornos estructurales de un mismo flanco se ajustan juntos.
-  let limbOf = null
-  let limbCount = 1
-  if (mls) {
-    const dirs = points3D.map((p) => {
-      const m = mls.evaluate(p[0], p[1])
-      return azimuthWorld([-m.a, -m.b])
-    })
-    const labels = clusterAzimuths(dirs, 55)
-    limbCount = Math.max(1, new Set(labels).size)
-    const index = new Map(points3D.map((p, i) => [p, labels[i]]))
-    limbOf = (p) => index.get(p) ?? 0
-  }
+  // Reparto en dominios estructurales: cada uno es un tramo de la superficie con
+  // un manteo, de modo que un pliegue se resuelve limbo a limbo y dos ondas de
+  // un mismo tren no comparten contornos.
+  const zTol = domainTolerance(points3D, tol)
+  const dom = structuralDomains(points3D, { zTol })
+  const index = new Map(points3D.map((p, i) => [p, dom.labels[i]]))
+  const limbOf = points3D.length ? (p) => index.get(p) ?? 0 : null
+  const limbCount = dom.count
+  const domainAttitudes = dom.planes.map((pl, k) =>
+    pl
+      ? { ...attitudeFromPlane(pl), n: dom.groups[k].length, rms: pl.rms }
+      : { n: dom.groups[k]?.length || 0, rms: null }
+  )
+  const folded = domainAttitudes.filter((d) => d.dip != null).length > 1
+
+  // Ajuste local móvil: da la orientación en cualquier punto y permite que la
+  // superficie se pliegue manteniendo la continuidad. Se apoya en el plano del
+  // dominio de cada zona, no en el plano global.
+  const basePlaneAt = domainPlaneField(dom.groups, dom.planes, plane)
+  const mls = points3D.length >= 6 ? buildMls(points3D, basePlaneAt) : null
 
   const scs = structureContours(points3D, tol, limbOf)
   const usable = scs.filter((s) => s.fit)
@@ -374,11 +377,21 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
   if (manual && Number.isFinite(manual.dip) && Number.isFinite(manual.dipDir)) {
     mean = { dip: manual.dip, dipDir: norm360(manual.dipDir), manual: true, ...formatAttitude(norm360(manual.dipDir), manual.dip) }
   } else if (pairs.length) {
+    // En una superficie plegada no hay una actitud media: promediar los polos de
+    // dos limbos opuestos da un manteo que no existe en el mapa. Se toma como
+    // representativa la del dominio con más datos, y las demás se publican en
+    // `domainAttitudes`.
+    const dominant = dom.groups.reduce(
+      (best, g, k) => (dom.planes[k] && g.length > (dom.groups[best]?.length || 0) ? k : best),
+      -1
+    )
+    const used = folded && dominant >= 0 ? pairs.filter((p) => p.limb === dominant) : pairs
+    const sample = used.length ? used : pairs
     // Promedio vectorial de los polos para no sesgar con la ambigüedad angular.
     let sx = 0
     let sy = 0
     let sz = 0
-    for (const p of pairs) {
+    for (const p of sample) {
       const t = p.dipDir * RAD
       const d = p.dip * RAD
       sx += Math.sin(t) * Math.sin(d)
@@ -388,7 +401,15 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
     const l = Math.hypot(sx, sy, sz) || 1
     const dip = Math.acos(Math.min(1, Math.max(-1, sz / l))) * DEG
     const dipDir = azimuthWorld([sx, sy])
-    mean = { dip, dipDir, ...formatAttitude(dipDir, dip) }
+    // El RMS que se muestra es el del dominio, no el del plano global: con la
+    // superficie repartida en limbos, el ajuste global no mide nada real.
+    mean = {
+      dip,
+      dipDir,
+      ...formatAttitude(dipDir, dip),
+      limb: dominant >= 0 ? dominant : null,
+      rms: dominant >= 0 ? dom.planes[dominant].rms : plane?.rms,
+    }
   } else if (plane) {
     mean = attitudeFromPlane(plane)
   }
@@ -503,6 +524,9 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
     points3D,
     mls,
     limbCount,
+    domains: dom,
+    domainAttitudes,
+    folded,
     attitudeAt,
     structureContours: scs,
     pairs,

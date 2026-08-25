@@ -69,15 +69,16 @@ export default function ModelPanel({ project, scene, dispatch, selection, onSele
           onSelect={() => onSelect({ kind: 'model', id: m.id })}
           onApply={() => applyModel(m)}
           canApply={Boolean(scene?.ready)}
+          scene={scene}
         />
       ))}
     </div>
   )
 }
 
-function ModelCard({ model, dispatch, selected, onSelect, onApply, canApply }) {
+function ModelCard({ model, dispatch, selected, onSelect, onApply, canApply, scene }) {
   const set = (patch) => dispatch({ type: 'model.update', id: model.id, patch })
-  const colors = modelColors(model)
+  const colors = modelColors(model, scene)
   const isFold = model.kind === 'fold'
   const isStack = model.kind !== 'plane'
   const attitude = formatAttitude(((model.strike || 0) + 90) % 360, model.dip || 0)

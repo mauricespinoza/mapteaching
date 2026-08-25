@@ -207,8 +207,11 @@ export function buildSectionModel(section, scene) {
       const top = contactAbove(scene, un)
       const zb = base ? zByContact.get(base.id) : null
       const zt = top ? zByContact.get(top.id) : null
-      if (base && !zb && top && !zt) continue
-      if (!base && !top) continue
+      // Hace falta al menos uno de los dos contactos resuelto en este dominio.
+      // Sin ninguno no se sabe dónde empieza ni dónde acaba la unidad, y
+      // rellenar «desde el fondo hasta la topografía» la extendía sobre todo un
+      // bloque de falla en el que no hay dato suyo, tapando a las demás.
+      if (!zb && !zt) continue
       let run = []
       const flush = () => {
         if (run.length >= 2) {

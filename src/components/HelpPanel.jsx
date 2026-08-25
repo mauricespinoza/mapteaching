@@ -33,7 +33,15 @@ export default function HelpPanel({ project, dispatch }) {
         </li>
         <li>
           Revisa los <b>contornos estructurales</b> y la tabla de <b>rumbo y manteo</b> por pares de contornos
-          consecutivos.
+          consecutivos. Cuando los puntos no caben en un solo plano —una superficie plegada— se reparten antes
+          en <b>limbos</b> y cada uno da su propio rumbo y manteo: nunca se une un punto de un flanco con otro
+          del flanco opuesto, ni de una onda del pliegue con la siguiente.
+        </li>
+        <li>
+          Con la <b>regla</b> mides distancias sobre el mapa. Con el <b>imán</b> activo los extremos se pegan a
+          las trazas digitalizadas y la medida se toma <b>perpendicular</b> a la traza en la que se ancla, que es
+          como hay que medir el ancho de un afloramiento; si el manteo de ese contacto está resuelto, la app
+          añade el espesor verdadero (<span className="font-mono">e = L · sen δ</span>).
         </li>
         <li>
           Si el ejercicio ocupa sólo una parte de la lámina, define el <b>área de trabajo</b>: arrastra un
@@ -118,6 +126,7 @@ export default function HelpPanel({ project, dispatch }) {
         <li>R · escala</li>
         <li>S · perfil</li>
         <li>W · pozo</li>
+        <li>D · medir</li>
         <li>E · borrar</li>
         <li>B · área de trabajo</li>
         <li>M · modelo</li>

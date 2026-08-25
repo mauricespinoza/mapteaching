@@ -46,20 +46,50 @@ export default function ResultsPanel({ scene, project }) {
               {r.block != null && <span className="text-xs text-slate-500">bloque {r.block}</span>}
               <span className="text-xs uppercase tracking-wide text-slate-400">{r.kind}</span>
             </div>
-            {r.surf.mean && (
-              <p className="mb-1.5 text-xs text-slate-700">
-                <span className="font-medium">Promedio:</span> {r.surf.mean.quadrant} ·{' '}
-                <span className="font-mono">{r.surf.mean.dipDirNotation}</span>
-                {r.surf.mean.manual && <span className="ml-1 text-amber-600">(manual)</span>}
-                {r.surf.plane && !r.surf.mean.manual && (
-                  <span className="ml-1 text-slate-400">· ajuste plano RMS {r.surf.plane.rms.toFixed(0)} m</span>
-                )}
+            {r.surf.folded ? (
+              <div className="mb-1.5">
+                <p className="text-xs font-medium text-slate-700">
+                  Manteo variable · {r.surf.domainAttitudes.filter((d) => d.dip != null).length} limbos
+                </p>
+                <p className="text-[10px] leading-snug text-slate-500">
+                  Los puntos no caben en un solo plano: se resuelven por separado.
+                </p>
+                <ul className="mt-0.5 space-y-0.5 text-[11px] text-slate-600">
+                  {r.surf.domainAttitudes.map((d, k) =>
+                    d.dip == null ? null : (
+                      <li key={k}>
+                        <span className="font-medium text-slate-700">{limbName(k)}:</span> {d.quadrant} ·{' '}
+                        <span className="font-mono">{d.dipDirNotation}</span>
+                        <span className="ml-1 text-slate-400">
+                          · {d.n} datos · RMS {d.rms.toFixed(0)} m
+                        </span>
+                      </li>
+                    )
+                  )}
+                </ul>
+              </div>
+            ) : (
+              r.surf.mean && (
+                <p className="mb-1.5 text-xs text-slate-700">
+                  <span className="font-medium">Promedio:</span> {r.surf.mean.quadrant} ·{' '}
+                  <span className="font-mono">{r.surf.mean.dipDirNotation}</span>
+                  {r.surf.mean.manual && <span className="ml-1 text-amber-600">(manual)</span>}
+                  {!r.surf.mean.manual && Number.isFinite(r.surf.mean.rms) && (
+                    <span className="ml-1 text-slate-400">· ajuste plano RMS {r.surf.mean.rms.toFixed(0)} m</span>
+                  )}
+                </p>
+              )
+            )}
+            {unresolvedLimbs(r.surf) > 0 && (
+              <p className="mb-1.5 text-[11px] text-slate-500">
+                {unresolvedLimbs(r.surf)} contorno(s) de otro limbo con una sola cota: dan rumbo, no manteo.
               </p>
             )}
             {r.surf.pairs.length > 0 ? (
               <table className="w-full text-left text-[11px]">
                 <thead className="text-slate-500">
                   <tr>
+                    {r.surf.folded && <th className="py-0.5">Limbo</th>}
                     <th className="py-0.5">Contornos</th>
                     <th>Rumbo</th>
                     <th>Manteo</th>
@@ -70,6 +100,7 @@ export default function ResultsPanel({ scene, project }) {
                 <tbody>
                   {r.surf.pairs.map((p, k) => (
                     <tr key={k} className="border-t border-slate-100">
+                      {r.surf.folded && <td className="py-0.5">{limbName(p.limb)}</td>}
                       <td className="py-0.5 font-mono">
                         {p.z1}–{p.z2}
                       </td>
@@ -102,13 +133,30 @@ export default function ResultsPanel({ scene, project }) {
         recta ajustada a los puntos de igual cota es el <em>contorno estructural</em>; su dirección da el rumbo.
         Entre dos contornos consecutivos, manteo = arctan(Δcota / separación horizontal), y la dirección de manteo
         apunta hacia el contorno de menor cota.
+        <p className="mt-1.5">
+          Antes de ajustar nada, los puntos se reparten en <em>limbos</em>: la forma en que la traza cruza el
+          relieve —la regla de las V— da la dirección de manteo local, y sólo se unen los puntos compatibles con un
+          mismo plano. Así una charnela no promedia los dos flancos, y dos ondas de un tren de pliegues no comparten
+          contorno aunque manteen igual.
+        </p>
       </div>
     </div>
   )
 }
 
+/** Dominios que sólo tienen una cota: aportan rumbo pero no manteo. */
+function unresolvedLimbs(surf) {
+  if (!surf.domainAttitudes || surf.domainAttitudes.length < 2) return 0
+  return surf.domainAttitudes.filter((d) => d.dip == null && d.n >= 2).length
+}
+
+/** Nombre corto de un limbo para las tablas. */
+function limbName(k) {
+  return `Limbo ${k + 1}`
+}
+
 function toCsv(rows) {
-  const head = 'rasgo,tipo,bloque,cota_1,cota_2,rumbo_cuadrante,rumbo_azimut,manteo,dir_manteo,separacion_m'
+  const head = 'rasgo,tipo,bloque,limbo,cota_1,cota_2,rumbo_cuadrante,rumbo_azimut,manteo,dir_manteo,separacion_m'
   const lines = [head]
   for (const r of rows) {
     for (const p of r.surf.pairs) {
@@ -117,6 +165,7 @@ function toCsv(rows) {
           `"${r.name}"`,
           r.kind,
           r.block ?? '',
+          p.limb + 1,
           p.z1,
           p.z2,
           `"${p.quadrant.split(' / ')[0]}"`,
@@ -133,6 +182,7 @@ function toCsv(rows) {
           `"${r.name} (promedio)"`,
           r.kind,
           r.block ?? '',
+          r.surf.mean.limb != null ? r.surf.mean.limb + 1 : '',
           '',
           '',
           `"${r.surf.mean.quadrant.split(' / ')[0]}"`,

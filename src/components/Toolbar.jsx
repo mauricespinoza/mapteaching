@@ -11,6 +11,7 @@ import {
   Eraser,
   Layers3,
   Frame,
+  MoveHorizontal,
 } from 'lucide-react'
 
 export const TOOLS = [
@@ -20,6 +21,7 @@ export const TOOLS = [
   { id: 'contact', label: 'Contacto', icon: PenLine, key: 'X' },
   { id: 'fault', label: 'Falla', icon: Split, key: 'F' },
   { id: 'scale', label: 'Escala gráfica', icon: Ruler, key: 'R' },
+  { id: 'measure', label: 'Medir', icon: MoveHorizontal, key: 'D' },
   { id: 'north', label: 'Norte', icon: Compass, key: 'N' },
   { id: 'frame', label: 'Área de trabajo', icon: Frame, key: 'B' },
   { id: 'section', label: 'Traza de perfil', icon: Spline, key: 'S' },

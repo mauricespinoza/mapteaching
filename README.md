@@ -38,6 +38,7 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | **Fallas** | Traza + **cinemática** (normal, inversa, dextral, sinestral y sus combinaciones oblicuas). Se dibujan con su simbología (garrapatas en el bloque colgante, triángulos en las inversas, medias flechas en las de rumbo). |
 | **Trazas de perfil** | Línea A–A′ que abre la vista de perfil. |
 | **Pozos** | Un toque sobre el mapa; luego profundidad medida, *trend* y *plunge*. |
+| **Regla** | Mide distancias sobre el mapa. Con el **imán** activo los extremos se pegan a las trazas digitalizadas y la medida se toma **perpendicular** a la traza en la que se ancla; si el manteo de ese contacto está resuelto, añade el espesor verdadero `e = L·sen δ`. |
 | **Área de trabajo** | Rectángulo que acota el ejercicio: los polígonos del mapa geológico, el modelo 3D, las trazas drapeadas y los planos de falla y de perfil se recortan a él. Se dibuja arrastrando y se quita desde el panel de capas. |
 
 **Trazo híbrido**: un toque coloca un vértice; mantener apretado y arrastrar
@@ -99,12 +100,44 @@ intersección de la traza con una curva de nivel es un punto de la superficie co
 las tres coordenadas conocidas**. La app:
 
 1. calcula esas intersecciones,
-2. agrupa los puntos por cota y ajusta a cada grupo una recta por mínimos
-   cuadrados totales — el **contorno estructural** de esa cota,
-3. para cada **par de contornos consecutivos** entrega el rumbo (dirección de las
-   rectas) y el manteo `arctan(Δcota / separación horizontal)`, con la dirección
-   de manteo hacia el contorno de menor cota,
-4. y promedia los polos para dar la actitud media de la superficie.
+2. **reparte los puntos en dominios estructurales** — ver más abajo—, de modo que
+   nunca se mezclen datos de dos limbos ni de dos ondas de un tren de pliegues,
+3. dentro de cada dominio agrupa los puntos por cota y ajusta a cada grupo una
+   recta por mínimos cuadrados totales — el **contorno estructural** de esa cota,
+4. para cada **par de contornos consecutivos del mismo limbo** entrega el rumbo
+   (dirección de las rectas) y el manteo `arctan(Δcota / separación horizontal)`,
+   con la dirección de manteo hacia el contorno de menor cota,
+5. y promedia los polos para dar la actitud media de la superficie. En una
+   superficie plegada no se promedia entre limbos: el panel lista la actitud de
+   cada uno.
+
+#### Superficies que cambian de manteo: limbos y ondas
+
+Un contacto plegado no es un plano, y unir los puntos de igual cota «como si lo
+fuera» promedia a través de la charnela y produce un contorno estructural que no
+existe en el mapa. Lo mismo pasa entre dos ondas de un tren de pliegues: dos
+limbos homólogos mantean igual pero están desplazados, así que tampoco pueden
+compartir contorno.
+
+El criterio para separarlos es el de la **regla de las V**: la forma en que la
+traza cruza el relieve da la dirección de manteo local, y ésa es exactamente la
+pendiente del plano que ajusta a los puntos de intersección. El motor extrae, uno
+tras otro, los conjuntos máximos de puntos compatibles con un mismo plano
+(RANSAC), exigiendo además que
+
+- el conjunto tenga **al menos dos cotas** —tres puntos de la misma cota no
+  definen un plano—,
+- esté **espacialmente conectado**, y
+- **no se salte datos**: si entre los contornos extremos de un panel cae una cota
+  que no encaja, es que ahí dentro la superficie cambia de pendiente y el panel
+  está uniendo dos limbos.
+
+Los puntos que sobran se agregan al dominio que mejor los explica si queda cerca;
+si ninguno lo hace, forman dominio propio (una cota suelta sigue siendo un
+contorno estructural válido, aunque no dé manteo). La superficie en profundidad
+se reconstruye después apoyándose en el plano del dominio de cada zona, no en un
+plano global, así que cada limbo conserva su manteo y sólo la charnela queda
+redondeada.
 
 Los resultados salen en el mapa (contornos punteados con su cota y símbolos de
 rumbo/manteo) y en la tabla del panel **Resultados**, exportable a CSV en las dos
@@ -141,9 +174,15 @@ La geometría en profundidad sale de un **ajuste local móvil** (moving least
 squares) sobre los puntos observados: la superficie interpola exactamente los
 datos, sigue los pliegues en vez de promediarlos a través de la charnela y da la
 orientación local en cualquier punto. Donde faltan datos degrada suavemente
-hacia el plano global, y con datos planos lo reproduce de forma exacta. Los
-contornos estructurales se agrupan además **por limbo**, según la dirección de
-manteo local, de modo que las rectas de un mismo flanco se ajustan juntas.
+hacia el plano del dominio estructural correspondiente, y con datos planos lo
+reproduce de forma exacta. Los contornos estructurales se agrupan además **por
+limbo** (ver §4), de modo que las rectas de un mismo flanco se ajustan juntas.
+
+Una unidad sólo se rellena donde al menos uno de sus dos contactos está resuelto
+en ese bloque: sin ninguno no se sabe dónde empieza ni dónde acaba, y rellenar
+«desde el fondo hasta la topografía» la extendía sobre bloques de falla en los
+que no hay dato suyo. Los polígonos toman el color asignado a cada unidad, igual
+que en planta.
 
 ### 7. Vista 3D
 
@@ -175,8 +214,8 @@ geometría original.
 ## Atajos
 
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
-`R` escala · `N` norte · `S` perfil · `W` pozo · `M` modelo · `B` área de
-trabajo · `E` borrar ·
+`R` escala · `D` medir · `N` norte · `S` perfil · `W` pozo · `M` modelo ·
+`B` área de trabajo · `E` borrar ·
 `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo · `Esc` cancelar.
 
 ---
@@ -198,6 +237,8 @@ src/lib/
   model.js       entidades del proyecto
   store.js       reducer con historial (deshacer/rehacer)
   db.js          IndexedDB (proyectos e imágenes)
+  domains.js     reparto de una superficie en limbos y ondas (RANSAC)
+  measure.js     regla del mapa: imán a las trazas y medida ortogonal
   structure.js   contornos estructurales, rumbo/manteo y modelo de superficie
   blocks.js      partición en bloques por las fallas
   dem.js         modelo de elevación desde las curvas (transformada de distancia)

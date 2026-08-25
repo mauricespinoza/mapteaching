@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { render, toImagePt, renderHillshade } from '../lib/render2d.js'
 import { thin, simplify, pointPolyline, dist, chaikin } from '../lib/geom.js'
+import { snapTargets, snapToLines, measureEnd, reading } from '../lib/measure.js'
+import { fmtDistance, strikeQuadrant } from '../lib/georef.js'
 import {
   nodesOf,
   flattenNodes,
@@ -47,6 +49,9 @@ export default function MapView({
   const [cursor, setCursor] = useState(null)
   const [edit, setEdit] = useState(null)
   const [gestureHint, setGestureHint] = useState(null)
+  // Regla: se mantiene fuera del proyecto porque es una lectura, no un dato.
+  const [measure, setMeasure] = useState(null)
+  const [snapOn, setSnapOn] = useState(true)
   const pointers = useRef(new Map())
   const gesture = useRef(null)
   const drag = useRef(null)
@@ -102,6 +107,23 @@ export default function MapView({
   const isDrawTool = ['contour', 'contact', 'fault'].includes(tool)
   const isTwoPointTool = ['scale', 'north', 'section', 'frame'].includes(tool)
 
+  const targets = useMemo(() => (tool === 'measure' ? snapTargets(project) : []), [tool, project])
+  const measureRead = useMemo(() => reading(project, scene, measure), [project, scene, measure])
+  // Al cambiar de herramienta la medida deja de tener sentido en pantalla.
+  useEffect(() => {
+    if (tool !== 'measure') setMeasure(null)
+  }, [tool])
+
+  /** Recalcula el extremo de la regla a partir del puntero. */
+  const traceMeasure = useCallback(
+    (from, p) => {
+      const tol = 14 / view.scale
+      const end = measureEnd(targets, from, p, { snap: snapOn, tol })
+      return { a: from ? from.at : p, b: end.at, anchor: from, end: end.on, orthogonal: end.orthogonal }
+    },
+    [targets, snapOn, view.scale]
+  )
+
   const hillshade = useMemo(() => {
     const levels = new Set((scene?.worldContours || []).map((c) => c.elevation))
     if (image || !show.hillshade || !scene?.dem?.valid || levels.size < 3) return null
@@ -143,6 +165,7 @@ export default function MapView({
       show,
       selection,
       draft,
+      measure,
       hover: cursor,
       modelViews,
       unitRaster,
@@ -151,7 +174,7 @@ export default function MapView({
       height: size.height,
       dpr,
     })
-  }, [view, project, scene, image, hillshade, show, selection, draft, cursor, size, modelViews, unitRaster, edit, editPreview])
+  }, [view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, edit, editPreview])
 
   const toImg = useCallback((ev) => {
     const rect = canvasRef.current.getBoundingClientRect()
@@ -350,6 +373,19 @@ export default function MapView({
       return
     }
 
+    if (tool === 'measure') {
+      // Segundo toque: cierra la medida que quedó esperando extremo.
+      if (measure?.pending) {
+        setMeasure({ ...traceMeasure(measure.anchor, p), pending: false })
+        return
+      }
+      const anchor = snapOn ? snapToLines(targets, p, touchTol(ev, 14) / view.scale) : null
+      const from = anchor || { at: p, dir: null }
+      setMeasure({ ...traceMeasure(from, p), pending: true })
+      drag.current = { mode: 'measure', from, origin: p }
+      return
+    }
+
     if (tool === 'select') {
       // Primero los nodos del trazo en edición.
       if (edit?.nodes?.length) {
@@ -415,7 +451,15 @@ export default function MapView({
     }
 
     const d = drag.current
-    if (!d) return
+    if (!d) {
+      // Sin botón pulsado, la regla sigue el cursor hasta que se fija el extremo.
+      if (tool === 'measure' && measure?.pending) setMeasure({ ...traceMeasure(measure.anchor, p), pending: true })
+      return
+    }
+    if (d.mode === 'measure') {
+      setMeasure({ ...traceMeasure(d.from, p), pending: true })
+      return
+    }
     if (d.mode === 'pan') {
       const moved = Math.hypot(ev.clientX - d.x, ev.clientY - d.y)
       if (moved > 6) d.tapCandidate = false
@@ -474,6 +518,14 @@ export default function MapView({
       })
       return
     }
+    if (d.mode === 'measure') {
+      const p = toImg(ev)
+      // Un arrastre deja la medida hecha; un toque limpio deja el extremo
+      // pendiente, para poder fijarlo con un segundo toque en la tablet.
+      const moved = dist(p, d.origin) * view.scale > 6
+      setMeasure({ ...traceMeasure(d.from, p), pending: !moved })
+      return
+    }
     if (d.mode === 'compose') {
       const p = toImg(ev)
       if (d.stroke) {
@@ -524,7 +576,10 @@ export default function MapView({
           setDraft(null)
         } else finishStroke(draft.pts)
       }
-      if (e.key === 'Escape') setDraft(null)
+      if (e.key === 'Escape') {
+        setDraft(null)
+        setMeasure(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -605,6 +660,50 @@ export default function MapView({
           >
             Listo
           </button>
+        </div>
+      )}
+
+      {tool === 'measure' && (
+        <div className="pointer-events-auto absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-slate-900/90 px-3 py-2 text-white shadow-lg">
+          <button
+            onClick={() => setSnapOn((v) => !v)}
+            title="Pega los extremos a las trazas y mide perpendicular a la traza anclada"
+            className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+              snapOn ? 'bg-emerald-500 text-white' : 'bg-white/15 text-slate-200 hover:bg-white/25'
+            }`}
+          >
+            Imán {snapOn ? 'activo' : 'apagado'}
+          </button>
+          {measureRead ? (
+            <div className="flex items-baseline gap-2 px-1 text-xs">
+              <span className="font-mono text-base font-semibold">
+                {measureRead.calibrated ? fmtDistance(measureRead.meters) : `${measureRead.pixels.toFixed(0)} px`}
+              </span>
+              {measureRead.azimuth != null && (
+                <span className="text-slate-300">{strikeQuadrant(measureRead.azimuth)}</span>
+              )}
+              {measure?.orthogonal && (
+                <span className="rounded bg-emerald-500/25 px-1.5 py-0.5 text-[10px] text-emerald-200">
+                  ⊥ {measure.anchor?.name || 'traza'}
+                </span>
+              )}
+              {measureRead.thickness && (
+                <span className="text-amber-200">
+                  espesor ≈ {fmtDistance(measureRead.thickness.value)} (sen {measureRead.thickness.dip.toFixed(0)}°)
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="px-1 text-xs text-slate-300">Arrastra sobre el mapa para medir</span>
+          )}
+          {measure && (
+            <button
+              onClick={() => setMeasure(null)}
+              className="rounded-full bg-white/15 px-3 py-1.5 text-xs hover:bg-white/25"
+            >
+              Limpiar
+            </button>
+          )}
         </div>
       )}
 

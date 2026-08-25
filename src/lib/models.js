@@ -72,9 +72,17 @@ export function newStructuralModel(kind, at, index = 0) {
   }
 }
 
-/** Colores de las capas del modelo. */
-export function modelColors(model) {
+/**
+ * Colores de las capas del modelo. Si el modelo ya se aplicó al proyecto, manda
+ * el color de las unidades que generó: el mapa se pinta con el color que el
+ * usuario tenga asignado a cada unidad, no con la paleta con la que nacieron.
+ */
+export function modelColors(model, scene = null) {
   const n = Math.max(1, model.layers | 0)
+  const linked = (scene?.project?.units || [])
+    .filter((u) => u.fromModel === model.id)
+    .sort((a, b) => a.order - b.order)
+  if (linked.length) return Array.from({ length: n }, (_, i) => linked[i % linked.length].color)
   const off = (model.palette | 0) * 3
   return Array.from({ length: n }, (_, i) => UNIT_COLORS[(i + off) % UNIT_COLORS.length])
 }
@@ -329,7 +337,7 @@ export function modelTraces(model, scene, resolution = 190) {
   if (!(w > 0 && h > 0)) return []
   const nx = Math.max(24, Math.round(resolution * Math.min(1, w / Math.max(w, h))))
   const ny = Math.max(24, Math.round(resolution * Math.min(1, h / Math.max(w, h))))
-  const colors = modelColors(model)
+  const colors = modelColors(model, scene)
 
   const out = []
   for (const surf of geo.surfaces) {
@@ -373,7 +381,7 @@ export function modelRaster(model, scene, resolution = 260) {
   const nx = Math.max(2, Math.ceil(w / cell) + 1)
   const ny = Math.max(2, Math.ceil(h / cell) + 1)
 
-  const colors = modelColors(model).map(hexToRgb)
+  const colors = modelColors(model, scene).map(hexToRgb)
   const inFrame = frameTest(scene)
   const canvas = document.createElement('canvas')
   canvas.width = nx
@@ -478,7 +486,8 @@ export function buildModelView(model, scene) {
 export function buildModelEntities(model, scene) {
   const traces = modelTraces(model, scene).filter((t) => t.lines.length)
   if (!traces.length) return null
-  const colors = modelColors(model)
+  // Al reaplicar un modelo se conservan los colores que ya tengan sus unidades.
+  const colors = modelColors(model, scene)
   const n = Math.max(1, model.layers | 0)
   const single = model.kind === 'plane'
 
