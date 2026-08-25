@@ -440,13 +440,46 @@ export default function MapView({
     flashTimer.current = setTimeout(() => setGestureHint(null), 900)
   }
 
+  /** Rasgo (o contorno estructural) más cercano al punto, para el menú de opciones. */
+  const findMenuTarget = useCallback(
+    (p, tolPx) => {
+      const hitNow = hitTest(p, tolPx)
+      const scNow = scHit(p, tolPx)
+      const target = scNow && (!hitNow || scNow.d < hitNow.d) ? { kind: 'sc', it: scNow.it } : hitNow
+      return target && MENU_KINDS.includes(target.kind) ? target : null
+    },
+    [hitTest, scHit]
+  )
+
+  const openMenuFor = useCallback(
+    (target, at) => {
+      if (target.kind === 'sc') onEditRequest?.(scSelection(target.it))
+      else if (['contact', 'fault', 'contour'].includes(target.kind)) onEditRequest?.(target)
+      setMenu({ at, hit: target })
+    },
+    [onEditRequest]
+  )
+
   // --- Punteros ---
   const onPointerDown = (ev) => {
     const canvas = canvasRef.current
     canvas.setPointerCapture(ev.pointerId)
+    const p = toImg(ev)
+
+    // Clic secundario del ratón: el equivalente de escritorio a la pulsación
+    // larga en tablet. Abre el menú del rasgo al instante y no hace nada más
+    // con el clic —ni selecciona, ni dibuja, ni navega—.
+    if (ev.button === 2) {
+      const target = findMenuTarget(p, touchTol(ev, 16))
+      if (target) {
+        const rect = canvas.getBoundingClientRect()
+        openMenuFor(target, [ev.clientX - rect.left, ev.clientY - rect.top])
+      }
+      return
+    }
+
     pointers.current.set(ev.pointerId, ev)
     registerTapDown(ev)
-    const p = toImg(ev)
 
     // Pulsación larga sobre una línea: entra en edición de vértices y despliega
     // el menú del rasgo. Es la vía natural en tablet, donde no hay clic derecho
@@ -454,21 +487,15 @@ export default function MapView({
     // falla, la cota de una curva y el borrado.
     clearTimeout(holdTimer.current)
     if (!['erase', 'measure'].includes(tool) && pointers.current.size === 1) {
-      const tolPx = touchTol(ev, 18)
-      const hitNow = hitTest(p, tolPx)
-      const scNow = scHit(p, tolPx)
-      const target =
-        scNow && (!hitNow || scNow.d < hitNow.d) ? { kind: 'sc', it: scNow.it } : hitNow
-      if (target && MENU_KINDS.includes(target.kind)) {
+      const target = findMenuTarget(p, touchTol(ev, 18))
+      if (target) {
         const rect = canvas.getBoundingClientRect()
         const at = [ev.clientX - rect.left, ev.clientY - rect.top]
         holdTimer.current = setTimeout(() => {
           if (drag.current?.stroke) return // se convirtió en trazo: no interrumpir
           drag.current = null
           setDraft(null)
-          if (target.kind === 'sc') onEditRequest?.(scSelection(target.it))
-          else if (['contact', 'fault', 'contour'].includes(target.kind)) onEditRequest?.(target)
-          setMenu({ at, hit: target })
+          openMenuFor(target, at)
           flash('Opciones')
         }, 550)
       }
