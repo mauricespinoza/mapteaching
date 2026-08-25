@@ -24,8 +24,11 @@ export default function MapView({
   onPick,
   dispatch,
   status,
+  modelViews,
+  canvasRef: externalCanvasRef,
 }) {
-  const canvasRef = useRef(null)
+  const innerRef = useRef(null)
+  const canvasRef = externalCanvasRef || innerRef
   const wrapRef = useRef(null)
   const [size, setSize] = useState({ width: 800, height: 600 })
   const [draft, setDraft] = useState(null)
@@ -85,11 +88,12 @@ export default function MapView({
       selection,
       draft,
       hover: cursor,
+      modelViews,
       width: size.width,
       height: size.height,
       dpr,
     })
-  }, [view, project, scene, image, hillshade, show, selection, draft, cursor, size])
+  }, [view, project, scene, image, hillshade, show, selection, draft, cursor, size, modelViews])
 
   const toImg = useCallback((ev) => {
     const rect = canvasRef.current.getBoundingClientRect()
@@ -104,6 +108,7 @@ export default function MapView({
       const consider = (cand, d) => {
         if (d <= tol && (!best || d < best.d)) best = { ...cand, d }
       }
+      for (const m of project.models || []) consider({ kind: 'model', id: m.id }, dist(p, m.at))
       for (const w of project.wells) consider({ kind: 'well', id: w.id }, dist(p, w.at))
       for (const s of project.sections) {
         consider({ kind: 'section', id: s.id, handle: 'a' }, dist(p, s.a))
@@ -165,11 +170,12 @@ export default function MapView({
       }
       onPick(hit)
       if (hit?.kind === 'well') drag.current = { mode: 'well', id: hit.id }
+      else if (hit?.kind === 'model') drag.current = { mode: 'model', id: hit.id }
       else if (hit?.kind === 'section' && hit.handle) drag.current = { mode: 'section', id: hit.id, handle: hit.handle }
       return
     }
 
-    if (tool === 'well') {
+    if (tool === 'well' || tool === 'model') {
       onTapPoint(p)
       return
     }
@@ -227,6 +233,8 @@ export default function MapView({
       setDraft({ pts: [d.a, p], color: draftColor(tool) })
     } else if (d.mode === 'well') {
       dispatch({ type: 'well.update', id: d.id, patch: { at: p } })
+    } else if (d.mode === 'model') {
+      dispatch({ type: 'model.update', id: d.id, patch: { at: p } })
     } else if (d.mode === 'section') {
       dispatch({ type: 'section.update', id: d.id, patch: { [d.handle]: p } })
     }
@@ -348,4 +356,5 @@ function deleteHit(hit, dispatch) {
   else if (hit.kind === 'fault') dispatch({ type: 'trace.delete', kind: 'fault', id: hit.id, traceId: hit.traceId })
   else if (hit.kind === 'section') dispatch({ type: 'section.delete', id: hit.id })
   else if (hit.kind === 'well') dispatch({ type: 'well.delete', id: hit.id })
+  else if (hit.kind === 'model') dispatch({ type: 'model.delete', id: hit.id })
 }

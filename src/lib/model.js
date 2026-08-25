@@ -1,5 +1,5 @@
 // Modelo de datos del proyecto. Todo vive en el navegador (IndexedDB) y se puede
-// exportar/importar como .geoest.json para repartir ejercicios a los estudiantes.
+// exportar/importar como .mapteaching.json para repartir ejercicios.
 
 import { DEFAULT_GEOREF } from './georef.js'
 
@@ -47,13 +47,17 @@ export function newProject(name = 'Ejercicio sin título') {
     statement: '',
     image: null, // { blobId, width, height, name }
     virtualSize: { width: 1400, height: 1000 }, // lienzo mientras no haya imagen
-    georef: { ...DEFAULT_GEOREF },
+    // Sobre el lienzo virtual se asume una escala de trabajo (≈10 × 7 km), de
+    // modo que los modelos sintéticos funcionan sin calibrar nada. Al importar
+    // una imagen la escala se borra para que el usuario la calibre.
+    georef: { ...DEFAULT_GEOREF, metersPerPx: 7 },
     contours: [], // { id, elevation, pts }
     units: [], // { id, name, color, order, lithology, notes }
     contacts: [], // { id, name, color, type, lowerUnitId, upperUnitId, manual, traces }
     faults: [], // { id, name, kinematics, dipManual, traces }
     sections: [], // { id, name, a, b, vExag, depth }
     wells: [], // { id, name, at, depth, trend, plunge }
+    models: [], // modelos sintéticos: plano, serie de capas o pliegues
     settings: {
       contourInterval: 100,
       lastElevation: 0,

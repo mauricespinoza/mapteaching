@@ -108,12 +108,33 @@ function apply(project, action) {
     case 'section.delete':
       return { ...p, sections: p.sections.filter((s) => s.id !== action.id) }
 
+    case 'model.add':
+      return { ...p, models: [...(p.models || []), action.model] }
+    case 'model.update':
+      return { ...p, models: replaceIn(p.models || [], action.id, (m) => ({ ...m, ...action.patch })) }
+    case 'model.delete':
+      return { ...p, models: (p.models || []).filter((m) => m.id !== action.id) }
+
     case 'well.add':
       return { ...p, wells: [...p.wells, action.well] }
     case 'well.update':
       return { ...p, wells: replaceIn(p.wells, action.id, (w) => ({ ...w, ...action.patch })) }
     case 'well.delete':
       return { ...p, wells: p.wells.filter((w) => w.id !== action.id) }
+
+    case 'clear.all':
+      return {
+        ...p,
+        contours: [],
+        units: [],
+        contacts: [],
+        faults: [],
+        sections: [],
+        wells: [],
+        models: [],
+      }
+    case 'clear.drawing':
+      return { ...p, contours: [], units: [], contacts: [], faults: [] }
 
     default:
       return p

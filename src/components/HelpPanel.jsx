@@ -41,6 +41,32 @@ export default function HelpPanel({ project, dispatch }) {
         </li>
       </ol>
 
+      <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-800">Modelos sintéticos</h3>
+      <p className="mb-2 text-[13px] leading-relaxed">
+        En la pestaña <b>Modelos</b> puedes ir en la dirección contraria: en vez de deducir la estructura a
+        partir del mapa, defines la estructura y la app dibuja el mapa que produciría. Marca un punto y elige:
+      </p>
+      <ul className="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed">
+        <li>
+          <b>Plano único</b> — rumbo y manteo (regla de la mano derecha) de un contacto. La traza resultante
+          muestra la <i>regla de la V</i>: cómo el contacto se desvía valle arriba según su manteo.
+        </li>
+        <li>
+          <b>Serie de capas</b> — n capas paralelas del mismo espesor con un solo rumbo y manteo. En planta se
+          ven las bandas repetidas, separadas <span className="font-mono">espesor / sen(manteo)</span>.
+        </li>
+        <li>
+          <b>Pliegues</b> — un tren de pliegues cilíndricos rectos sobre esa serie, definido por el{' '}
+          <b>trend y plunge</b> del eje, el <b>ángulo interlimbo</b>, la <b>longitud de onda</b> (cresta a
+          cresta) y el <b>grado de asimetría</b>. Con el eje horizontal las trazas son rectas paralelas; al
+          darle inmersión aparecen las narices cerradas características de un pliegue que se sumerge.
+        </li>
+      </ul>
+      <p className="mb-2 mt-2 text-[13px] leading-relaxed">
+        Todo funciona incluso sin curvas de nivel (terreno plano). Si las hay, las trazas se calculan cortando
+        la topografía real, que es donde el ejercicio se vuelve interesante.
+      </p>
+
       <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-800">El método</h3>
       <p className="text-[13px] leading-relaxed">
         Un contacto geológico aflora donde la superficie que lo define corta la topografía. Por lo tanto, cada
@@ -70,6 +96,7 @@ export default function HelpPanel({ project, dispatch }) {
         <li>S · perfil</li>
         <li>W · pozo</li>
         <li>E · borrar</li>
+        <li>M · modelo</li>
         <li>Ctrl+Z / Ctrl+Y</li>
         <li>Enter · cerrar trazo</li>
         <li>Esc · cancelar trazo</li>

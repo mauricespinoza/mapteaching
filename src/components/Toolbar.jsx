@@ -9,6 +9,7 @@ import {
   Spline,
   Crosshair,
   Eraser,
+  Layers3,
 } from 'lucide-react'
 
 export const TOOLS = [
@@ -21,6 +22,7 @@ export const TOOLS = [
   { id: 'north', label: 'Norte', icon: Compass, key: 'N' },
   { id: 'section', label: 'Traza de perfil', icon: Spline, key: 'S' },
   { id: 'well', label: 'Pozo', icon: Crosshair, key: 'W' },
+  { id: 'model', label: 'Modelo', icon: Layers3, key: 'M' },
   { id: 'erase', label: 'Borrar rasgo', icon: Eraser, key: 'E' },
 ]
 

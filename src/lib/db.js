@@ -1,5 +1,7 @@
 // Persistencia local: proyectos + imágenes base en IndexedDB.
 
+// Se conserva el nombre original de la base para no perder los proyectos
+// guardados antes del cambio de nombre de la app.
 const DB_NAME = 'geoestructura'
 const DB_VERSION = 1
 const STORE_PROJECTS = 'projects'

@@ -14,8 +14,10 @@ import {
   Layers,
   Table,
   BookOpen,
-  Target,
   Image as ImageIcon,
+  Layers3,
+  Trash2,
+  Mountain,
 } from 'lucide-react'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
 import MapView from './components/MapView.jsx'
@@ -25,11 +27,13 @@ import WellView from './components/WellView.jsx'
 import LayersPanel from './components/LayersPanel.jsx'
 import ResultsPanel from './components/ResultsPanel.jsx'
 import HelpPanel from './components/HelpPanel.jsx'
+import ModelPanel from './components/ModelPanel.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
 import { reducer, initialState } from './lib/store.js'
 import { newProject, newSection, newWell, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
 import { buildSampleProject } from './lib/sample.js'
+import { buildModelViews, newStructuralModel } from './lib/models.js'
 import { dist, norm, sub } from './lib/geom.js'
 import * as db from './lib/db.js'
 import { downloadText, downloadCanvasPng } from './lib/exportFile.js'
@@ -46,6 +50,7 @@ const DEFAULT_SHOW = {
   sections: true,
   wells: true,
   hillshade: true,
+  models: true,
   onlySelectedSC: false,
 }
 
@@ -54,6 +59,7 @@ export default function App() {
   const project = state.present
   const deferredProject = useDeferredValue(project)
   const scene = useMemo(() => buildScene(deferredProject), [deferredProject])
+  const modelViews = useMemo(() => buildModelViews(deferredProject, scene), [deferredProject, scene])
 
   const [tab, setTab] = useState('mapa')
   const [panel, setPanel] = useState('capas')
@@ -69,6 +75,7 @@ export default function App() {
   const [wellId, setWellId] = useState(null)
   const [image, setImage] = useState(null)
   const [dialog, setDialog] = useState(null)
+  const [lastModelKind, setLastModelKind] = useState('fold')
   const [projects, setProjects] = useState([])
   const [booted, setBooted] = useState(false)
   const mapCanvasRef = useRef(null)
@@ -192,6 +199,14 @@ export default function App() {
 
   const onTapPoint = useCallback(
     (p) => {
+      if (tool === 'model') {
+        const m = newStructuralModel(lastModelKind, p, (project.models || []).length)
+        dispatch({ type: 'model.add', model: m })
+        setSelection({ kind: 'model', id: m.id })
+        setPanel('modelos')
+        setTool('select')
+        return
+      }
       if (tool === 'well') {
         const w = newWell(project, p)
         dispatch({ type: 'well.add', well: w })
@@ -200,7 +215,7 @@ export default function App() {
         setTool('select')
       }
     },
-    [tool, project]
+    [tool, project, lastModelKind]
   )
 
   // --- Archivos ---
@@ -216,6 +231,8 @@ export default function App() {
         virtualSize: null,
       },
     })
+    // La escala del lienzo virtual no sirve para la imagen importada.
+    dispatch({ type: 'georef', patch: { metersPerPx: null, scaleLine: null } })
     setView(null)
     setTool('scale')
   }
@@ -226,7 +243,7 @@ export default function App() {
       const blob = await db.getBlob(project.image.blobId)
       if (blob) copy.image = { ...copy.image, dataUrl: await db.blobToDataUrl(blob) }
     }
-    downloadText(`${project.name.replace(/[^\w\-]+/g, '_')}.geoest.json`, JSON.stringify(copy, null, 1))
+    downloadText(`${project.name.replace(/[^\w\-]+/g, '_')}.mapteaching.json`, JSON.stringify(copy, null, 1))
   }
 
   const importProject = async (file) => {
@@ -271,39 +288,47 @@ export default function App() {
   return (
     <div className="flex h-full w-full flex-col bg-slate-100 text-slate-900">
       {/* Barra superior */}
-      <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+      <header className="flex flex-wrap items-center gap-2 border-b border-slate-800/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-3 py-2 text-slate-100 shadow-sm">
         <div className="flex items-center gap-2">
-          <Target className="text-sky-600" size={20} />
-          <span className="hidden text-sm font-bold tracking-tight text-slate-800 sm:block">GeoEstructura</span>
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-emerald-400 text-slate-900 shadow">
+            <Mountain size={18} strokeWidth={2.4} />
+          </span>
+          <span className="hidden text-[15px] font-bold tracking-tight sm:block">
+            Map<span className="text-sky-400">Teaching</span>
+          </span>
         </div>
         <input
-          className="w-40 rounded-lg border border-transparent px-2 py-1 text-sm font-medium hover:border-slate-300 focus:border-sky-400 focus:outline-none md:w-64"
+          className="w-40 rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-sm font-medium text-white placeholder-slate-400 outline-none transition focus:border-sky-400/60 focus:bg-white/15 md:w-64"
           value={project.name}
+          placeholder="Nombre del ejercicio"
           onChange={(e) => dispatch({ type: 'patch', patch: { name: e.target.value } })}
         />
         <div className="flex items-center gap-1">
-          <Btn onClick={() => dispatch({ type: 'history.undo' })} title="Deshacer (Ctrl+Z)" disabled={!state.past.length}>
+          <Btn variant="onDark" onClick={() => dispatch({ type: 'history.undo' })} title="Deshacer (Ctrl+Z)" disabled={!state.past.length}>
             <Undo2 size={14} />
           </Btn>
-          <Btn onClick={() => dispatch({ type: 'history.redo' })} title="Rehacer" disabled={!state.future.length}>
+          <Btn variant="onDark" onClick={() => dispatch({ type: 'history.redo' })} title="Rehacer" disabled={!state.future.length}>
             <Redo2 size={14} />
           </Btn>
         </div>
         <div className="flex flex-wrap items-center gap-1">
-          <Btn onClick={() => fileRef.current?.click()}>
+          <Btn variant="onDark" onClick={() => fileRef.current?.click()}>
             <ImageIcon size={14} /> Imagen
           </Btn>
-          <Btn onClick={startNew}>
+          <Btn variant="onDark" onClick={startNew}>
             <FilePlus2 size={14} /> Nuevo
           </Btn>
-          <Btn onClick={openProjects}>
+          <Btn variant="onDark" onClick={openProjects}>
             <FolderOpen size={14} /> Abrir
           </Btn>
-          <Btn onClick={exportProject}>
+          <Btn variant="onDark" onClick={exportProject}>
             <Download size={14} /> Exportar
           </Btn>
-          <Btn onClick={() => projectFileRef.current?.click()}>
+          <Btn variant="onDark" onClick={() => projectFileRef.current?.click()}>
             <Upload size={14} /> Importar
+          </Btn>
+          <Btn variant="onDark" onClick={() => setDialog({ kind: 'clear' })} title="Vaciar el ejercicio">
+            <Trash2 size={14} /> Borrar todo
           </Btn>
           <Btn variant="primary" onClick={loadSample}>
             <Sparkles size={14} /> Ejemplo
@@ -331,7 +356,7 @@ export default function App() {
           }}
         />
 
-        <nav className="ml-auto flex items-center gap-1 rounded-xl bg-slate-100 p-1">
+        <nav className="ml-auto flex items-center gap-1 rounded-xl bg-white/10 p-1 ring-1 ring-white/10">
           {[
             ['mapa', 'Mapa', MapIcon],
             ['perfil', 'Perfil', Spline],
@@ -342,7 +367,7 @@ export default function App() {
               key={id}
               onClick={() => setTab(id)}
               className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                tab === id ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                tab === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
               <Icon size={15} /> {label}
@@ -352,7 +377,7 @@ export default function App() {
       </header>
 
       {/* Aviso de calibración */}
-      {!project.georef.metersPerPx && (
+      {!project.georef.metersPerPx && project.image && (
         <div className="flex items-center gap-2 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
           <b>Falta la escala.</b> Usa la herramienta «Escala gráfica» (R): traza una línea de largo conocido sobre
           el mapa e indica cuántos metros mide.
@@ -386,6 +411,7 @@ export default function App() {
                   ['sections', 'Perfiles'],
                   ['wells', 'Pozos'],
                   ['hillshade', 'Relieve'],
+                  ['models', 'Modelos'],
                 ].map(([k, label]) => (
                   <button
                     key={k}
@@ -436,6 +462,7 @@ export default function App() {
                   dispatch={dispatch}
                   status={status}
                   mapRect={mapRect}
+                  modelViews={modelViews}
                   canvasRef={mapCanvasRef}
                 />
               </div>
@@ -492,7 +519,8 @@ export default function App() {
             {panelOpen &&
               [
                 ['capas', 'Capas', Layers],
-                ['resultados', 'Resultados', Table],
+                ['modelos', 'Modelos', Layers3],
+                ['resultados', 'Datos', Table],
                 ['ayuda', 'Guía', BookOpen],
               ].map(([id, label, Icon]) => (
                 <button
@@ -523,6 +551,21 @@ export default function App() {
                     setTab('perfil')
                   }}
                 />
+              )}
+              {panel === 'modelos' && (
+                <div className="h-full overflow-y-auto p-3">
+                  <ModelPanel
+                    project={project}
+                    dispatch={dispatch}
+                    selection={selection}
+                    onSelect={(sel) => {
+                      setSelection(sel)
+                      const m = (project.models || []).find((x) => x.id === sel?.id)
+                      if (m) setLastModelKind(m.kind)
+                    }}
+                    setTool={setTool}
+                  />
+                </div>
               )}
               {panel === 'resultados' && <ResultsPanel scene={scene} project={project} />}
               {panel === 'ayuda' && <HelpPanel project={project} dispatch={dispatch} />}
@@ -634,6 +677,33 @@ export default function App() {
             ))}
             {projects.length === 0 && <p className="text-sm text-slate-500">No hay proyectos guardados.</p>}
           </ul>
+        </Modal>
+      )}
+
+      {dialog?.kind === 'clear' && (
+        <Modal title="Borrar todo" onClose={() => setDialog(null)}>
+          <p className="text-sm leading-relaxed text-slate-700">
+            Esto vacía el ejercicio: curvas de nivel, unidades, contactos, fallas, perfiles, pozos y modelos.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Se conservan la imagen base, la escala y el norte, para que puedas empezar de nuevo sobre el mismo
+            mapa. La acción se puede deshacer con Ctrl+Z.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Btn onClick={() => setDialog(null)}>Cancelar</Btn>
+            <Btn
+              variant="danger"
+              onClick={() => {
+                dispatch({ type: 'clear.all' })
+                setSelection(null)
+                setSectionId(null)
+                setWellId(null)
+                setDialog(null)
+              }}
+            >
+              <Trash2 size={14} /> Borrar todo
+            </Btn>
+          </div>
         </Modal>
       )}
 

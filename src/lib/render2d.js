@@ -63,23 +63,28 @@ export function renderHillshade(scene, sunAz = 315, sunAlt = 45) {
   return canvas
 }
 
-/** Dibuja una capa raster del MED situándola en coordenadas de imagen. */
-function drawDemCanvas(ctx, view, scene, canvas) {
-  const dem = scene.dem
-  const { e, n } = basis(scene.georef)
-  const mpp = scene.georef.metersPerPx || 1
-  const k = dem.cell / mpp
-  // Origen: esquina (minX, maxY) del MED, que es la fila 0 del canvas dibujado.
-  const o = toImage(scene.georef, [dem.bbox.minX, dem.bbox.minY + (dem.ny - 1) * dem.cell])
+/**
+ * Dibuja un raster definido sobre una grilla del mundo, situándolo en
+ * coordenadas de imagen. La fila 0 del canvas corresponde al norte (Y máximo).
+ */
+function drawWorldRaster(ctx, view, georef, canvas, bbox, cell, rows, alpha = 1) {
+  const { e, n } = basis(georef)
+  const mpp = georef.metersPerPx || 1
+  const k = cell / mpp
+  const o = toImage(georef, [bbox.minX, bbox.minY + (rows - 1) * cell])
   const os = toScreen(view, o)
   const ex = [e[0] * k * view.scale, e[1] * k * view.scale]
   const ny = [-n[0] * k * view.scale, -n[1] * k * view.scale]
   ctx.save()
   ctx.imageSmoothingEnabled = true
+  ctx.globalAlpha = alpha
   ctx.setTransform(ex[0], ex[1], ny[0], ny[1], os[0], os[1])
   ctx.drawImage(canvas, 0, 0)
   ctx.restore()
 }
+
+const drawDemCanvas = (ctx, view, scene, canvas) =>
+  drawWorldRaster(ctx, view, scene.georef, canvas, scene.dem.bbox, scene.dem.cell, scene.dem.ny)
 
 function label(ctx, x, y, text, opts = {}) {
   const { color = '#0f172a', bg = 'rgba(255,255,255,0.82)', size = 11, weight = '600' } = opts
@@ -104,6 +109,7 @@ export function render(ctx, opts) {
     selection,
     draft,
     hover,
+    modelViews,
     width,
     height,
     dpr = 1,
@@ -133,6 +139,20 @@ export function render(ctx, opts) {
     ctx.strokeStyle = '#94a3b8'
     ctx.lineWidth = 1
     ctx.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1])
+  }
+
+  // --- Modelos estructurales sintéticos ---
+  if (show.models && modelViews?.length && scene?.ready) {
+    for (const mv of modelViews) {
+      if (mv.raster) {
+        drawWorldRaster(
+          ctx, view, scene.georef, mv.raster.canvas, mv.raster.bbox,
+          mv.raster.cell, mv.raster.ny, mv.model.opacity ?? 0.55
+        )
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      }
+    }
+    for (const mv of modelViews) drawModelTraces(ctx, view, mv, selection)
   }
 
   // --- Curvas de nivel ---
@@ -300,6 +320,11 @@ export function render(ctx, opts) {
     }
   }
 
+  // --- Símbolos de los modelos ---
+  if (show.models && modelViews?.length && scene?.ready) {
+    for (const mv of modelViews) drawModelSymbols(ctx, view, mv, selection, scene.georef)
+  }
+
   // --- Calibración: escala y norte ---
   if (project.georef.scaleLine) {
     const { a, b, meters } = project.georef.scaleLine
@@ -351,6 +376,86 @@ export function render(ctx, opts) {
   }
 
   drawOverlays(ctx, opts)
+}
+
+/** Trazas de los contactos de un modelo sintético. */
+function drawModelTraces(ctx, view, mv, selection) {
+  const selected = selection?.kind === 'model' && selection.id === mv.id
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  for (const tr of mv.traces) {
+    for (const line of tr.lines) {
+      ctx.strokeStyle = 'rgba(15,23,42,0.85)'
+      ctx.lineWidth = selected ? 3.6 : 2.6
+      path(ctx, view, line)
+      ctx.stroke()
+      ctx.strokeStyle = tr.upperColor
+      ctx.lineWidth = selected ? 1.8 : 1.2
+      path(ctx, view, line)
+      ctx.stroke()
+    }
+  }
+}
+
+/** Símbolos de rumbo/manteo y punto de anclaje de un modelo. */
+function drawModelSymbols(ctx, view, mv, selection, georef) {
+  const selected = selection?.kind === 'model' && selection.id === mv.id
+  for (const sym of mv.symbols) {
+    if (!Number.isFinite(sym.dip)) continue
+    const p = toScreen(view, sym.at)
+    drawStrikeDip(ctx, p, sym, '#0f172a', georef)
+  }
+  // Punto de anclaje
+  const a = toScreen(view, mv.model.at)
+  ctx.beginPath()
+  ctx.arc(a[0], a[1], selected ? 8 : 6, 0, Math.PI * 2)
+  ctx.fillStyle = selected ? '#f43f5e' : '#ffffff'
+  ctx.strokeStyle = '#0f172a'
+  ctx.lineWidth = 2
+  ctx.fill()
+  ctx.stroke()
+  if (mv.anchorAttitude) {
+    label(ctx, a[0], a[1] - 18, mv.model.name, { color: '#0f172a', size: 11 })
+  }
+}
+
+/** Símbolo clásico de rumbo y manteo: barra de rumbo + garrapata de manteo. */
+function drawStrikeDip(ctx, p, att, color, georef) {
+  const dirScreen = azimuthToImage(georef, att.dipDir - 90)
+  const dipScreen = azimuthToImage(georef, att.dipDir)
+  const L = 15
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2.2
+  ctx.beginPath()
+  ctx.moveTo(p[0] - dirScreen[0] * L, p[1] - dirScreen[1] * L)
+  ctx.lineTo(p[0] + dirScreen[0] * L, p[1] + dirScreen[1] * L)
+  ctx.stroke()
+  if (att.dip < 0.5) {
+    // Capa horizontal: círculo con cruz.
+    ctx.beginPath()
+    ctx.arc(p[0], p[1], 5, 0, Math.PI * 2)
+    ctx.stroke()
+    return
+  }
+  ctx.beginPath()
+  ctx.moveTo(p[0], p[1])
+  ctx.lineTo(p[0] + dipScreen[0] * 8, p[1] + dipScreen[1] * 8)
+  ctx.stroke()
+  ctx.font = '600 9px ui-sans-serif, system-ui, sans-serif'
+  ctx.fillStyle = color
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(
+    `${att.dip.toFixed(0)}`,
+    p[0] + dipScreen[0] * 17,
+    p[1] + dipScreen[1] * 17
+  )
+}
+
+/** Dirección unitaria en coordenadas de imagen para un azimut del mundo. */
+function azimuthToImage(georef, az) {
+  const a = (az * Math.PI) / 180
+  return norm(toImage(georef, [Math.sin(a), Math.cos(a)]))
 }
 
 function dashFor(type) {

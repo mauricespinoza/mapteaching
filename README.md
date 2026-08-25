@@ -1,4 +1,4 @@
-# GeoEstructura
+# MapTeaching
 
 **App en vivo:** https://mauricespinoza.github.io/mapteaching/
 
@@ -44,7 +44,27 @@ soltar) o **por vértices** (un toque = un vértice, para el ratón). El botón
 «Sólo lápiz» activa el rechazo de palma: con él, los dedos únicamente desplazan
 y hacen zoom.
 
-### 3. Contornos estructurales, rumbo y manteo
+### 3. Modelos estructurales sintéticos
+
+El camino inverso: en vez de deducir la estructura desde el mapa, se define la
+estructura y la app dibuja **la traza que produciría en planta**. Se marca un
+punto y se elige el modelo:
+
+| Modelo | Parámetros | Qué enseña |
+| --- | --- | --- |
+| **Plano único** | rumbo y manteo (regla de la mano derecha) | La **regla de la V**: cómo un contacto se desvía valle arriba según su manteo. |
+| **Serie de capas** | n capas, espesor, rumbo y manteo | Bandas repetidas separadas `espesor / sen(manteo)`. |
+| **Pliegues** | trend y plunge del eje, ángulo interlimbo, longitud de onda (cresta a cresta), grado de asimetría, perfil redondeado o angular | Con eje horizontal, trazas rectas; al darle inmersión aparecen las **narices cerradas** de un pliegue que se sumerge. |
+
+El modelo pinta además el mapa geológico resultante y reparte símbolos de rumbo
+y manteo calculados punto a punto (en un pliegue, el manteo de cada flanco y la
+inmersión del eje en la charnela).
+
+Todo funciona **sin necesidad de importar nada**: sobre terreno plano ya se ven
+los patrones de afloramiento. Si hay curvas de nivel digitalizadas, las trazas
+se calculan cortando la topografía real.
+
+### 4. Contornos estructurales, rumbo y manteo
 
 Un contacto aflora donde su superficie corta la topografía, así que **cada
 intersección de la traza con una curva de nivel es un punto de la superficie con
@@ -66,14 +86,14 @@ notaciones habituales: cuadrante (`N45°E / 30° SE`) y dirección de manteo
 Si una superficie tiene pocas intersecciones (una sola cota resuelta, un punto
 por cota), la app lo advierte y permite **imponer la actitud a mano**.
 
-### 4. Bloques de falla
+### 5. Bloques de falla
 
 Las trazas de falla parten el mapa en **bloques estructurales** (relleno por
 inundación sobre una grilla). Cada contacto se resuelve **por separado en cada
 bloque**, de modo que el desplazamiento a través de la falla aparece por sí solo
 en el mapa, en el perfil y en el 3D — no hay que indicar ningún salto a mano.
 
-### 5. Perfil estructural
+### 6. Perfil estructural
 
 Para cada traza A–A′: topografía, relleno de las unidades entre sus contactos,
 horizontes ya erosionados proyectados sobre la topografía (punteados), líneas de
@@ -84,14 +104,14 @@ ajustables; exportación a **SVG** y **PNG**.
 La geometría en profundidad se interpola entre contornos estructurales, así que
 una superficie plegada (contornos no paralelos) se dibuja curva, no como un plano.
 
-### 6. Vista 3D
+### 7. Vista 3D
 
 Topografía reconstruida desde las curvas (con la imagen del mapa drapeada como
 textura si la hay), curvas y trazas sobre el terreno, superficies de contacto por
 bloque, planos de falla, pozos con sus intersecciones y los planos de los
 perfiles. Exageración vertical y capas conmutables.
 
-### 7. Pozos
+### 8. Pozos
 
 Con la posición, la profundidad medida (MD), el *trend* y el *plunge* la app
 calcula la trayectoria en 3D, sus intersecciones con contactos y fallas
@@ -99,10 +119,10 @@ calcula la trayectoria en 3D, sus intersecciones con contactos y fallas
 **espesor real** de cada unidad, corregido por el ángulo entre el pozo y el polo
 del contacto.
 
-### 8. Proyectos
+### 9. Proyectos
 
 Autoguardado en el navegador, varios proyectos, **exportar/importar** el ejercicio
-completo (`.geoest.json`, con la imagen embebida) para repartirlo a los
+completo (`.mapteaching.json`, con la imagen embebida) para repartirlo a los
 estudiantes, y un campo de **enunciado** para escribir las instrucciones del
 ejercicio. El botón **Ejemplo** genera un ejercicio sintético completo —
 tres unidades con manteo 25° al ESE cortadas por una falla normal de 70°W con
@@ -114,7 +134,7 @@ geometría original.
 ## Atajos
 
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
-`R` escala · `N` norte · `S` perfil · `W` pozo · `E` borrar ·
+`R` escala · `N` norte · `S` perfil · `W` pozo · `M` modelo · `E` borrar ·
 `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo · `Esc` cancelar.
 
 ---
@@ -144,6 +164,7 @@ src/lib/
   wells.js       trayectoria y columna de pozos
   marching.js    isolíneas (usado por el generador de ejercicios)
   sample.js      ejercicio sintético de demostración
+  models.js      modelos sintéticos: plano, serie de capas y tren de pliegues
   render2d.js    dibujo del mapa en canvas
 src/components/  interfaz (mapa, perfil, 3D, pozos, paneles)
 ```

@@ -3,9 +3,12 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react'
 
 export function Modal({ title, onClose, children, wide }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
-        className={`max-h-[88vh] w-full ${wide ? 'max-w-3xl' : 'max-w-md'} overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl`}
+        className={`max-h-[88vh] w-full ${wide ? 'max-w-3xl' : 'max-w-md'} overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ring-1 ring-black/5`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -24,7 +27,7 @@ export function Collapsible({ title, badge, children, defaultOpen = true, action
   const [open, setOpen] = useState(defaultOpen)
   return (
     <section className="border-b border-slate-200">
-      <div className="flex items-center gap-1 px-3 py-2">
+      <div className="flex items-center gap-1 px-3 py-2 transition hover:bg-slate-50/80">
         <button className="flex flex-1 items-center gap-1.5 text-left" onClick={() => setOpen((o) => !o)}>
           {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
           <span className="text-sm font-semibold text-slate-700">{title}</span>
@@ -54,16 +57,17 @@ export const inputCls =
 
 export function Btn({ children, onClick, variant = 'default', className = '', ...rest }) {
   const styles = {
-    default: 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50',
-    primary: 'bg-sky-600 text-white hover:bg-sky-700',
+    default: 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400',
+    primary: 'bg-sky-600 text-white shadow-sm hover:bg-sky-700',
     dark: 'bg-slate-800 text-white hover:bg-slate-900',
-    danger: 'border border-rose-200 text-rose-700 hover:bg-rose-50',
-    ghost: 'text-slate-600 hover:bg-slate-100',
+    onDark: 'bg-white/10 text-slate-100 ring-1 ring-white/10 hover:bg-white/20',
+    danger: 'border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100',
+    ghost: 'text-slate-500 hover:bg-slate-100 hover:text-slate-800',
   }
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${styles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${styles[variant]} ${className}`}
       {...rest}
     >
       {children}
