@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { toWorldList, toImage } from '../lib/georef.js'
 import { kinematicsOf } from '../lib/model.js'
+import { frameTest, modelExtent } from '../lib/models.js'
 import { buildWellModel } from '../lib/wells.js'
 
 /**
@@ -91,6 +92,9 @@ export default function ThreeView({ project, scene, image }) {
     disposeGroup(content)
 
     const { bbox, dem } = scene
+    // Marco de trabajo: fuera de él no se construye nada, para que el modelo
+    // termine exactamente donde el usuario acotó el ejercicio.
+    const inFrame = frameTest(scene)
     const cx = (bbox.minX + bbox.maxX) / 2
     const cy = (bbox.minY + bbox.maxY) / 2
     const zRange = Math.max(1, dem.zmax - dem.zmin)
@@ -127,6 +131,23 @@ export default function ThreeView({ project, scene, image }) {
           }
         }
       }
+      if (inFrame) {
+        // Se descartan los triángulos con algún vértice fuera del marco; así el
+        // terreno queda cortado en el borde sin tener que remallar.
+        const keep = new Uint8Array(pos.count)
+        for (let j = 0; j < dem.ny; j++) {
+          for (let i = 0; i < dem.nx; i++) {
+            const vi = (dem.ny - 1 - j) * dem.nx + i
+            keep[vi] = inFrame(bbox.minX + i * dem.cell, bbox.minY + j * dem.cell) ? 1 : 0
+          }
+        }
+        const src = geo.getIndex().array
+        const out = []
+        for (let t = 0; t < src.length; t += 3) {
+          if (keep[src[t]] && keep[src[t + 1]] && keep[src[t + 2]]) out.push(src[t], src[t + 1], src[t + 2])
+        }
+        geo.setIndex(out)
+      }
       geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
       geo.computeVertexNormals()
       const useTex = show.texture && image && project.image
@@ -143,8 +164,10 @@ export default function ThreeView({ project, scene, image }) {
     // Curvas de nivel drapeadas
     if (show.contours) {
       for (const c of scene.worldContours) {
-        const pts = c.pts.map((p) => P(p[0], p[1], c.elevation + zRange * 0.002))
-        content.add(lineFrom(pts, 0xb45309, 0.85))
+        for (const run of clipRuns(c.pts, inFrame)) {
+          const pts = run.map((p) => P(p[0], p[1], c.elevation + zRange * 0.002))
+          content.add(lineFrom(pts, 0xb45309, 0.85))
+        }
       }
     }
 
@@ -153,15 +176,19 @@ export default function ThreeView({ project, scene, image }) {
       for (const cw of scene.contactWorld) {
         const color = new THREE.Color(cw.contact.color || '#0f172a')
         for (const tr of cw.traces) {
-          const pts = tr.map((p) => P(p[0], p[1], dem.elevationAt(p[0], p[1]) + zRange * 0.004))
-          content.add(lineFrom(pts, color.getHex(), 1, 2))
+          for (const run of clipRuns(tr, inFrame)) {
+            const pts = run.map((p) => P(p[0], p[1], dem.elevationAt(p[0], p[1]) + zRange * 0.004))
+            content.add(lineFrom(pts, color.getHex(), 1, 2))
+          }
         }
       }
       for (const fw of scene.faultWorld) {
         const color = new THREE.Color(kinematicsOf(fw.fault.kinematics).color)
         for (const tr of fw.traces) {
-          const pts = tr.map((p) => P(p[0], p[1], dem.elevationAt(p[0], p[1]) + zRange * 0.006))
-          content.add(lineFrom(pts, color.getHex(), 1, 3))
+          for (const run of clipRuns(tr, inFrame)) {
+            const pts = run.map((p) => P(p[0], p[1], dem.elevationAt(p[0], p[1]) + zRange * 0.006))
+            content.add(lineFrom(pts, color.getHex(), 1, 3))
+          }
         }
       }
     }
@@ -175,7 +202,7 @@ export default function ThreeView({ project, scene, image }) {
         const color = new THREE.Color(unit?.color || c.color || '#38bdf8')
         for (const [blockId, surf] of byBlock) {
           if (!surf.defined) continue
-          const mesh = surfaceMesh(scene, surf, blockId, P, zBottom, dem)
+          const mesh = surfaceMesh(scene, surf, blockId, P, zBottom, dem, inFrame)
           if (!mesh) continue
           mesh.material = new THREE.MeshStandardMaterial({
             color,
@@ -196,20 +223,22 @@ export default function ThreeView({ project, scene, image }) {
         const att = surf?.mean
         const color = new THREE.Color(kinematicsOf(fw.fault.kinematics).color)
         for (const tr of fw.traces) {
-          const geo = faultRibbon(tr, att, dem, P, zBottom)
-          if (!geo) continue
-          content.add(
-            new THREE.Mesh(
-              geo,
-              new THREE.MeshStandardMaterial({
-                color,
-                transparent: true,
-                opacity: 0.5,
-                side: THREE.DoubleSide,
-                roughness: 0.6,
-              })
+          for (const run of clipRuns(tr, inFrame)) {
+            const geo = faultRibbon(run, att, dem, P, zBottom, inFrame)
+            if (!geo) continue
+            content.add(
+              new THREE.Mesh(
+                geo,
+                new THREE.MeshStandardMaterial({
+                  color,
+                  transparent: true,
+                  opacity: 0.5,
+                  side: THREE.DoubleSide,
+                  roughness: 0.6,
+                })
+              )
             )
-          )
+          }
         }
       }
     }
@@ -218,6 +247,7 @@ export default function ThreeView({ project, scene, image }) {
     if (show.wells) {
       for (const w of project.wells) {
         const wm = buildWellModel(w, scene)
+        if (inFrame && !inFrame(wm.surface[0], wm.surface[1])) continue
         const a = P(wm.surface[0], wm.surface[1], wm.surface[2])
         const b = P(wm.bottom.x, wm.bottom.y, wm.bottom.z)
         content.add(lineFrom([a, b], 0xf59e0b, 1, 3))
@@ -245,7 +275,13 @@ export default function ThreeView({ project, scene, image }) {
     // Trazas de perfil como planos verticales
     if (show.sections) {
       for (const s of project.sections) {
-        const [a, b] = toWorldList(scene.georef, [s.a, s.b])
+        let [a, b] = toWorldList(scene.georef, [s.a, s.b])
+        // El plano del perfil se muestra sólo en el tramo que cruza el área.
+        if (inFrame) {
+          const seg = clipSegment(a, b, inFrame)
+          if (!seg) continue
+          ;[a, b] = seg
+        }
         const top = dem.zmax + zRange * 0.05
         const bot = dem.zmin - (s.depth || depth)
         const geo = new THREE.BufferGeometry()
@@ -273,9 +309,10 @@ export default function ThreeView({ project, scene, image }) {
       }
     }
 
-    // Encuadre inicial
-    const spanX = bbox.maxX - bbox.minX
-    const spanY = bbox.maxY - bbox.minY
+    // Encuadre inicial: con marco definido se encuadra el área de trabajo.
+    const view = inFrame ? modelExtent(scene) : bbox
+    const spanX = view.maxX - view.minX
+    const spanY = view.maxY - view.minY
     const radius = 0.5 * Math.hypot(spanX, spanY, zRange * vExag)
     const centerZ = ((dem.zmin + dem.zmax) / 2 - cz) * vExag
     camera.near = Math.max(1, radius / 2000)
@@ -349,6 +386,25 @@ function toCanvas(img) {
   return c
 }
 
+/**
+ * Parte una polilínea en los tramos que caen dentro del marco de trabajo.
+ * Sin marco devuelve la línea completa.
+ */
+function clipRuns(pts, inFrame) {
+  if (!inFrame) return pts.length > 1 ? [pts] : []
+  const runs = []
+  let run = []
+  for (const p of pts) {
+    if (inFrame(p[0], p[1])) run.push(p)
+    else {
+      if (run.length > 1) runs.push(run)
+      run = []
+    }
+  }
+  if (run.length > 1) runs.push(run)
+  return runs
+}
+
 function lineFrom(points, color, opacity = 1, width = 1) {
   const geo = new THREE.BufferGeometry().setFromPoints(points)
   const mat = new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity, linewidth: width })
@@ -356,7 +412,7 @@ function lineFrom(points, color, opacity = 1, width = 1) {
 }
 
 /** Malla de una superficie geológica, limitada al bloque que le corresponde. */
-function surfaceMesh(scene, surf, blockId, P, zMin, dem) {
+function surfaceMesh(scene, surf, blockId, P, zMin, dem, inFrame) {
   const { bbox } = scene
   // Malla fina: el borde de la superficie se recorta contra la topografía, y
   // con pocas celdas ese recorte se ve escalonado.
@@ -386,7 +442,7 @@ function surfaceMesh(scene, surf, blockId, P, zMin, dem) {
         [x1, y0],
         [x1, y1],
         [x0, y1],
-      ].every((p) => scene.blocks.blockAt(p[0], p[1]) === blockId)
+      ].every((p) => scene.blocks.blockAt(p[0], p[1]) === blockId && (!inFrame || inFrame(p[0], p[1])))
       if (!inside) continue
       const a = push(x0, y0)
       const b = push(x1, y0)
@@ -404,7 +460,7 @@ function surfaceMesh(scene, surf, blockId, P, zMin, dem) {
 }
 
 /** Cinta que representa el plano de falla desde la traza hacia la profundidad. */
-function faultRibbon(trace, att, dem, P, zBottom) {
+function faultRibbon(trace, att, dem, P, zBottom, inFrame) {
   if (trace.length < 2) return null
   const RAD = Math.PI / 180
   const dip = att ? att.dip : 90
@@ -419,8 +475,12 @@ function faultRibbon(trace, att, dem, P, zBottom) {
     const p = trace[i]
     const zTop = dem.elevationAt(p[0], p[1])
     const drop = zTop - zBottom
-    const run = k > 1e-6 ? drop / k : 0
-    cols.push([P(p[0], p[1], zTop), P(p[0] + dirX * run, p[1] + dirY * run, zBottom)])
+    let run = k > 1e-6 ? drop / k : 0
+    // Con marco definido el plano no puede asomar por el costado: se acorta la
+    // proyección buzamiento abajo hasta donde deja de estar dentro del área.
+    if (inFrame && run > 0) run = clipRun(p, dirX, dirY, run, inFrame)
+    const zEnd = k > 1e-6 ? zTop - run * k : zBottom
+    cols.push([P(p[0], p[1], zTop), P(p[0] + dirX * run, p[1] + dirY * run, zEnd)])
   }
   for (let i = 1; i < cols.length; i++) {
     const [a0, a1] = cols[i - 1]
@@ -432,6 +492,37 @@ function faultRibbon(trace, att, dem, P, zBottom) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
   geo.computeVertexNormals()
   return geo
+}
+
+/** Tramo de un segmento que queda dentro del marco, o null si no cruza. */
+function clipSegment(a, b, inFrame) {
+  const N = 200
+  let first = -1
+  let last = -1
+  for (let i = 0; i <= N; i++) {
+    const t = i / N
+    const x = a[0] + (b[0] - a[0]) * t
+    const y = a[1] + (b[1] - a[1]) * t
+    if (!inFrame(x, y)) continue
+    if (first < 0) first = t
+    last = t
+  }
+  if (first < 0 || last <= first) return null
+  const at = (t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+  return [at(first), at(last)]
+}
+
+/** Mayor avance buzamiento abajo que sigue dentro del marco de trabajo. */
+function clipRun(p, dirX, dirY, run, inFrame) {
+  if (inFrame(p[0] + dirX * run, p[1] + dirY * run)) return run
+  let lo = 0
+  let hi = run
+  for (let it = 0; it < 22; it++) {
+    const mid = (lo + hi) / 2
+    if (inFrame(p[0] + dirX * mid, p[1] + dirY * mid)) lo = mid
+    else hi = mid
+  }
+  return lo
 }
 
 function disposeGroup(group) {

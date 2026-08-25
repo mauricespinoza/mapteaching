@@ -100,7 +100,7 @@ export default function MapView({
   )
 
   const isDrawTool = ['contour', 'contact', 'fault'].includes(tool)
-  const isTwoPointTool = ['scale', 'north', 'section'].includes(tool)
+  const isTwoPointTool = ['scale', 'north', 'section', 'frame'].includes(tool)
 
   const hillshade = useMemo(() => {
     const levels = new Set((scene?.worldContours || []).map((c) => c.elevation))
@@ -213,7 +213,9 @@ export default function MapView({
         return
       }
       if (isTwoPointTool) {
-        onTwoPoint(pts[0], pts[1])
+        // En un arrastre continuo la polilínea trae muchos puntos: la escala,
+        // el norte, el perfil y el marco se definen con el primero y el último.
+        onTwoPoint(pts[0], pts[pts.length - 1])
         setDraft(null)
       } else finishStroke(pts)
     },
@@ -490,7 +492,7 @@ export default function MapView({
         setDraft((prev) => {
           const pts = prev?.pts || []
           if (pts.length >= 2) {
-            onTwoPoint(pts[0], pts[1])
+            onTwoPoint(pts[0], pts[pts.length - 1])
             return null
           }
           return prev
@@ -518,7 +520,7 @@ export default function MapView({
     const onKey = (e) => {
       if (e.key === 'Enter' && draft?.pts?.length >= 2) {
         if (isTwoPointTool) {
-          onTwoPoint(draft.pts[0], draft.pts[1])
+          onTwoPoint(draft.pts[0], draft.pts[draft.pts.length - 1])
           setDraft(null)
         } else finishStroke(draft.pts)
       }

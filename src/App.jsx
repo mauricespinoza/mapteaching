@@ -232,6 +232,9 @@ export default function App() {
         setDialog({ kind: 'scale', a, b, meters: 1000 })
       } else if (tool === 'north') {
         dispatch({ type: 'georef', patch: { northVec: norm(sub(b, a)), northLine: { a, b } } })
+      } else if (tool === 'frame') {
+        dispatch({ type: 'patch', patch: { frame: { a, b } } })
+        setTool('select')
       } else if (tool === 'section') {
         const s = newSection(project, a, b)
         dispatch({ type: 'section.add', section: s })
@@ -921,6 +924,7 @@ function statusText(tool, project, activeIds, scene) {
   }
   if (tool === 'scale') return 'Traza una línea de largo conocido'
   if (tool === 'north') return 'Traza una flecha apuntando al Norte'
+  if (tool === 'frame') return 'Arrastra el rectángulo del área de trabajo'
   if (tool === 'section') return 'Traza la línea del perfil (A–A′)'
   if (tool === 'well') return 'Toca el mapa para ubicar el pozo'
   if (tool === 'erase') return 'Toca un rasgo para eliminarlo'

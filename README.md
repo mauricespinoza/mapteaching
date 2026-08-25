@@ -38,6 +38,7 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | **Fallas** | Traza + **cinemática** (normal, inversa, dextral, sinestral y sus combinaciones oblicuas). Se dibujan con su simbología (garrapatas en el bloque colgante, triángulos en las inversas, medias flechas en las de rumbo). |
 | **Trazas de perfil** | Línea A–A′ que abre la vista de perfil. |
 | **Pozos** | Un toque sobre el mapa; luego profundidad medida, *trend* y *plunge*. |
+| **Área de trabajo** | Rectángulo que acota el ejercicio: los polígonos del mapa geológico, el modelo 3D, las trazas drapeadas y los planos de falla y de perfil se recortan a él. Se dibuja arrastrando y se quita desde el panel de capas. |
 
 **Trazo híbrido**: un toque coloca un vértice; mantener apretado y arrastrar
 dibuja un trazo continuo (suavizado Douglas–Peucker al soltar). Ambos se mezclan
@@ -174,7 +175,8 @@ geometría original.
 ## Atajos
 
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
-`R` escala · `N` norte · `S` perfil · `W` pozo · `M` modelo · `E` borrar ·
+`R` escala · `N` norte · `S` perfil · `W` pozo · `M` modelo · `B` área de
+trabajo · `E` borrar ·
 `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo · `Esc` cancelar.
 
 ---

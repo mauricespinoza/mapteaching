@@ -1,8 +1,62 @@
-import { Plus, Trash2, Pencil, ArrowUp, ArrowDown, Eraser, Lock, Unlock, Image as ImageIcon } from 'lucide-react'
+import {
+  Plus,
+  Trash2,
+  Pencil,
+  ArrowUp,
+  ArrowDown,
+  Eraser,
+  Lock,
+  Unlock,
+  Image as ImageIcon,
+  Frame,
+  Maximize,
+} from 'lucide-react'
 import { Collapsible, Field, inputCls, Btn } from './ui.jsx'
 import { CONTACT_TYPES, KINEMATICS, newFault, sortedUnits, sortedContacts } from '../lib/model.js'
 
 /** Panel lateral con todas las entidades del proyecto. */
+/**
+ * Marco rectangular que acota el ejercicio: los polígonos del mapa geológico y
+ * el modelo 3D se recortan a esta área.
+ */
+function WorkArea({ project, dispatch, setTool }) {
+  const f = project.frame
+  const size = project.image || project.virtualSize
+  const fit = () => {
+    if (!size?.width || !size?.height) return
+    dispatch({ type: 'patch', patch: { frame: { a: [0, 0], b: [size.width, size.height] } } })
+  }
+  return (
+    <div className="mt-2 rounded-lg border border-slate-200 px-2 py-1.5">
+      <div className="flex items-center gap-1.5">
+        <Frame size={13} className="shrink-0 text-slate-400" />
+        <span className="flex-1 text-xs font-medium text-slate-700">Área de trabajo</span>
+        <span className="text-[10px] text-slate-400">
+          {f ? `${Math.round(Math.abs(f.b[0] - f.a[0]))} × ${Math.round(Math.abs(f.b[1] - f.a[1]))} px` : 'sin marco'}
+        </span>
+      </div>
+      <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+        Recorta los polígonos del mapa y el modelo 3D al rectángulo que definas.
+      </p>
+      <div className="mt-1.5 flex flex-wrap gap-1">
+        <Btn variant="primary" onClick={() => setTool('frame')}>
+          <Pencil size={13} /> {f ? 'Redefinir' : 'Dibujar marco'}
+        </Btn>
+        {size?.width > 0 && (
+          <Btn variant="ghost" title="Ajustar al tamaño del mapa" onClick={fit}>
+            <Maximize size={13} /> Todo el mapa
+          </Btn>
+        )}
+        {f && (
+          <Btn variant="ghost" title="Quitar el marco" onClick={() => dispatch({ type: 'patch', patch: { frame: null } })}>
+            <Trash2 size={13} /> Quitar
+          </Btn>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function LayersPanel({
   project,
   scene,
@@ -87,6 +141,8 @@ export default function LayersPanel({
             <Trash2 size={13} /> Borrar imagen base
           </Btn>
         )}
+
+        <WorkArea project={project} dispatch={dispatch} setTool={setTool} />
       </Collapsible>
 
       <Collapsible

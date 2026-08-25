@@ -244,6 +244,25 @@ function toWorldPt(scene, px) {
  * esta unión, el relleno del modelo aparecía recortado.
  */
 export function modelExtent(scene) {
+  // Con un marco de trabajo definido, ése manda: es el área que el usuario
+  // quiere calcular y recortar.
+  const frame = scene.project?.frame
+  if (frame?.a && frame?.b) {
+    const corners = [
+      [frame.a[0], frame.a[1]],
+      [frame.b[0], frame.a[1]],
+      [frame.b[0], frame.b[1]],
+      [frame.a[0], frame.b[1]],
+    ].map((px) => toWorldPt(scene, px))
+    const xs = corners.map((c) => c[0])
+    const ys = corners.map((c) => c[1])
+    return {
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      minY: Math.min(...ys),
+      maxY: Math.max(...ys),
+    }
+  }
   const b = scene.bbox
   let minX = b.minX
   let minY = b.minY
@@ -268,6 +287,23 @@ export function modelExtent(scene) {
   const mx = (maxX - minX) * 0.04
   const my = (maxY - minY) * 0.04
   return { minX: minX - mx, minY: minY - my, maxX: maxX + mx, maxY: maxY + my }
+}
+
+/**
+ * Prueba de pertenencia al área de trabajo, en coordenadas mundo. Devuelve
+ * null si no hay marco definido (todo el mapa es válido).
+ */
+export function frameTest(scene) {
+  const frame = scene.project?.frame
+  if (!frame?.a || !frame?.b) return null
+  const x0 = Math.min(frame.a[0], frame.b[0])
+  const x1 = Math.max(frame.a[0], frame.b[0])
+  const y0 = Math.min(frame.a[1], frame.b[1])
+  const y1 = Math.max(frame.a[1], frame.b[1])
+  return (wx, wy) => {
+    const px = toImage(scene.georef, [wx, wy])
+    return px[0] >= x0 && px[0] <= x1 && px[1] >= y0 && px[1] <= y1
+  }
 }
 
 /** Elevación del terreno; si aún no hay curvas de nivel, terreno plano en 0. */
@@ -338,6 +374,7 @@ export function modelRaster(model, scene, resolution = 260) {
   const ny = Math.max(2, Math.ceil(h / cell) + 1)
 
   const colors = modelColors(model).map(hexToRgb)
+  const inFrame = frameTest(scene)
   const canvas = document.createElement('canvas')
   canvas.width = nx
   canvas.height = ny
@@ -348,12 +385,16 @@ export function modelRaster(model, scene, resolution = 260) {
     const y = bbox.minY + j * cell
     for (let i = 0; i < nx; i++) {
       const x = bbox.minX + i * cell
+      // La fila 0 del canvas corresponde al norte (Y máximo).
+      const o = ((ny - 1 - j) * nx + i) * 4
+      if (inFrame && !inFrame(x, y)) {
+        img.data[o + 3] = 0
+        continue
+      }
       const z = topoAt(scene, x, y)
       const c = geo.strat(x, y, z)
       // Un solo plano: se sombrea sólo el bloque bajo la superficie.
       const idx = model.kind === 'plane' ? (c < 0 ? 0 : -1) : geo.layerIndexAt(c)
-      // La fila 0 del canvas corresponde al norte (Y máximo).
-      const o = ((ny - 1 - j) * nx + i) * 4
       if (idx < 0) {
         img.data[o + 3] = 0
         continue

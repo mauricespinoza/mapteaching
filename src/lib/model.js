@@ -65,6 +65,9 @@ export function newProject(name = 'Ejercicio sin título') {
     statement: '',
     image: null, // { blobId, width, height, name }
     virtualSize: { width: 1400, height: 1000 }, // lienzo mientras no haya imagen
+    // Marco rectangular del área de trabajo, en píxeles de imagen. Recorta los
+    // polígonos de unidades, las trazas de los modelos y el modelo 3D.
+    frame: null, // { a: [x, y], b: [x, y] }
     // Sobre el lienzo virtual se asume una escala de trabajo (≈10 × 7 km), de
     // modo que los modelos sintéticos funcionan sin calibrar nada. Al importar
     // una imagen la escala se borra para que el usuario la calibre.

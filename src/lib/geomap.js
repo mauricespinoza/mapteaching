@@ -5,7 +5,7 @@
 // evaluando las superficies de cada contacto en el bloque que corresponde, se
 // obtiene el relleno de los polígonos definidos por contactos sucesivos.
 
-import { modelExtent } from './models.js'
+import { modelExtent, frameTest } from './models.js'
 
 /**
  * Unidad que aflora en un punto, dadas las cotas de los contactos allí.
@@ -50,6 +50,7 @@ export function buildUnitRaster(scene, resolution = 170) {
   const units = scene.units
   const colors = new Map(units.map((u) => [u.id, hexToRgb(u.color)]))
   const elevations = new Array(contacts.length)
+  const inFrame = frameTest(scene)
 
   const canvas = document.createElement('canvas')
   canvas.width = nx
@@ -61,6 +62,11 @@ export function buildUnitRaster(scene, resolution = 170) {
     const y = bbox.minY + j * cell
     for (let i = 0; i < nx; i++) {
       const x = bbox.minX + i * cell
+      const o0 = ((ny - 1 - j) * nx + i) * 4
+      if (inFrame && !inFrame(x, y)) {
+        img.data[o0 + 3] = 0
+        continue
+      }
       const z = scene.dem.elevationAt(x, y)
       let any = false
       for (let c = 0; c < contacts.length; c++) {

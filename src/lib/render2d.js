@@ -84,7 +84,11 @@ function drawWorldRaster(ctx, view, georef, canvas, bbox, cell, rows, alpha = 1)
   ctx.save()
   ctx.imageSmoothingEnabled = true
   ctx.globalAlpha = alpha
-  ctx.setTransform(ex[0], ex[1], ny[0], ny[1], os[0], os[1])
+  // `transform` compone sobre la matriz vigente; `setTransform` la reemplaza y
+  // descartaba la escala por densidad de pantalla, de modo que en pantallas
+  // retina el raster salía a mitad de tamaño y anclado arriba a la izquierda,
+  // desalineado respecto a las trazas y la imagen.
+  ctx.transform(ex[0], ex[1], ny[0], ny[1], os[0], os[1])
   ctx.drawImage(canvas, 0, 0)
   ctx.restore()
 }
@@ -284,6 +288,30 @@ export function render(ctx, opts) {
         }
       }
     }
+  }
+
+  // --- Marco del área de trabajo ---
+  if (project.frame) {
+    const a = toScreen(view, project.frame.a)
+    const b = toScreen(view, project.frame.b)
+    const x = Math.min(a[0], b[0])
+    const y = Math.min(a[1], b[1])
+    const w = Math.abs(b[0] - a[0])
+    const h = Math.abs(b[1] - a[1])
+    // Lo de fuera del área se atenúa, para que se lea qué queda dentro.
+    ctx.save()
+    ctx.fillStyle = 'rgba(148,163,184,0.22)'
+    ctx.beginPath()
+    ctx.rect(0, 0, width, height)
+    ctx.rect(x, y, w, h)
+    ctx.fill('evenodd')
+    ctx.restore()
+    ctx.strokeStyle = '#0f172a'
+    ctx.lineWidth = 2
+    ctx.setLineDash([8, 4])
+    ctx.strokeRect(x, y, w, h)
+    ctx.setLineDash([])
+    label(ctx, x + w / 2, y - 10, 'Área de trabajo', { color: '#0f172a', size: 10 })
   }
 
   // --- Perfiles ---

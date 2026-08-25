@@ -36,6 +36,11 @@ export default function HelpPanel({ project, dispatch }) {
           consecutivos.
         </li>
         <li>
+          Si el ejercicio ocupa sólo una parte de la lámina, define el <b>área de trabajo</b>: arrastra un
+          rectángulo con esa herramienta y tanto los polígonos del mapa geológico como el modelo 3D quedan
+          recortados a él. Se quita desde la tarjeta «Área de trabajo» del panel de capas.
+        </li>
+        <li>
           Traza <b>perfiles</b> y ábrelos para ver la geometría en profundidad, y ubica <b>pozos</b> (con
           profundidad, trend y plunge) para predecir la columna que cortarían.
         </li>
@@ -114,6 +119,7 @@ export default function HelpPanel({ project, dispatch }) {
         <li>S · perfil</li>
         <li>W · pozo</li>
         <li>E · borrar</li>
+        <li>B · área de trabajo</li>
         <li>M · modelo</li>
         <li>Ctrl+Z / Ctrl+Y</li>
         <li>Enter · cerrar trazo</li>
