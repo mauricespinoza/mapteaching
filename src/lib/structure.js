@@ -51,31 +51,38 @@ export function intersectWithContours(traces, contours, tol = 1) {
   return out
 }
 
-/** Agrupa los puntos 3D por cota y ajusta una recta a cada grupo. */
-export function structureContours(points3D, tol = 1, limbOf = null) {
+/**
+ * Agrupa los puntos 3D por cota y ajusta una recta a cada grupo.
+ *
+ * `keyOf` separa además grupos que comparten cota y limbo: es lo que mantiene
+ * a cada contorno estructural puesto a mano como una curva propia, aunque el
+ * reparto en dominios lo asigne al mismo limbo que otro.
+ */
+export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null) {
   const byZ = new Map()
   for (const p of points3D) {
     // Con `limbOf` los puntos de una misma cota se separan por limbo: en un
     // pliegue, ajustar una sola recta a los dos flancos promediaría a través
     // de la charnela y daría un rumbo que no existe.
     const limb = limbOf ? limbOf(p) : 0
-    const key = `${p[2]}|${limb}`
+    const manualId = (keyOf && keyOf(p)) || null
+    const key = `${p[2]}|${limb}|${manualId || ''}`
     let arr = byZ.get(key)
-    if (!arr) byZ.set(key, (arr = { elevation: p[2], limb, pts: [] }))
+    if (!arr) byZ.set(key, (arr = { elevation: p[2], limb, manualId, pts: [] }))
     arr.pts.push([p[0], p[1]])
   }
   const out = []
   for (const group of byZ.values()) {
-    const { elevation, limb } = group
+    const { elevation, limb, manualId } = group
     const pts = group.pts
     if (pts.length < 2) {
-      out.push({ elevation, limb, points: pts, fit: null, n: pts.length })
+      out.push({ elevation, limb, manualId, points: pts, fit: null, n: pts.length })
       continue
     }
     const fit = fitLine(pts)
     if (!fit || fit.spread < tol * 1.5) {
       // Puntos prácticamente coincidentes: no definen una dirección de rumbo.
-      out.push({ elevation, limb, points: pts, fit: null, n: pts.length })
+      out.push({ elevation, limb, manualId, points: pts, fit: null, n: pts.length })
       continue
     }
     // Extensión del contorno: proyección de los puntos sobre la recta.
@@ -86,7 +93,7 @@ export function structureContours(points3D, tol = 1, limbOf = null) {
       if (t < tmin) tmin = t
       if (t > tmax) tmax = t
     }
-    out.push({ elevation, limb, points: pts, fit, tmin, tmax, n: pts.length })
+    out.push({ elevation, limb, manualId, points: pts, fit, tmin, tmax, n: pts.length })
   }
   out.sort((a, b) => a.limb - b.limb || a.elevation - b.elevation)
   return out
@@ -150,6 +157,9 @@ function attitudeBetween(lo, hi) {
     strikeDir: dir,
     ...formatAttitude(dipDir, dip),
     nPoints: lo.n + hi.n,
+    // El manteo sale de un contorno puesto a mano: conviene que se note en la
+    // tabla, porque es una decisión del estudiante y no una medida del mapa.
+    manual: Boolean(lo.manualId || hi.manualId),
   }
 }
 
@@ -331,8 +341,52 @@ export function attitudeFromGradient(a, b) {
  * estructurales. `elevationAt(x, y)` interpola entre contornos consecutivos
  * (permite pliegues cilíndricos) y extrapola con el gradiente de los extremos.
  */
-export function buildSurface({ traces, contours, manual = null, name = '', color = '#000', tol = 1 }) {
-  const points3D = intersectWithContours(traces, contours, tol)
+/**
+ * Puntos con los que un contorno estructural puesto a mano entra en el motor.
+ * Es una recta de cota conocida sobre la superficie, así que se muestrea en
+ * unos pocos puntos que valen exactamente lo mismo que un cruce con una curva
+ * de nivel: el resto del cálculo no necesita saber de dónde vienen.
+ */
+const SC_SAMPLES = 5
+
+function sampleManualContour(mc) {
+  const [a, b] = [mc.a, mc.b]
+  const out = []
+  for (let i = 0; i < SC_SAMPLES; i++) {
+    const t = i / (SC_SAMPLES - 1)
+    out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, mc.elevation])
+  }
+  return out
+}
+
+/**
+ * @param manualContours [{ id, elevation, a, b }] contornos puestos a mano, en
+ *   coordenadas mundo. En las cotas que tocan sustituyen a los datos calculados:
+ *   el estudiante toma el control de esa curva y el motor deja de discutirla.
+ */
+export function buildSurface({
+  traces,
+  contours,
+  manual = null,
+  manualContours = [],
+  name = '',
+  color = '#000',
+  tol = 1,
+}) {
+  const measured = intersectWithContours(traces, contours, tol)
+  const overridden = new Set(manualContours.map((m) => m.elevation))
+  const manualIdOf = new Map()
+  const drawn = []
+  for (const mc of manualContours) {
+    for (const p of sampleManualContour(mc)) {
+      manualIdOf.set(p, mc.id)
+      drawn.push(p)
+    }
+  }
+  const points3D = overridden.size
+    ? [...measured.filter((p) => !overridden.has(p[2])), ...drawn]
+    : measured
+  const keyOf = manualIdOf.size ? (p) => manualIdOf.get(p) || null : null
   const plane = fitPlane(points3D)
 
   // Reparto en dominios estructurales: cada uno es un tramo de la superficie con
@@ -356,7 +410,7 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
   const basePlaneAt = domainPlaneField(dom.groups, dom.planes, plane)
   const mls = points3D.length >= 6 ? buildMls(points3D, basePlaneAt) : null
 
-  const scs = structureContours(points3D, tol, limbOf)
+  const scs = structureContours(points3D, tol, limbOf, keyOf)
   const usable = scs.filter((s) => s.fit)
   const pairs = []
   // Los pares se forman dentro de cada limbo, entre cotas consecutivas.
@@ -551,6 +605,7 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
     name,
     color,
     traces,
+    manualContours,
     points3D,
     mls,
     gradStep,

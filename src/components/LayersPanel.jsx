@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   Frame,
   Maximize,
+  RotateCcw,
 } from 'lucide-react'
 import { Collapsible, Field, inputCls, Btn } from './ui.jsx'
 import { CONTACT_TYPES, KINEMATICS, newFault, sortedUnits, sortedContacts } from '../lib/model.js'
@@ -227,6 +228,9 @@ export default function LayersPanel({
                   <Btn variant="primary" onClick={() => draw('contact', c.id)}>
                     <Pencil size={13} /> Trazar
                   </Btn>
+                  <Btn variant="ghost" title="Borrar el contacto" onClick={() => dispatch({ type: 'contact.delete', id: c.id })}>
+                    <Trash2 size={13} />
+                  </Btn>
                 </div>
                 <div className="mt-1.5 grid grid-cols-2 gap-2">
                   <select
@@ -261,6 +265,7 @@ export default function LayersPanel({
                   value={c.manual}
                   onChange={(manual) => dispatch({ type: 'contact.update', id: c.id, patch: { manual } })}
                 />
+                <ManualContours feature={c} kind="contact" dispatch={dispatch} />
                 {byBlock && byBlock.size > 0 && (
                   <div className="mt-1.5 space-y-0.5 text-[11px] text-slate-600">
                     {[...byBlock.entries()].map(([b, s]) => (
@@ -334,6 +339,7 @@ export default function LayersPanel({
                   value={f.manual}
                   onChange={(manual) => dispatch({ type: 'fault.update', id: f.id, patch: { manual } })}
                 />
+                <ManualContours feature={f} kind="fault" dispatch={dispatch} />
                 {surf && (
                   <p className="mt-1 text-[11px] text-slate-600">
                     {surf.mean ? `${surf.mean.quadrant} (${surf.mean.dipDirNotation})` : 'sin actitud'} ·{' '}
@@ -468,6 +474,28 @@ function ManualAttitude({ value, onChange }) {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * Contornos estructurales que el estudiante ha puesto o corregido a mano. En
+ * las cotas que tocan sustituyen a los que calcula el motor, así que conviene
+ * ver cuántos hay y poder devolver el mando al cálculo.
+ */
+function ManualContours({ feature, kind, dispatch }) {
+  const n = feature.structureContours?.length || 0
+  if (!n) return null
+  return (
+    <p className="mt-1.5 flex items-center gap-1 rounded-lg bg-sky-50 px-1.5 py-1 text-[11px] text-sky-800">
+      {n} contorno{n === 1 ? '' : 's'} estructural{n === 1 ? '' : 'es'} a mano
+      <Btn
+        variant="ghost"
+        title="Restaurar los contornos que calcula la app"
+        onClick={() => dispatch({ type: 'sc.clear', kind, id: feature.id })}
+      >
+        <RotateCcw size={12} />
+      </Btn>
+    </p>
   )
 }
 

@@ -38,6 +38,16 @@ export default function HelpPanel({ project, dispatch }) {
           del flanco opuesto, ni de una onda del pliegue con la siguiente.
         </li>
         <li>
+          <b>Corrige lo que haga falta.</b> Una <b>pulsación larga</b> sobre cualquier rasgo abre su menú: en un
+          contacto se reasigna el par de unidades y el tipo de contacto, en una falla su cinemática, en una curva
+          de nivel su cota, y en todos ellos el borrado. Los <b>contornos estructurales</b> que calcula la app son
+          una hipótesis, no un dato: se arrastran para corregirlos —por el medio para moverlos, por un extremo
+          para girarlos— y con la herramienta <b>Contorno estr.</b> (<span className="font-mono">G</span>) se
+          añade uno nuevo dándole su cota. Cada contorno lleva su rótulo con el rasgo y la cota que representa.
+          Un contorno puesto a mano manda sobre esa cota, así que rumbo y manteo, perfil, 3D y pozos responden al
+          momento; «Restaurar los contornos calculados» devuelve el mando al motor.
+        </li>
+        <li>
           Si una unidad <b>no cruza suficientes curvas de nivel</b> para dar dos contornos estructurales, no se
           queda sin geometría: <b>hereda la de la unidad concordante vecina</b> —normalmente la de encima, que es
           la que suele estar mejor expuesta— <b>manteniendo el espesor constante</b>. Así, bajo un pliegue, las
@@ -133,6 +143,7 @@ export default function HelpPanel({ project, dispatch }) {
         <li>C · curva de nivel</li>
         <li>X · contacto</li>
         <li>F · falla</li>
+        <li>G · contorno estr.</li>
         <li>R · escala</li>
         <li>S · perfil</li>
         <li>W · pozo</li>

@@ -36,6 +36,7 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | **Curvas de nivel** | Se traza la curva y se indica su cota. La equidistancia se autocompleta y la siguiente curva propone la cota siguiente. |
 | **Contactos geológicos** | Se definen primero las **unidades** de base a techo; entre unidades consecutivas se crea un contacto (concordante, discordante, intrusivo o inferido) cuya traza se digitaliza, en tantos tramos como haga falta. |
 | **Fallas** | Traza + **cinemática** (normal, inversa, dextral, sinestral y sus combinaciones oblicuas). Se dibujan con su simbología (garrapatas en el bloque colgante, triángulos en las inversas, medias flechas en las de rumbo). |
+| **Contornos estructurales** | Se trazan a mano cuando hace falta corregir o completar lo que calcula la app: una recta de cota constante sobre una superficie. También se editan arrastrando los que la app dibuja. |
 | **Trazas de perfil** | Línea A–A′ que abre la vista de perfil. |
 | **Pozos** | Un toque sobre el mapa; luego profundidad medida, *trend* y *plunge*. |
 | **Regla** | Mide distancias sobre el mapa. Con el **imán** activo los extremos se pegan a las trazas digitalizadas y la medida se toma **perpendicular** a la traza en la que se ancla; si el manteo de ese contacto está resuelto, añade el espesor verdadero `e = L·sen δ`. |
@@ -53,9 +54,20 @@ y vértice anguloso. La polilínea que consume el motor se regenera a partir de
 las curvas, así que la edición no altera ningún cálculo.
 
 **Gestos en tablet**: doble toque con dos dedos deshace, con tres dedos rehace.
-Una **pulsación larga** sobre una línea entra directamente en edición de
-vértices. El **modo enfoque** oculta la interfaz y deja el mapa a pantalla
-completa (no depende de la API del navegador, así que no se cae al arrastrar).
+Una **pulsación larga** sobre cualquier rasgo entra en edición de vértices y
+abre su **menú de opciones**, que es la vía para lo que no cabe en el lienzo y
+en tablet no tiene ni clic derecho ni teclas:
+
+| Rasgo | Qué ofrece el menú |
+| --- | --- |
+| **Contacto** | Reasignarlo a otro **par de unidades** (arriba y abajo), cambiar el tipo de contacto, añadir un contorno estructural, borrar la traza o el contacto entero. |
+| **Falla** | Cambiar su **cinemática**, añadir un contorno estructural, borrar la traza o la falla entera. |
+| **Curva de nivel** | Corregir su **cota** (a mano o de equidistancia en equidistancia) y borrarla. |
+| **Contorno estructural** | Cambiar su **cota estructural**, fijarlo para editarlo, borrarlo y devolver el mando al cálculo. |
+| **Perfil, pozo, modelo** | Borrarlos. |
+
+El **modo enfoque** oculta la interfaz y deja el mapa a pantalla completa (no
+depende de la API del navegador, así que no se cae al arrastrar).
 
 **Capas**: la imagen base, las curvas, los contactos, las fallas y los modelos
 tienen control de **opacidad** y un **candado** que impide seleccionarlos y
@@ -146,6 +158,40 @@ notaciones habituales: cuadrante (`N45°E / 30° SE`) y dirección de manteo
 
 Si una superficie tiene pocas intersecciones (una sola cota resuelta, un punto
 por cota), la app lo advierte y permite **imponer la actitud a mano**.
+
+#### Corregir y añadir contornos estructurales
+
+Los contornos que salen del ajuste son una **hipótesis**, no un dato: con tres
+puntos mal repartidos, o con una traza digitalizada a la ligera, la recta puede
+quedar donde el mapa no la pondría. Por eso se pueden **corregir a mano**, que es
+lo que se hace en el papel.
+
+- **Mover uno**: con la herramienta *Seleccionar*, se toca el contorno y se
+  arrastra —por el medio para desplazarlo entero, por un extremo para girarlo—.
+  Al soltarlo queda fijado como dato del proyecto.
+- **Añadir uno**: la herramienta **Contorno estr.** (`G`) traza una recta de cota
+  constante; al soltar se elige a qué superficie pertenece y qué cota
+  representa. Sirve para dar una cota que la traza no llegó a cruzar.
+- **Cambiar su cota**: desde el menú de pulsación larga, a mano o de
+  equidistancia en equidistancia.
+- **Volver atrás**: «Restaurar los contornos calculados» devuelve el mando al
+  motor, en el panel de capas o en el propio menú.
+
+Cada contorno lleva su **rótulo con el rasgo al que pertenece y su cota
+estructural** (`Fm. Cerro Blanco… · 800 m`), que es lo que permite distinguirlos
+cuando se cruzan varios en el mapa; los rótulos se reparten sin pisarse y se
+pueden apagar con el botón *Rótulos estr.*. Los contornos calculados se dibujan
+punteados; los puestos a mano, en trazo continuo y con sus extremos como manijas.
+
+Un contorno dibujado a mano **sustituye a lo calculado en esa cota** —y sólo en
+esa cota, y sólo en su bloque de falla—: los cruces de la traza con esa curva de
+nivel se descartan y en su lugar entra la recta del estudiante, con el mismo peso
+que tendría un dato del mapa. Todo lo demás sigue igual, así que el resultado se
+ve enseguida en el rumbo y manteo, en el perfil, en el 3D y en la columna del
+pozo. Al fijar una cota se fijan **todos sus contornos en ese bloque** —los dos
+limbos de un pliegue, si los hay—, para que corregir uno no borre el otro. En la
+tabla de resultados, los manteos calculados con un contorno puesto a mano quedan
+marcados con «✎».
 
 #### Unidades sin datos propios: geometría heredada
 
@@ -256,8 +302,8 @@ geometría original.
 ## Atajos
 
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
-`R` escala · `D` medir · `N` norte · `S` perfil · `W` pozo · `M` modelo ·
-`B` área de trabajo · `E` borrar ·
+`G` contorno estructural · `R` escala · `D` medir · `N` norte · `S` perfil ·
+`W` pozo · `M` modelo · `B` área de trabajo · `E` borrar ·
 `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo · `Esc` cancelar.
 
 ---

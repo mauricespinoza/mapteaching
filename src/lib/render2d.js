@@ -3,7 +3,6 @@
 
 import { toImage, basis, fmtDistance } from './georef.js'
 import { kinematicsOf } from './model.js'
-import { contourSegment } from './structure.js'
 import { norm, perp, dist } from './geom.js'
 
 export const toScreen = (view, p) => [p[0] * view.scale + view.tx, p[1] * view.scale + view.ty]
@@ -108,6 +107,35 @@ function label(ctx, x, y, text, opts = {}) {
   ctx.fillText(text, x, y)
 }
 
+const overlaps = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+
+/**
+ * Sitúa un rótulo en el primer punto candidato que no pise a otro ya escrito.
+ * Un mapa a mano se rotula así: la etiqueta se corre a lo largo de la línea
+ * hasta encontrar sitio, y si no lo hay se deja la curva sin rótulo antes que
+ * apilar texto ilegible. Devuelve el punto elegido, o null.
+ */
+function placeLabel(ctx, taken, candidates, text, size = 10, force = false) {
+  ctx.font = `600 ${size}px ui-sans-serif, system-ui, sans-serif`
+  // Un poco de aire alrededor: dos rótulos que se rozan se leen mal aunque no
+  // lleguen a solaparse.
+  const w = ctx.measureText(text).width + 12
+  const h = size + 10
+  for (const [x, y] of candidates) {
+    const r = [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
+    if (!taken.some((t) => overlaps(r, t))) {
+      taken.push(r)
+      return [x, y]
+    }
+  }
+  if (force && candidates.length) {
+    const [x, y] = candidates[0]
+    taken.push([x - w / 2, y - h / 2, x + w / 2, y + h / 2])
+    return [x, y]
+  }
+  return null
+}
+
 export function render(ctx, opts) {
   const {
     view,
@@ -122,6 +150,7 @@ export function render(ctx, opts) {
     hover,
     modelViews,
     edit,
+    scItems,
     unitRaster,
     width,
     height,
@@ -213,19 +242,26 @@ export function render(ctx, opts) {
 
   // --- Contornos estructurales ---
   if (show.structureContours && scene?.ready) {
-    for (const c of scene.contacts) {
-      const byBlock = scene.contactSurfaces.get(c.id)
-      if (!byBlock) continue
-      if (selection?.kind === 'contact' && selection.id !== c.id && show.onlySelectedSC) continue
-      for (const [, surf] of byBlock) {
-        drawStructureContours(ctx, view, scene, surf, c.color || '#0f172a')
-      }
-    }
-    if (show.faultStructureContours) {
-      for (const f of project.faults) {
-        const surf = scene.faultSurfaces.get(f.id)
-        if (surf) drawStructureContours(ctx, view, scene, surf, kinematicsOf(f.kinematics).color)
-      }
+    // Los rótulos se reparten sin pisarse: se lleva la cuenta de lo escrito.
+    const taken = []
+    const visible = (scItems || []).filter(
+      (it) =>
+        (it.kind !== 'fault' || show.faultStructureContours) &&
+        !(show.onlySelectedSC && selection?.kind === 'contact' && selection.id !== it.featureId)
+    )
+    // El seleccionado se rotula primero: es el que se está trabajando.
+    const order = [...visible].sort(
+      (a, b) =>
+        Number(selection?.kind === 'sc' && selection.key === b.key) -
+          Number(selection?.kind === 'sc' && selection.key === a.key) ||
+        Number(Boolean(b.manualId)) - Number(Boolean(a.manualId))
+    )
+    for (const it of order) {
+      drawStructureContour(ctx, view, it, {
+        selected: selection?.kind === 'sc' && selection.key === it.key,
+        labels: show.structureLabels !== false,
+        taken,
+      })
     }
   }
 
@@ -659,30 +695,74 @@ function drawVertices(ctx, view, pts, color) {
   }
 }
 
-function drawStructureContours(ctx, view, scene, surf, color) {
-  for (const sc of surf.structureContours) {
-    if (!sc.fit) continue
-    const seg = contourSegment(sc, null)
-    if (!seg) continue
-    const a = toScreen(view, toImage(scene.georef, seg[0]))
-    const b = toScreen(view, toImage(scene.georef, seg[1]))
-    ctx.strokeStyle = color
-    ctx.lineWidth = 1.8
-    ctx.setLineDash([10, 6])
+/**
+ * Un contorno estructural: la recta de cota constante sobre la superficie.
+ * Los que calcula el motor van punteados; los que el estudiante ha puesto o
+ * corregido a mano, en trazo continuo y con sus dos extremos como manijas. El
+ * rótulo lleva el rasgo al que pertenece y la cota que representa, que es lo
+ * que distingue un contorno de otro cuando se cruzan varios en el mapa.
+ */
+function drawStructureContour(ctx, view, it, { selected = false, labels = true, taken = [] } = {}) {
+  const a = toScreen(view, it.a)
+  const b = toScreen(view, it.b)
+  const manual = Boolean(it.manualId)
+  if (selected) {
+    ctx.strokeStyle = 'rgba(14,165,233,0.35)'
+    ctx.lineWidth = 9
+    ctx.setLineDash([])
     ctx.beginPath()
     ctx.moveTo(a[0], a[1])
     ctx.lineTo(b[0], b[1])
     ctx.stroke()
-    ctx.setLineDash([])
-    label(ctx, b[0], b[1], `${sc.elevation}`, { color, size: 10, bg: 'rgba(255,255,255,0.9)' })
-    ctx.fillStyle = color
-    for (const p of sc.points) {
-      const s = toScreen(view, toImage(scene.georef, p))
+  }
+  ctx.strokeStyle = it.color
+  ctx.lineWidth = manual ? 2.6 : 1.8
+  ctx.setLineDash(manual ? [] : [10, 6])
+  ctx.beginPath()
+  ctx.moveTo(a[0], a[1])
+  ctx.lineTo(b[0], b[1])
+  ctx.stroke()
+  ctx.setLineDash([])
+  if (labels) {
+    const text = `${shortName(it.name)} · ${it.elevation} m`
+    // Extremos primero y luego puntos a lo largo de la recta: el rótulo busca
+    // sitio sin dejar de tocar su propia curva.
+    const along = [0.5, 0.25, 0.75].map((t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
+    const spot = placeLabel(ctx, taken, [b, a, ...along], text, 10, selected || manual)
+    if (spot) {
+      label(ctx, spot[0], spot[1], text, {
+        color: it.color,
+        size: 10,
+        bg: manual ? 'rgba(224,242,254,0.95)' : 'rgba(255,255,255,0.9)',
+      })
+    }
+  }
+  ctx.fillStyle = it.color
+  if (manual || selected) {
+    // Manijas de los extremos: son las que se arrastran para corregir la curva.
+    for (const p of [a, b]) {
+      ctx.beginPath()
+      ctx.arc(p[0], p[1], selected ? 6 : 4.5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = '#fff'
+      ctx.lineWidth = 1.6
+      ctx.stroke()
+    }
+  } else {
+    // Los puntos que definen el ajuste: cada uno es un cruce traza–curva.
+    for (const p of it.points) {
+      const s = toScreen(view, p)
       ctx.beginPath()
       ctx.arc(s[0], s[1], 3.2, 0, Math.PI * 2)
       ctx.fill()
     }
   }
+}
+
+/** Nombre abreviado para que el rótulo no tape el mapa. */
+function shortName(name, max = 16) {
+  const t = String(name || '')
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t
 }
 
 function midpointOfPair(pair, surf) {

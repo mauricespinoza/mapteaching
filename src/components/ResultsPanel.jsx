@@ -81,6 +81,17 @@ export default function ResultsPanel({ scene, project }) {
               )
             )}
             {r.surf.inherited && <InheritedNote info={r.surf.inherited} />}
+            {r.surf.manualContours?.length > 0 && (
+              <p className="mb-1.5 rounded-lg bg-sky-50 px-2 py-1.5 text-[11px] leading-relaxed text-sky-900">
+                <b>
+                  {r.surf.manualContours.length} contorno{r.surf.manualContours.length === 1 ? '' : 's'} puesto
+                  {r.surf.manualContours.length === 1 ? '' : 's'} a mano
+                </b>{' '}
+                ({r.surf.manualContours.map((m) => `${m.elevation} m`).join(', ')}). En esas cotas manda la curva
+                dibujada: el motor descarta ahí sus propios cruces con las curvas de nivel y recalcula el resto con
+                ella.
+              </p>
+            )}
             {unresolvedLimbs(r.surf) > 0 && (
               <p className="mb-1.5 text-[11px] text-slate-500">
                 {unresolvedLimbs(r.surf)} contorno(s) de otro limbo con una sola cota: dan rumbo, no manteo.
@@ -104,6 +115,11 @@ export default function ResultsPanel({ scene, project }) {
                       {r.surf.folded && <td className="py-0.5">{limbName(p.limb)}</td>}
                       <td className="py-0.5 font-mono">
                         {p.z1}–{p.z2}
+                        {p.manual && (
+                          <span className="ml-1 font-sans text-sky-600" title="Con un contorno puesto a mano">
+                            ✎
+                          </span>
+                        )}
                       </td>
                       <td>{p.quadrant.split(' / ')[0]}</td>
                       <td>{p.dip.toFixed(1)}°</td>
