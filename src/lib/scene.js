@@ -177,7 +177,8 @@ export function buildScene(project) {
   const dem = buildDem(
     [...merged.entries()].map(([elevation, samples]) => ({ elevation, samples })),
     bbox,
-    res
+    res,
+    project.settings.demSmoothing ?? 2
   )
 
   const units = sortedUnits(project)

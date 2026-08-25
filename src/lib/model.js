@@ -63,7 +63,8 @@ export function newProject(name = 'Ejercicio sin título') {
       lastElevation: 0,
       sectionDepth: 2000,
       vExag: 1,
-      demResolution: 120,
+      demResolution: 200,
+      demSmoothing: 2, // pasadas de suavizado del relieve
       blockCell: 0, // 0 = automático
     },
   }

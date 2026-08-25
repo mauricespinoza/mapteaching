@@ -1,4 +1,4 @@
-import { Plus, Trash2, Eye, EyeOff, Palette } from 'lucide-react'
+import { Plus, Trash2, Eye, EyeOff, Palette, RefreshCw, Link2, Unlink } from 'lucide-react'
 import { Field, inputCls, Btn } from './ui.jsx'
 import {
   MODEL_KINDS,
@@ -6,6 +6,7 @@ import {
   modelColors,
   foldLimbDips,
   newStructuralModel,
+  buildModelEntities,
 } from '../lib/models.js'
 import { formatAttitude } from '../lib/georef.js'
 
@@ -13,7 +14,7 @@ import { formatAttitude } from '../lib/georef.js'
  * Modelos estructurales sintéticos: el usuario marca un punto en el mapa y
  * define la orientación; la app dibuja la traza que resultaría en planta.
  */
-export default function ModelPanel({ project, dispatch, selection, onSelect, setTool }) {
+export default function ModelPanel({ project, scene, dispatch, selection, onSelect, setTool }) {
   const models = project.models || []
 
   const add = (kind) => {
@@ -21,6 +22,16 @@ export default function ModelPanel({ project, dispatch, selection, onSelect, set
     const m = newStructuralModel(kind, [rect.width / 2, rect.height / 2], models.length)
     dispatch({ type: 'model.add', model: m })
     onSelect({ kind: 'model', id: m.id })
+    // Se aplica de inmediato para que el resto de la app (contornos
+    // estructurales, perfil, 3D y pozos) trabaje ya con el modelo nuevo.
+    applyModel(m)
+  }
+
+  const applyModel = (m) => {
+    if (!scene?.ready) return
+    const ents = buildModelEntities(m, scene)
+    if (!ents) return
+    dispatch({ type: 'model.apply', id: m.id, units: ents.units, contacts: ents.contacts })
   }
 
   return (
@@ -56,13 +67,15 @@ export default function ModelPanel({ project, dispatch, selection, onSelect, set
           dispatch={dispatch}
           selected={selection?.kind === 'model' && selection.id === m.id}
           onSelect={() => onSelect({ kind: 'model', id: m.id })}
+          onApply={() => applyModel(m)}
+          canApply={Boolean(scene?.ready)}
         />
       ))}
     </div>
   )
 }
 
-function ModelCard({ model, dispatch, selected, onSelect }) {
+function ModelCard({ model, dispatch, selected, onSelect, onApply, canApply }) {
   const set = (patch) => dispatch({ type: 'model.update', id: model.id, patch })
   const colors = modelColors(model)
   const isFold = model.kind === 'fold'
@@ -216,6 +229,29 @@ function ModelCard({ model, dispatch, selected, onSelect }) {
           )}
         </>
       )}
+
+      <div className="mt-2.5 rounded-lg border border-slate-200 bg-slate-50 p-2">
+        <div className="flex items-center gap-1.5">
+          <Btn variant="primary" className="flex-1" onClick={onApply} disabled={!canApply}>
+            <RefreshCw size={13} /> {model.applied ? 'Recalcular el mapa' : 'Aplicar al mapa'}
+          </Btn>
+          {model.applied && (
+            <Btn
+              variant="ghost"
+              title="Quitar del mapa las unidades y contactos generados"
+              onClick={() => dispatch({ type: 'model.unapply', id: model.id })}
+            >
+              <Unlink size={14} />
+            </Btn>
+          )}
+        </div>
+        <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-relaxed text-slate-600">
+          <Link2 size={12} className="mt-0.5 shrink-0" />
+          {model.applied
+            ? 'El modelo está aplicado: sus capas y contactos alimentan los contornos estructurales, el perfil, la vista 3D y los pozos. Si cambias los parámetros, vuelve a pulsar para recalcular.'
+            : 'Aplícalo para convertirlo en unidades y contactos reales, y que el resto de las vistas trabajen con él.'}
+        </p>
+      </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
         <label className="flex items-center gap-1">

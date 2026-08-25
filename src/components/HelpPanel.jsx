@@ -66,6 +66,13 @@ export default function HelpPanel({ project, dispatch }) {
         Todo funciona incluso sin curvas de nivel (terreno plano). Si las hay, las trazas se calculan cortando
         la topografía real, que es donde el ejercicio se vuelve interesante.
       </p>
+      <p className="mb-2 text-[13px] leading-relaxed">
+        Al crear un modelo se <b>aplica al mapa</b> automáticamente: sus capas y contactos pasan a ser
+        unidades y contactos reales del ejercicio, de modo que los contornos estructurales, el perfil, la
+        vista 3D y los pozos trabajan con él. Si cambias los parámetros, pulsa <b>Recalcular el mapa</b> en la
+        tarjeta del modelo para regenerarlos, o <b>Recalcular</b> en la barra del mapa para rehacer todos los
+        cálculos.
+      </p>
 
       <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-800">El método</h3>
       <p className="text-[13px] leading-relaxed">

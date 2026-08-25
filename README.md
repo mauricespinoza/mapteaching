@@ -60,6 +60,12 @@ El modelo pinta además el mapa geológico resultante y reparte símbolos de rum
 y manteo calculados punto a punto (en un pliegue, el manteo de cada flanco y la
 inmersión del eje en la charnela).
 
+Al crear un modelo se **aplica al mapa** automáticamente: sus capas y contactos
+se materializan como unidades y contactos reales, así que el resto de la app
+—contornos estructurales, perfiles, 3D y pozos— trabaja con él. El botón
+**Recalcular el mapa** de la tarjeta regenera esas entidades tras cambiar los
+parámetros, y **Recalcular** en la barra del mapa rehace todos los cálculos.
+
 Todo funciona **sin necesidad de importar nada**: sobre terreno plano ya se ven
 los patrones de afloramiento. Si hay curvas de nivel digitalizadas, las trazas
 se calculan cortando la topografía real.

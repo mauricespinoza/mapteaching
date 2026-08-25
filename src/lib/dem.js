@@ -69,7 +69,7 @@ function distanceField(samples, bbox, nx, ny, cell) {
  * @param bbox   { minX, minY, maxX, maxY }
  * @param res    número de celdas en el lado mayor
  */
-export function buildDem(levels, bbox, res = 120) {
+export function buildDem(levels, bbox, res = 120, smoothPasses = 2) {
   const width = bbox.maxX - bbox.minX
   const height = bbox.maxY - bbox.minY
   const side = Math.max(width, height)
@@ -116,10 +116,51 @@ export function buildDem(levels, bbox, res = 120) {
       value = z1 + (z2 - z1) * (d1 / (d1 + d2v))
     }
     z[k] = value
-    if (value < zmin) zmin = value
-    if (value > zmax) zmax = value
+  }
+  const zs = smooth(z, nx, ny, smoothPasses)
+  z.set(zs)
+  for (let k = 0; k < z.length; k++) {
+    const v = z[k]
+    if (v < zmin) zmin = v
+    if (v > zmax) zmax = v
   }
   return makeDem(bbox, nx, ny, cell, z, zmin, zmax, true)
+}
+
+/**
+ * Suaviza la grilla con un kernel 3×3 gaussiano, varias pasadas.
+ * La interpolación entre las dos cotas más cercanas es lineal a trozos y deja
+ * una arista sobre cada curva de nivel; unas pocas pasadas las eliminan sin
+ * mover apreciablemente el relieve, y el resultado se ve mucho mejor en 3D.
+ */
+function smooth(z, nx, ny, passes = 2) {
+  if (passes <= 0) return z
+  let src = z
+  let dst = new Float32Array(z.length)
+  for (let p = 0; p < passes; p++) {
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        let sum = 0
+        let wsum = 0
+        for (let dj = -1; dj <= 1; dj++) {
+          const jj = j + dj
+          if (jj < 0 || jj >= ny) continue
+          for (let di = -1; di <= 1; di++) {
+            const ii = i + di
+            if (ii < 0 || ii >= nx) continue
+            const w = (di === 0 ? 2 : 1) * (dj === 0 ? 2 : 1)
+            sum += src[jj * nx + ii] * w
+            wsum += w
+          }
+        }
+        dst[j * nx + i] = sum / wsum
+      }
+    }
+    const tmp = src
+    src = dst
+    dst = tmp
+  }
+  return src
 }
 
 function makeDem(bbox, nx, ny, cell, z, zmin, zmax, valid) {

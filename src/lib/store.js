@@ -112,8 +112,35 @@ function apply(project, action) {
       return { ...p, models: [...(p.models || []), action.model] }
     case 'model.update':
       return { ...p, models: replaceIn(p.models || [], action.id, (m) => ({ ...m, ...action.patch })) }
+    case 'model.apply': {
+      // Se sustituye lo generado antes por este mismo modelo, para que aplicarlo
+      // dos veces no duplique unidades ni contactos.
+      const keptUnits = (p.units || []).filter((u) => u.fromModel !== action.id)
+      const keptContacts = (p.contacts || []).filter((c) => c.fromModel !== action.id)
+      const base = keptUnits.reduce((m, u) => Math.max(m, u.order ?? 0), -1) + 1
+      return {
+        ...p,
+        units: [...keptUnits, ...action.units.map((u, i) => ({ ...u, order: base + i }))],
+        contacts: [...keptContacts, ...action.contacts],
+        models: (p.models || []).map((m) => (m.id === action.id ? { ...m, applied: true } : m)),
+      }
+    }
+    case 'model.unapply': {
+      return {
+        ...p,
+        units: (p.units || []).filter((u) => u.fromModel !== action.id),
+        contacts: (p.contacts || []).filter((c) => c.fromModel !== action.id),
+        models: (p.models || []).map((m) => (m.id === action.id ? { ...m, applied: false } : m)),
+      }
+    }
+
     case 'model.delete':
-      return { ...p, models: (p.models || []).filter((m) => m.id !== action.id) }
+      return {
+        ...p,
+        models: (p.models || []).filter((m) => m.id !== action.id),
+        units: (p.units || []).filter((u) => u.fromModel !== action.id),
+        contacts: (p.contacts || []).filter((c) => c.fromModel !== action.id),
+      }
 
     case 'well.add':
       return { ...p, wells: [...p.wells, action.well] }

@@ -71,7 +71,13 @@ function drawWorldRaster(ctx, view, georef, canvas, bbox, cell, rows, alpha = 1)
   const { e, n } = basis(georef)
   const mpp = georef.metersPerPx || 1
   const k = cell / mpp
-  const o = toImage(georef, [bbox.minX, bbox.minY + (rows - 1) * cell])
+  // Cada valor se muestrea en un nodo de la grilla, así que el cuadrado que se
+  // pinta debe quedar centrado en él: de ahí el desplazamiento de media celda.
+  // Sin esto, todo el relleno aparece corrido respecto a las trazas.
+  const o = toImage(georef, [
+    bbox.minX - cell / 2,
+    bbox.minY + (rows - 1) * cell + cell / 2,
+  ])
   const os = toScreen(view, o)
   const ex = [e[0] * k * view.scale, e[1] * k * view.scale]
   const ny = [-n[0] * k * view.scale, -n[1] * k * view.scale]

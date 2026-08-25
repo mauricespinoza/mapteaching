@@ -18,6 +18,7 @@ import {
   Layers3,
   Trash2,
   Mountain,
+  RefreshCw,
 } from 'lucide-react'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
 import MapView from './components/MapView.jsx'
@@ -58,7 +59,13 @@ export default function App() {
   const [state, dispatch] = useReducer(reducer, undefined, () => initialState(newProject()))
   const project = state.present
   const deferredProject = useDeferredValue(project)
-  const scene = useMemo(() => buildScene(deferredProject), [deferredProject])
+  const [recalcNonce, setRecalcNonce] = useState(0)
+  // recalcNonce fuerza un recálculo completo desde el botón «Recalcular».
+  const scene = useMemo(
+    () => buildScene(deferredProject),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deferredProject, recalcNonce]
+  )
   const modelViews = useMemo(() => buildModelViews(deferredProject, scene), [deferredProject, scene])
 
   const [tab, setTab] = useState('mapa')
@@ -428,6 +435,12 @@ export default function App() {
                     ? `1 px ≈ ${project.georef.metersPerPx.toFixed(2)} m · ${countVertices(project)} vértices`
                     : 'sin escala'}
                 </span>
+                <Btn
+                  onClick={() => setRecalcNonce((n) => n + 1)}
+                  title="Recalcular contornos estructurales, perfiles, 3D y pozos"
+                >
+                  <RefreshCw size={13} /> Recalcular
+                </Btn>
                 <Btn onClick={() => setView(null)}>Encuadrar</Btn>
                 <Btn
                   onClick={() =>
@@ -556,6 +569,7 @@ export default function App() {
                 <div className="h-full overflow-y-auto p-3">
                   <ModelPanel
                     project={project}
+                    scene={scene}
                     dispatch={dispatch}
                     selection={selection}
                     onSelect={(sel) => {

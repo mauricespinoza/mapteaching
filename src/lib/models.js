@@ -9,7 +9,7 @@
 import { contourLines } from './marching.js'
 import { toImage } from './georef.js'
 import { formatAttitude, azimuthWorld, norm360 } from './georef.js'
-import { UNIT_COLORS, uid } from './model.js'
+import { UNIT_COLORS, uid, darken } from './model.js'
 
 const RAD = Math.PI / 180
 const DEG = 180 / Math.PI
@@ -237,6 +237,39 @@ function toWorldPt(scene, px) {
   return [mpp * (px[0] * e[0] + px[1] * e[1]), mpp * (px[0] * nrm[0] + px[1] * nrm[1])]
 }
 
+/**
+ * Extensión sobre la que se calcula un modelo: la unión del área de trabajo con
+ * el marco del mapa, más un margen. El bbox de la escena se deriva de la
+ * geometría digitalizada y puede quedarse corto respecto al mapa visible; sin
+ * esta unión, el relleno del modelo aparecía recortado.
+ */
+export function modelExtent(scene) {
+  const b = scene.bbox
+  let minX = b.minX
+  let minY = b.minY
+  let maxX = b.maxX
+  let maxY = b.maxY
+  const rect = scene.project?.image || scene.project?.virtualSize
+  if (rect && rect.width > 0 && rect.height > 0) {
+    for (const px of [
+      [0, 0],
+      [rect.width, 0],
+      [0, rect.height],
+      [rect.width, rect.height],
+    ]) {
+      const [wx, wy] = toWorldPt(scene, px)
+      if (!Number.isFinite(wx) || !Number.isFinite(wy)) continue
+      minX = Math.min(minX, wx)
+      maxX = Math.max(maxX, wx)
+      minY = Math.min(minY, wy)
+      maxY = Math.max(maxY, wy)
+    }
+  }
+  const mx = (maxX - minX) * 0.04
+  const my = (maxY - minY) * 0.04
+  return { minX: minX - mx, minY: minY - my, maxX: maxX + mx, maxY: maxY + my }
+}
+
 /** Elevación del terreno; si aún no hay curvas de nivel, terreno plano en 0. */
 function topoAt(scene, x, y) {
   if (scene?.dem?.valid) return scene.dem.elevationAt(x, y)
@@ -254,7 +287,7 @@ function topoAt(scene, x, y) {
 export function modelTraces(model, scene, resolution = 190) {
   const geo = modelGeometry(model, scene)
   if (!geo) return []
-  const { bbox } = scene
+  const bbox = modelExtent(scene)
   const w = bbox.maxX - bbox.minX
   const h = bbox.maxY - bbox.minY
   if (!(w > 0 && h > 0)) return []
@@ -272,11 +305,15 @@ export function modelTraces(model, scene, resolution = 190) {
       lines = []
     }
     if (!lines.length) continue
+    const nC = colors.length
+    const wrap = (i) => colors[((i % nC) + nC) % nC]
     out.push({
       index: surf.index,
-      // El contacto k separa la capa k−1 (abajo) de la capa k (arriba).
-      color: colors[Math.min(colors.length - 1, Math.max(0, surf.index - 1))],
-      upperColor: colors[Math.min(colors.length - 1, surf.index)],
+      // El contacto k separa la capa k−1 (abajo) de la capa k (arriba). Las
+      // capas se repiten cíclicamente, así que el color va por módulo: con
+      // recorte, el último contacto quedaba de un color que no correspondía.
+      color: wrap(surf.index - 1),
+      upperColor: wrap(surf.index),
       lines: lines.map((line) => line.map((p) => toImage(scene.georef, p))),
     })
   }
@@ -292,7 +329,7 @@ export function modelRaster(model, scene, resolution = 260) {
   if (typeof document === 'undefined') return null
   const geo = modelGeometry(model, scene)
   if (!geo) return null
-  const { bbox } = scene
+  const bbox = modelExtent(scene)
   const w = bbox.maxX - bbox.minX
   const h = bbox.maxY - bbox.minY
   if (!(w > 0 && h > 0)) return null
@@ -358,7 +395,7 @@ export function attitudeAt(geo, x, y, step = 25) {
 export function modelSymbols(model, scene, cols = 6, rows = 5) {
   const geo = modelGeometry(model, scene)
   if (!geo) return []
-  const { bbox } = scene
+  const bbox = modelExtent(scene)
   const out = []
   const step = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) / 400
   for (let j = 1; j <= rows; j++) {
@@ -389,6 +426,52 @@ export function buildModelView(model, scene) {
       : [],
     anchorAttitude: attitudeAt(geo, geo.anchor[0], geo.anchor[1]),
   }
+}
+
+/**
+ * Convierte un modelo en unidades y contactos reales del proyecto, con sus
+ * trazas ya digitalizadas. A partir de ahí el modelo deja de ser sólo un dibujo
+ * sobre el mapa: entra en el motor normal y alimenta los contornos
+ * estructurales, los perfiles, la vista 3D y los pozos.
+ */
+export function buildModelEntities(model, scene) {
+  const traces = modelTraces(model, scene).filter((t) => t.lines.length)
+  if (!traces.length) return null
+  const colors = modelColors(model)
+  const n = Math.max(1, model.layers | 0)
+  const single = model.kind === 'plane'
+
+  const units = single
+    ? []
+    : Array.from({ length: n }, (_, i) => ({
+        id: uid('u'),
+        name: `${model.name} · capa ${i + 1}`,
+        color: colors[i % colors.length],
+        order: i,
+        lithology: '',
+        notes: '',
+        fromModel: model.id,
+      }))
+
+  const contacts = traces.map((tr) => {
+    const k = tr.index
+    return {
+      id: uid('c'),
+      name: single ? model.name : `${model.name} · contacto ${k}`,
+      color: darken(tr.upperColor, 0.45),
+      type: 'concordante',
+      // El contacto k es el techo de la capa k−1 y la base de la capa k.
+      lowerUnitId: units[k - 1]?.id || null,
+      upperUnitId: units[k]?.id || null,
+      manual: null,
+      traces: tr.lines
+        .filter((line) => line.length >= 2)
+        .map((line) => ({ id: uid('tr'), pts: line })),
+      fromModel: model.id,
+    }
+  })
+
+  return { units, contacts: contacts.filter((c) => c.traces.length) }
 }
 
 export function buildModelViews(project, scene) {

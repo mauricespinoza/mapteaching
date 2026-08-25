@@ -358,7 +358,9 @@ function lineFrom(points, color, opacity = 1, width = 1) {
 /** Malla de una superficie geológica, limitada al bloque que le corresponde. */
 function surfaceMesh(scene, surf, blockId, P, zMin, dem) {
   const { bbox } = scene
-  const N = 46
+  // Malla fina: el borde de la superficie se recorta contra la topografía, y
+  // con pocas celdas ese recorte se ve escalonado.
+  const N = 96
   const dx = (bbox.maxX - bbox.minX) / N
   const dy = (bbox.maxY - bbox.minY) / N
   const verts = []
@@ -367,9 +369,11 @@ function surfaceMesh(scene, surf, blockId, P, zMin, dem) {
   const push = (x, y) => {
     const z = surf.elevationAt(x, y)
     if (!Number.isFinite(z)) return null
+    // Por arriba se corta contra la topografía (ya está erosionada); por abajo
+    // se apoya en el plano base, en vez de romper la malla y dejar el borde
+    // escalonado.
     if (z > dem.elevationAt(x, y)) return null
-    if (z < zMin) return null
-    return P(x, y, z)
+    return P(x, y, Math.max(zMin, z))
   }
   for (let j = 0; j < N; j++) {
     for (let i = 0; i < N; i++) {
