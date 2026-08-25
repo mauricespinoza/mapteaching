@@ -116,6 +116,7 @@ export function render(ctx, opts) {
     draft,
     hover,
     modelViews,
+    edit,
     width,
     height,
     dpr = 1,
@@ -168,10 +169,11 @@ export function render(ctx, opts) {
       const index = project.settings.contourInterval
         ? Math.abs(c.elevation) % (project.settings.contourInterval * 5) < 1e-6
         : false
+      const live = edit?.preview && edit.kind === 'contour' && edit.id === c.id ? edit.preview : c.pts
       ctx.strokeStyle = selected ? '#dc2626' : index ? '#92400e' : '#b45309'
-      ctx.lineWidth = (selected ? 2.6 : index ? 1.8 : 1.1) 
+      ctx.lineWidth = selected ? 2.6 : index ? 1.8 : 1.1
       ctx.globalAlpha = 0.95
-      path(ctx, view, c.pts)
+      path(ctx, view, live)
       ctx.stroke()
       ctx.globalAlpha = 1
     }
@@ -208,15 +210,15 @@ export function render(ctx, opts) {
     for (const c of project.contacts) {
       const selected = selection?.kind === 'contact' && selection.id === c.id
       for (const tr of c.traces) {
+        const live = edit?.preview && edit.id === c.id && edit.traceId === tr.id ? edit.preview : tr.pts
         ctx.strokeStyle = c.color || '#0f172a'
         ctx.lineWidth = selected ? 4.5 : 3
         ctx.lineJoin = 'round'
         ctx.lineCap = 'round'
         ctx.setLineDash(dashFor(c.type))
-        path(ctx, view, tr.pts)
+        path(ctx, view, live)
         ctx.stroke()
         ctx.setLineDash([])
-        if (selected) drawVertices(ctx, view, tr.pts, '#0ea5e9')
       }
     }
   }
@@ -228,18 +230,18 @@ export function render(ctx, opts) {
       const selected = selection?.kind === 'fault' && selection.id === f.id
       const surf = scene?.faultSurfaces?.get(f.id)
       for (const tr of f.traces) {
+        const live = edit?.preview && edit.id === f.id && edit.traceId === tr.id ? edit.preview : tr.pts
         ctx.strokeStyle = selected ? '#111827' : '#1f2937'
         ctx.lineWidth = selected ? 6 : 4.5
         ctx.lineJoin = 'round'
         ctx.lineCap = 'round'
-        path(ctx, view, tr.pts)
+        path(ctx, view, live)
         ctx.stroke()
         ctx.strokeStyle = kin.color
         ctx.lineWidth = selected ? 3.4 : 2.4
-        path(ctx, view, tr.pts)
+        path(ctx, view, live)
         ctx.stroke()
-        drawFaultSymbols(ctx, view, scene, tr.pts, f, kin, surf)
-        if (selected) drawVertices(ctx, view, tr.pts, '#f97316')
+        drawFaultSymbols(ctx, view, scene, live, f, kin, surf)
       }
     }
   }
@@ -381,6 +383,8 @@ export function render(ctx, opts) {
     ctx.stroke()
   }
 
+  if (edit?.nodes?.length) drawEditNodes(ctx, view, edit)
+
   drawOverlays(ctx, opts)
 }
 
@@ -462,6 +466,47 @@ function drawStrikeDip(ctx, p, att, color, georef) {
 function azimuthToImage(georef, az) {
   const a = (az * Math.PI) / 180
   return norm(toImage(georef, [Math.sin(a), Math.cos(a)]))
+}
+
+/** Nodos y manejadores Bézier del trazo en edición. */
+function drawEditNodes(ctx, view, edit) {
+  const { nodes, activeIndex } = edit
+  // Manejadores sólo del nodo activo, para no llenar la pantalla de puntos.
+  const act = nodes[activeIndex]
+  if (act) {
+    const c = toScreen(view, act.p)
+    for (const which of ['hIn', 'hOut']) {
+      const h = act[which]
+      if (!h || (!h[0] && !h[1])) continue
+      const hp = toScreen(view, [act.p[0] + h[0], act.p[1] + h[1]])
+      ctx.strokeStyle = '#0284c7'
+      ctx.lineWidth = 1.4
+      ctx.setLineDash([3, 3])
+      ctx.beginPath()
+      ctx.moveTo(c[0], c[1])
+      ctx.lineTo(hp[0], hp[1])
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.beginPath()
+      ctx.arc(hp[0], hp[1], 5.5, 0, Math.PI * 2)
+      ctx.fillStyle = '#38bdf8'
+      ctx.strokeStyle = '#0c4a6e'
+      ctx.lineWidth = 1.6
+      ctx.fill()
+      ctx.stroke()
+    }
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    const s = toScreen(view, nodes[i].p)
+    const isActive = i === activeIndex
+    ctx.beginPath()
+    ctx.arc(s[0], s[1], isActive ? 7 : 5, 0, Math.PI * 2)
+    ctx.fillStyle = isActive ? '#f59e0b' : '#ffffff'
+    ctx.strokeStyle = '#0f172a'
+    ctx.lineWidth = 2
+    ctx.fill()
+    ctx.stroke()
+  }
 }
 
 function dashFor(type) {

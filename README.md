@@ -39,10 +39,19 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | **Trazas de perfil** | Línea A–A′ que abre la vista de perfil. |
 | **Pozos** | Un toque sobre el mapa; luego profundidad medida, *trend* y *plunge*. |
 
-Modos de trazo: **libre** (sigue el lápiz, con suavizado Douglas–Peucker al
-soltar) o **por vértices** (un toque = un vértice, para el ratón). El botón
-«Sólo lápiz» activa el rechazo de palma: con él, los dedos únicamente desplazan
-y hacen zoom.
+**Trazo híbrido**: un toque coloca un vértice; mantener apretado y arrastrar
+dibuja un trazo continuo (suavizado Douglas–Peucker al soltar). Ambos se mezclan
+en la misma línea. El botón «Sólo lápiz» activa el rechazo de palma: los dedos
+desplazan y hacen zoom, y un toque limpio selecciona.
+
+**Edición con curvas Bézier**: al seleccionar una línea aparecen sus nodos.
+Arrastrar un nodo lo mueve, tocar la línea inserta uno nuevo, y los manejadores
+del nodo activo controlan la curvatura; «Suave / pico» alterna entre nodo suave
+y vértice anguloso. La polilínea que consume el motor se regenera a partir de
+las curvas, así que la edición no altera ningún cálculo.
+
+**Gestos en tablet**: doble toque con dos dedos deshace, con tres dedos rehace.
+El botón de pantalla completa aprovecha toda la pantalla para dibujar.
 
 ### 3. Modelos estructurales sintéticos
 

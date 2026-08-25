@@ -19,6 +19,8 @@ import {
   Trash2,
   Mountain,
   RefreshCw,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
 import MapView from './components/MapView.jsx'
@@ -72,7 +74,7 @@ export default function App() {
   const [panel, setPanel] = useState('capas')
   const [panelOpen, setPanelOpen] = useState(true)
   const [tool, setTool] = useState('pan')
-  const [drawMode, setDrawMode] = useState('free')
+  const [fullscreen, setFullscreen] = useState(false)
   const [penOnly, setPenOnly] = useState(true)
   const [selection, setSelection] = useState(null)
   const [activeIds, setActiveIds] = useState({ contact: null, fault: null })
@@ -162,6 +164,21 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen()
+      else await document.documentElement.requestFullscreen()
+    } catch {
+      // Algunos navegadores lo bloquean fuera de un gesto del usuario.
+    }
+  }, [])
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(Boolean(document.fullscreenElement))
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
   const mapRect = project.image || project.virtualSize || { width: 1200, height: 900 }
 
   // --- Acciones de dibujo ---
@@ -242,6 +259,22 @@ export default function App() {
     dispatch({ type: 'georef', patch: { metersPerPx: null, scaleLine: null } })
     setView(null)
     setTool('scale')
+  }
+
+  const deleteImage = () => {
+    const rect = project.image
+    // El lienzo hereda el tamaño de la imagen: así la escala y todo lo
+    // digitalizado siguen coincidiendo tras quitarla.
+    dispatch({
+      type: 'patch',
+      patch: {
+        image: null,
+        virtualSize: rect ? { width: rect.width, height: rect.height } : { width: 1400, height: 1000 },
+      },
+    })
+    if (rect?.blobId) db.deleteBlob(rect.blobId).catch(() => {})
+    setSelection(null)
+    setDialog(null)
   }
 
   const exportProject = async () => {
@@ -363,6 +396,14 @@ export default function App() {
           }}
         />
 
+        <Btn
+          variant="onDark"
+          onClick={toggleFullscreen}
+          title={fullscreen ? 'Salir de pantalla completa (F11 o Esc)' : 'Pantalla completa (F11)'}
+        >
+          {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+        </Btn>
+
         <nav className="ml-auto flex items-center gap-1 rounded-xl bg-white/10 p-1 ring-1 ring-white/10">
           {[
             ['mapa', 'Mapa', MapIcon],
@@ -393,14 +434,7 @@ export default function App() {
 
       <div className="flex min-h-0 flex-1">
         {tab === 'mapa' && (
-          <Toolbar
-            tool={tool}
-            setTool={setTool}
-            drawMode={drawMode}
-            setDrawMode={setDrawMode}
-            penOnly={penOnly}
-            setPenOnly={setPenOnly}
-          />
+          <Toolbar tool={tool} setTool={setTool} penOnly={penOnly} setPenOnly={setPenOnly} />
         )}
 
         <main className="relative flex min-w-0 flex-1 flex-col">
@@ -450,6 +484,35 @@ export default function App() {
                   PNG
                 </Btn>
               </div>
+              {selection?.kind === 'image' && project.image && (
+                <div className="pointer-events-auto absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-slate-900/90 px-3 py-2 text-xs text-white shadow-2xl">
+                  <ImageIcon size={15} className="text-sky-300" />
+                  <span className="max-w-[220px] truncate font-medium">
+                    {project.image.name || 'Imagen base'}
+                  </span>
+                  <span className="text-slate-400">
+                    {project.image.width}×{project.image.height}
+                  </span>
+                  <button
+                    className="rounded-lg bg-white/15 px-2.5 py-1.5 font-medium hover:bg-white/25"
+                    onClick={() => fileRef.current?.click()}
+                  >
+                    Reemplazar
+                  </button>
+                  <button
+                    className="flex items-center gap-1 rounded-lg bg-rose-500/90 px-2.5 py-1.5 font-medium hover:bg-rose-500"
+                    onClick={() => setDialog({ kind: 'delete-image' })}
+                  >
+                    <Trash2 size={13} /> Borrar imagen
+                  </button>
+                  <button
+                    className="rounded-lg px-2 py-1.5 text-slate-300 hover:text-white"
+                    onClick={() => setSelection(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
               <div className="min-h-0 flex-1">
                 <MapView
                   project={project}
@@ -457,7 +520,6 @@ export default function App() {
                   image={image}
                   show={show}
                   tool={tool}
-                  drawMode={drawMode}
                   penOnly={penOnly}
                   selection={selection}
                   view={view || fitView(mapRect)}
@@ -716,6 +778,25 @@ export default function App() {
               }}
             >
               <Trash2 size={14} /> Borrar todo
+            </Btn>
+          </div>
+        </Modal>
+      )}
+
+      {dialog?.kind === 'delete-image' && (
+        <Modal title="Borrar la imagen base" onClose={() => setDialog(null)}>
+          <p className="text-sm leading-relaxed text-slate-700">
+            Se quita la imagen del mapa. Todo lo digitalizado encima —curvas, contactos, fallas, perfiles y
+            pozos— se conserva con sus coordenadas.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            El lienzo vuelve al tamaño de la imagen para que nada se mueva de sitio. Se puede deshacer con
+            Ctrl+Z.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Btn onClick={() => setDialog(null)}>Cancelar</Btn>
+            <Btn variant="danger" onClick={deleteImage}>
+              <Trash2 size={14} /> Borrar imagen
             </Btn>
           </div>
         </Modal>

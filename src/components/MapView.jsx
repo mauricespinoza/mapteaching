@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { render, toImagePt, renderHillshade } from '../lib/render2d.js'
 import { thin, simplify, pointPolyline, dist } from '../lib/geom.js'
+import {
+  nodesOf,
+  flattenNodes,
+  hitTestNodes,
+  insertNode,
+  moveNode,
+  moveHandle,
+  toggleCorner,
+  removeNode,
+} from '../lib/bezier.js'
 
 /**
  * Lienzo del mapa. Pensado para lápiz sobre tablet: el lápiz dibuja, los dedos
@@ -33,15 +43,58 @@ export default function MapView({
   const [size, setSize] = useState({ width: 800, height: 600 })
   const [draft, setDraft] = useState(null)
   const [cursor, setCursor] = useState(null)
+  const [edit, setEdit] = useState(null)
+  const [gestureHint, setGestureHint] = useState(null)
   const pointers = useRef(new Map())
   const gesture = useRef(null)
   const drag = useRef(null)
+  const flashTimer = useRef(null)
+  const taps = useRef({ startedAt: 0, maxFingers: 0, moved: false, origins: new Map(), lastAt: 0, lastFingers: 0 })
 
   // Encuadre inicial automático: se calcula al conocer el tamaño del lienzo.
   const view = viewProp || fitTo(size, mapRect)
   useEffect(() => {
     if (!viewProp && size.width > 10) setView(fitTo(size, mapRect))
   }, [viewProp, size, mapRect, setView])
+
+  // --- Edición de nodos del trazo seleccionado ---
+  const editable = useMemo(() => {
+    if (tool !== 'select' || !selection) return null
+    if (selection.kind === 'contour') {
+      const c = project.contours.find((x) => x.id === selection.id)
+      return c ? { kind: 'contour', id: c.id, traceId: null, trace: c } : null
+    }
+    if ((selection.kind === 'contact' || selection.kind === 'fault') && selection.traceId) {
+      const list = selection.kind === 'fault' ? project.faults : project.contacts
+      const owner = list.find((x) => x.id === selection.id)
+      const tr = owner?.traces.find((t) => t.id === selection.traceId)
+      return tr ? { kind: selection.kind, id: selection.id, traceId: tr.id, trace: tr } : null
+    }
+    return null
+  }, [tool, selection, project])
+
+  useEffect(() => {
+    if (!editable) {
+      setEdit(null)
+      return
+    }
+    setEdit((prev) =>
+      prev && prev.id === editable.id && prev.traceId === editable.traceId
+        ? prev
+        : {
+            kind: editable.kind,
+            id: editable.id,
+            traceId: editable.traceId,
+            nodes: nodesOf(editable.trace),
+            activeIndex: -1,
+          }
+    )
+  }, [editable])
+
+  const editPreview = useMemo(
+    () => (edit?.nodes?.length ? flattenNodes(edit.nodes, 6) : null),
+    [edit]
+  )
 
   const isDrawTool = ['contour', 'contact', 'fault'].includes(tool)
   const isTwoPointTool = ['scale', 'north', 'section'].includes(tool)
@@ -89,11 +142,12 @@ export default function MapView({
       draft,
       hover: cursor,
       modelViews,
+      edit: edit ? { ...edit, preview: editPreview } : null,
       width: size.width,
       height: size.height,
       dpr,
     })
-  }, [view, project, scene, image, hillshade, show, selection, draft, cursor, size, modelViews])
+  }, [view, project, scene, image, hillshade, show, selection, draft, cursor, size, modelViews, edit, editPreview])
 
   const toImg = useCallback((ev) => {
     const rect = canvasRef.current.getBoundingClientRect()
@@ -102,7 +156,7 @@ export default function MapView({
 
   /** Prueba de impacto: devuelve la entidad más cercana al punto. */
   const hitTest = useCallback(
-    (p, tolPx = 14) => {
+    (p, tolPx = 16) => {
       const tol = tolPx / view.scale
       let best = null
       const consider = (cand, d) => {
@@ -120,6 +174,11 @@ export default function MapView({
       for (const c of project.contacts)
         for (const tr of c.traces) consider({ kind: 'contact', id: c.id, traceId: tr.id }, pointPolyline(p, tr.pts).d)
       for (const c of project.contours) consider({ kind: 'contour', id: c.id }, pointPolyline(p, c.pts).d)
+      // La imagen base va al final: sólo se selecciona si no hay nada encima.
+      if (!best && project.image) {
+        const { width, height } = project.image
+        if (p[0] >= 0 && p[1] >= 0 && p[0] <= width && p[1] <= height) best = { kind: 'image', d: tol }
+      }
       return best
     },
     [project, view.scale]
@@ -135,11 +194,96 @@ export default function MapView({
     [onStroke, view.scale]
   )
 
+  const commitDraft = useCallback(
+    (pts) => {
+      if (!pts || pts.length < 2) {
+        setDraft(null)
+        return
+      }
+      if (isTwoPointTool) {
+        onTwoPoint(pts[0], pts[1])
+        setDraft(null)
+      } else finishStroke(pts)
+    },
+    [finishStroke, isTwoPointTool, onTwoPoint]
+  )
+
+  const commitNodes = useCallback(
+    (nodes) => {
+      const pts = flattenNodes(nodes, 6)
+      if (pts.length < 2) return
+      if (!edit) return
+      if (edit.kind === 'contour') {
+        dispatch({ type: 'contour.update', id: edit.id, patch: { pts, nodes } })
+      } else {
+        dispatch({
+          type: 'trace.update',
+          kind: edit.kind,
+          id: edit.id,
+          traceId: edit.traceId,
+          patch: { pts, nodes },
+        })
+      }
+    },
+    [edit, dispatch]
+  )
+
+  // --- Gestos multitáctiles: doble toque con 2 dedos deshace, con 3 rehace ---
+  const registerTapDown = (ev) => {
+    const g = taps.current
+    if (pointers.current.size === 1) {
+      g.startedAt = performance.now()
+      g.maxFingers = 1
+      g.moved = false
+      g.origins = new Map()
+    }
+    g.maxFingers = Math.max(g.maxFingers, pointers.current.size)
+    g.origins.set(ev.pointerId, [ev.clientX, ev.clientY])
+  }
+
+  const registerTapMove = (ev) => {
+    const g = taps.current
+    const o = g.origins?.get(ev.pointerId)
+    if (o && Math.hypot(ev.clientX - o[0], ev.clientY - o[1]) > 14) g.moved = true
+  }
+
+  /** Se evalúa cuando se levanta el último dedo. */
+  const registerTapUp = () => {
+    const g = taps.current
+    if (g.moved || g.maxFingers < 2) return false
+    const now = performance.now()
+    if (now - g.startedAt > 320) return false
+    if (now - g.lastAt < 480 && g.lastFingers === g.maxFingers) {
+      g.lastAt = 0
+      g.lastFingers = 0
+      if (g.maxFingers === 2) {
+        dispatch({ type: 'history.undo' })
+        flash('Deshacer')
+        return true
+      }
+      if (g.maxFingers >= 3) {
+        dispatch({ type: 'history.redo' })
+        flash('Rehacer')
+        return true
+      }
+    }
+    g.lastAt = now
+    g.lastFingers = g.maxFingers
+    return false
+  }
+
+  const flash = (text) => {
+    setGestureHint(text)
+    clearTimeout(flashTimer.current)
+    flashTimer.current = setTimeout(() => setGestureHint(null), 900)
+  }
+
   // --- Punteros ---
   const onPointerDown = (ev) => {
     const canvas = canvasRef.current
     canvas.setPointerCapture(ev.pointerId)
     pointers.current.set(ev.pointerId, ev)
+    registerTapDown(ev)
     const p = toImg(ev)
 
     if (pointers.current.size === 2) {
@@ -150,24 +294,50 @@ export default function MapView({
         c0: [(a.clientX + b.clientX) / 2 - rect.left, (a.clientY + b.clientY) / 2 - rect.top],
         view0: { ...view },
       }
-      setDraft(null)
       drag.current = null
       return
     }
 
-    const navigating =
-      tool === 'pan' || (penOnly && ev.pointerType === 'touch') || ev.button === 1 || ev.shiftKey
+    // Con el dedo en modo lápiz se navega, pero un toque limpio selecciona:
+    // por eso el arrastre queda "pendiente" hasta que se mueve de verdad.
+    const fingerNav = penOnly && ev.pointerType === 'touch'
+    const navigating = tool === 'pan' || fingerNav || ev.button === 1 || ev.shiftKey
     if (navigating) {
-      drag.current = { mode: 'pan', x: ev.clientX, y: ev.clientY, view0: { ...view } }
+      drag.current = {
+        mode: 'pan',
+        x: ev.clientX,
+        y: ev.clientY,
+        view0: { ...view },
+        tapCandidate: fingerNav || tool === 'pan',
+        at: p,
+      }
       return
     }
 
-    if (tool === 'select' || tool === 'erase') {
+    if (tool === 'erase') {
       const hit = hitTest(p)
-      if (tool === 'erase') {
-        if (hit) deleteHit(hit, dispatch)
-        return
+      if (hit && hit.kind !== 'image') deleteHit(hit, dispatch)
+      return
+    }
+
+    if (tool === 'select') {
+      // Primero los nodos del trazo en edición.
+      if (edit?.nodes?.length) {
+        const h = hitTestNodes(edit.nodes, p, 12 / view.scale, edit.activeIndex)
+        if (h?.type === 'node' || h?.type === 'hIn' || h?.type === 'hOut') {
+          drag.current = { mode: 'nodes', kind: h.type, index: h.index }
+          setEdit((e) => ({ ...e, activeIndex: h.index }))
+          return
+        }
+        if (h?.type === 'segment') {
+          const nodes = insertNode(edit.nodes, h.index, h.t)
+          setEdit((e) => ({ ...e, nodes, activeIndex: h.index + 1 }))
+          commitNodes(nodes)
+          drag.current = { mode: 'nodes', kind: 'node', index: h.index + 1 }
+          return
+        }
       }
+      const hit = hitTest(p)
       onPick(hit)
       if (hit?.kind === 'well') drag.current = { mode: 'well', id: hit.id }
       else if (hit?.kind === 'model') drag.current = { mode: 'model', id: hit.id }
@@ -180,32 +350,23 @@ export default function MapView({
       return
     }
 
-    if (isDrawTool) {
-      if (drawMode === 'vertex') {
-        setDraft((d) => ({ pts: [...(d?.pts || []), p], cursor: p, color: draftColor(tool) }))
-      } else {
-        drag.current = { mode: 'draw', pts: [p] }
-        setDraft({ pts: [p], color: draftColor(tool) })
+    if (isDrawTool || isTwoPointTool) {
+      // Trazo híbrido: si el puntero se mueve, es un trazo continuo; si se
+      // levanta sin moverse, es un vértice más de la polilínea en curso.
+      drag.current = {
+        mode: 'compose',
+        pts: [p],
+        origin: p,
+        stroke: false,
+        hadDraft: Boolean(draft?.pts?.length),
       }
-      return
-    }
-
-    if (isTwoPointTool) {
-      if (drawMode === 'vertex') {
-        const pts = [...(draft?.pts || []), p]
-        if (pts.length >= 2) {
-          onTwoPoint(pts[0], pts[1])
-          setDraft(null)
-        } else setDraft({ pts, color: draftColor(tool) })
-      } else {
-        drag.current = { mode: 'two', a: p }
-        setDraft({ pts: [p, p], color: draftColor(tool) })
-      }
+      setDraft((d) => ({ pts: [...(d?.pts || []), p], cursor: p, color: draftColor(tool) }))
     }
   }
 
   const onPointerMove = (ev) => {
     if (pointers.current.has(ev.pointerId)) pointers.current.set(ev.pointerId, ev)
+    registerTapMove(ev)
     const p = toImg(ev)
     if (ev.pointerType !== 'touch') setCursor(p)
 
@@ -225,12 +386,28 @@ export default function MapView({
     const d = drag.current
     if (!d) return
     if (d.mode === 'pan') {
+      const moved = Math.hypot(ev.clientX - d.x, ev.clientY - d.y)
+      if (moved > 6) d.tapCandidate = false
       setView({ ...d.view0, tx: d.view0.tx + (ev.clientX - d.x), ty: d.view0.ty + (ev.clientY - d.y) })
-    } else if (d.mode === 'draw') {
-      d.pts.push(p)
-      setDraft({ pts: [...d.pts], color: draftColor(tool) })
-    } else if (d.mode === 'two') {
-      setDraft({ pts: [d.a, p], color: draftColor(tool) })
+    } else if (d.mode === 'compose') {
+      if (!d.stroke && dist(p, d.origin) * view.scale > 7) d.stroke = true
+      if (d.stroke) {
+        d.pts.push(p)
+        setDraft((prev) => {
+          const base = prev?.pts ? prev.pts.slice(0, prev.pts.length - (d.drawn || 0)) : []
+          d.drawn = d.pts.length - 1
+          return { pts: [...base, ...d.pts.slice(1)], color: draftColor(tool) }
+        })
+      } else {
+        setDraft((prev) => (prev ? { ...prev, cursor: p } : prev))
+      }
+    } else if (d.mode === 'nodes') {
+      setEdit((e) => {
+        if (!e) return e
+        const nodes =
+          d.kind === 'node' ? moveNode(e.nodes, d.index, p) : moveHandle(e.nodes, d.index, d.kind, p)
+        return { ...e, nodes }
+      })
     } else if (d.mode === 'well') {
       dispatch({ type: 'well.update', id: d.id, patch: { at: p } })
     } else if (d.mode === 'model') {
@@ -245,12 +422,51 @@ export default function MapView({
     if (pointers.current.size < 2) gesture.current = null
     const d = drag.current
     drag.current = null
-    if (!d) return
-    if (d.mode === 'draw') finishStroke(d.pts)
-    else if (d.mode === 'two') {
-      const p = toImg(ev)
+    if (pointers.current.size === 0 && registerTapUp()) {
       setDraft(null)
-      if (dist(d.a, p) > 4 / view.scale) onTwoPoint(d.a, p)
+      return
+    }
+    if (!d) return
+
+    if (d.mode === 'pan' && d.tapCandidate) {
+      // Toque limpio con el dedo: selecciona en vez de navegar.
+      const hit = hitTest(d.at)
+      onPick(hit)
+      return
+    }
+    if (d.mode === 'nodes') {
+      setEdit((e) => {
+        if (e?.nodes) commitNodes(e.nodes)
+        return e
+      })
+      return
+    }
+    if (d.mode === 'compose') {
+      const p = toImg(ev)
+      if (d.stroke) {
+        const pts = [...d.pts]
+        // Un trazo continuo suelto equivale a un rasgo completo; si ya había
+        // vértices puestos a mano, se añade y el trazo sigue abierto.
+        setDraft((prev) => {
+          const all = prev?.pts || pts
+          if (!d.hadDraft) {
+            commitDraft(all)
+            return null
+          }
+          return { ...prev, pts: all }
+        })
+      } else if (isTwoPointTool) {
+        setDraft((prev) => {
+          const pts = prev?.pts || []
+          if (pts.length >= 2) {
+            onTwoPoint(pts[0], pts[1])
+            return null
+          }
+          return prev
+        })
+      } else {
+        setDraft((prev) => (prev ? { ...prev, cursor: p } : prev))
+      }
     }
   }
 
@@ -281,7 +497,13 @@ export default function MapView({
     return () => window.removeEventListener('keydown', onKey)
   }, [draft, finishStroke, isTwoPointTool, onTwoPoint])
 
-  const canFinish = drawMode === 'vertex' && draft?.pts?.length >= 2
+  const canFinish = draft?.pts?.length >= 2
+  const activeNode = edit?.nodes?.[edit.activeIndex]
+
+  const applyNodes = (nodes, activeIndex = edit.activeIndex) => {
+    setEdit((e) => ({ ...e, nodes, activeIndex }))
+    commitNodes(nodes)
+  }
 
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden bg-slate-100">
@@ -300,30 +522,74 @@ export default function MapView({
         onWheel={onWheel}
         onContextMenu={(e) => e.preventDefault()}
       />
+
       {canFinish && (
-        <div className="pointer-events-auto absolute bottom-24 left-1/2 flex -translate-x-1/2 gap-2">
+        <div className="pointer-events-auto absolute bottom-6 left-1/2 flex -translate-x-1/2 gap-2">
           <button
-            className="rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-lg"
-            onClick={() => {
-              if (isTwoPointTool) {
-                onTwoPoint(draft.pts[0], draft.pts[1])
-                setDraft(null)
-              } else finishStroke(draft.pts)
-            }}
+            className="rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-lg active:scale-95"
+            onClick={() => commitDraft(draft.pts)}
           >
             Terminar trazo
           </button>
           <button
-            className="rounded-full bg-slate-700 px-4 py-3 text-sm font-semibold text-white shadow-lg"
+            className="rounded-full bg-slate-700 px-4 py-3 text-sm font-semibold text-white shadow-lg active:scale-95"
             onClick={() => setDraft((d) => (d?.pts?.length > 1 ? { ...d, pts: d.pts.slice(0, -1) } : null))}
           >
             Quitar vértice
           </button>
+          <button
+            className="rounded-full bg-slate-500 px-4 py-3 text-sm font-semibold text-white shadow-lg active:scale-95"
+            onClick={() => setDraft(null)}
+          >
+            Cancelar
+          </button>
         </div>
       )}
+
+      {activeNode && !canFinish && (
+        <div className="pointer-events-auto absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-slate-900/90 px-2 py-1.5 text-xs font-medium text-white shadow-lg">
+          <span className="px-2 text-slate-300">
+            Nodo {edit.activeIndex + 1}/{edit.nodes.length}
+          </span>
+          <button
+            className="rounded-full bg-white/15 px-3 py-1.5 hover:bg-white/25"
+            onClick={() => applyNodes(toggleCorner(edit.nodes, edit.activeIndex))}
+          >
+            Suave / pico
+          </button>
+          <button
+            className="rounded-full bg-rose-500/90 px-3 py-1.5 hover:bg-rose-500"
+            onClick={() => {
+              const nodes = removeNode(edit.nodes, edit.activeIndex)
+              applyNodes(nodes, -1)
+            }}
+          >
+            Borrar nodo
+          </button>
+          <button
+            className="rounded-full bg-white/15 px-3 py-1.5 hover:bg-white/25"
+            onClick={() => setEdit((e) => ({ ...e, activeIndex: -1 }))}
+          >
+            Listo
+          </button>
+        </div>
+      )}
+
+      {gestureHint && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-slate-900/85 px-6 py-3 text-lg font-semibold text-white shadow-2xl">
+          {gestureHint}
+        </div>
+      )}
+
       {status && (
         <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-slate-900/85 px-4 py-1.5 text-xs font-medium text-white shadow">
           {status}
+        </div>
+      )}
+
+      {edit && !activeNode && (
+        <div className="pointer-events-none absolute left-1/2 top-12 -translate-x-1/2 rounded-full bg-sky-900/80 px-3 py-1 text-[11px] text-sky-50 shadow">
+          Arrastra un nodo para moverlo · toca la línea para añadir uno
         </div>
       )}
     </div>

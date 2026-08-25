@@ -26,7 +26,7 @@ export const TOOLS = [
   { id: 'erase', label: 'Borrar rasgo', icon: Eraser, key: 'E' },
 ]
 
-export default function Toolbar({ tool, setTool, drawMode, setDrawMode, penOnly, setPenOnly }) {
+export default function Toolbar({ tool, setTool, penOnly, setPenOnly }) {
   return (
     <div className="flex h-full w-16 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-slate-200 bg-white py-2 md:w-[4.5rem]">
       {TOOLS.map((t) => {
@@ -47,13 +47,12 @@ export default function Toolbar({ tool, setTool, drawMode, setDrawMode, penOnly,
         )
       })}
       <div className="mt-2 w-14 border-t border-slate-200 pt-2 text-center">
-        <button
-          onClick={() => setDrawMode(drawMode === 'free' ? 'vertex' : 'free')}
-          className="w-full rounded-lg bg-slate-100 px-1 py-1.5 text-[10px] font-medium text-slate-700 hover:bg-slate-200"
-          title="Alterna entre trazo libre (lápiz) y colocar vértices toque a toque"
+        <p
+          className="mb-1 rounded-lg bg-slate-100 px-1 py-1.5 text-[9px] leading-tight text-slate-600"
+          title="Un toque coloca un vértice; mantener y arrastrar dibuja un trazo continuo"
         >
-          {drawMode === 'free' ? 'Trazo libre' : 'Por vértices'}
-        </button>
+          Toque = vértice<br />Arrastrar = trazo
+        </p>
         <button
           onClick={() => setPenOnly(!penOnly)}
           className={`mt-1 w-full rounded-lg px-1 py-1.5 text-[10px] font-medium ${

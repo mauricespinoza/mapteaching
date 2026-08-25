@@ -86,10 +86,21 @@ export default function HelpPanel({ project, dispatch }) {
       </p>
 
       <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-800">Tablet y lápiz</h3>
-      <ul className="list-disc space-y-1 pl-5 text-[13px]">
-        <li>Con «Sólo lápiz» activo el Apple Pencil dibuja y los dedos navegan (arrastre y pinza).</li>
-        <li>«Trazo libre» dibuja siguiendo el lápiz; «Por vértices» agrega un punto por toque.</li>
-        <li>El trazo se suaviza automáticamente al soltar (simplificación Douglas–Peucker).</li>
+      <ul className="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed">
+        <li>
+          <b>Trazo híbrido</b>: un toque coloca un vértice y otro toque el siguiente; si en cambio mantienes
+          apretado y arrastras, dibujas un trazo continuo. Los dos se pueden mezclar en la misma línea.
+        </li>
+        <li>Con «Sólo lápiz» el Apple Pencil dibuja y los dedos navegan; un toque limpio con el dedo selecciona.</li>
+        <li>
+          <b>Editar una línea</b>: selecciónala y aparecen sus nodos. Arrastra un nodo para moverlo, toca la
+          línea para insertar uno nuevo, y arrastra los manejadores azules del nodo activo para curvarla
+          (Bézier). El botón «Suave / pico» convierte el nodo en vértice anguloso y viceversa.
+        </li>
+        <li>
+          <b>Gestos</b>: doble toque con <b>dos dedos</b> deshace; con <b>tres dedos</b>, rehace.
+        </li>
+        <li>El trazo continuo se suaviza al soltar (simplificación Douglas–Peucker).</li>
       </ul>
 
       <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-800">Atajos</h3>

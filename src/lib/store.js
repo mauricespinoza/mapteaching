@@ -96,7 +96,10 @@ function apply(project, action) {
         ...p,
         [key]: replaceIn(p[key], action.id, (it) => ({
           ...it,
-          traces: replaceIn(it.traces, action.traceId, (t) => ({ ...t, pts: action.pts })),
+          traces: replaceIn(it.traces, action.traceId, (t) => ({
+            ...t,
+            ...(action.patch || { pts: action.pts }),
+          })),
         })),
       }
     }
