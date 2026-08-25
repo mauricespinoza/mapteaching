@@ -12,6 +12,7 @@ import {
   Layers3,
   Frame,
   MoveHorizontal,
+  Contrast,
 } from 'lucide-react'
 
 export const TOOLS = [
@@ -20,6 +21,7 @@ export const TOOLS = [
   { id: 'contour', label: 'Curva de nivel', icon: Waves, key: 'C' },
   { id: 'contact', label: 'Contacto', icon: PenLine, key: 'X' },
   { id: 'fault', label: 'Falla', icon: Split, key: 'F' },
+  { id: 'scontour', label: 'Contorno estr.', icon: Contrast, key: 'G' },
   { id: 'scale', label: 'Escala gráfica', icon: Ruler, key: 'R' },
   { id: 'measure', label: 'Medir', icon: MoveHorizontal, key: 'D' },
   { id: 'north', label: 'Norte', icon: Compass, key: 'N' },

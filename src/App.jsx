@@ -34,7 +34,7 @@ import HelpPanel from './components/HelpPanel.jsx'
 import ModelPanel from './components/ModelPanel.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
 import { reducer, initialState } from './lib/store.js'
-import { newProject, newSection, newWell, uid, countVertices } from './lib/model.js'
+import { newProject, newSection, newWell, newStructureContour, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
 import { buildSampleProject } from './lib/sample.js'
 import { buildModelViews, newStructuralModel } from './lib/models.js'
@@ -50,6 +50,7 @@ const DEFAULT_SHOW = {
   contacts: true,
   faults: true,
   structureContours: true,
+  structureLabels: true,
   faultStructureContours: false,
   attitudes: true,
   sections: true,
@@ -89,12 +90,15 @@ export default function App() {
   const [penOnly, setPenOnly] = useState(true)
   const [selection, setSelection] = useState(null)
   const [activeIds, setActiveIds] = useState({ contact: null, fault: null })
+  // Rasgo al que se añade el próximo contorno estructural dibujado a mano.
+  const [scTarget, setScTarget] = useState(null)
   const [view, setView] = useState(null)
   const [sectionId, setSectionId] = useState(null)
   const [wellId, setWellId] = useState(null)
   const [image, setImage] = useState(null)
   const [dialog, setDialog] = useState(null)
   const [lastModelKind, setLastModelKind] = useState('fold')
+  const [lastScZ, setLastScZ] = useState(null)
   const [projects, setProjects] = useState([])
   const [booted, setBooted] = useState(false)
   const mapCanvasRef = useRef(null)
@@ -151,6 +155,11 @@ export default function App() {
   useEffect(() => {
     if (!sectionId && project.sections.length) setSectionId(project.sections[0].id)
   }, [project.sections, sectionId])
+
+  // El rasgo elegido desde el menú sólo vale para el contorno que se va a trazar.
+  useEffect(() => {
+    if (tool !== 'scontour') setScTarget(null)
+  }, [tool])
 
   // --- Atajos ---
   useEffect(() => {
@@ -239,9 +248,28 @@ export default function App() {
         const s = newSection(project, a, b)
         dispatch({ type: 'section.add', section: s })
         setSectionId(s.id)
+      } else if (tool === 'scontour') {
+        const target =
+          scTarget ||
+          (activeIds.contact && { kind: 'contact', id: activeIds.contact }) ||
+          (project.contacts[0] && { kind: 'contact', id: project.contacts[0].id })
+        if (!target) {
+          setDialog({
+            kind: 'info',
+            text: 'Un contorno estructural pertenece a una superficie: crea antes un contacto o una falla.',
+          })
+          return
+        }
+        setDialog({
+          kind: 'scontour',
+          a,
+          b,
+          target,
+          elevation: lastScZ ?? project.settings.lastElevation ?? 0,
+        })
       }
     },
-    [tool, project]
+    [tool, project, activeIds, scTarget, lastScZ]
   )
 
   const onTapPoint = useCallback(
@@ -346,7 +374,7 @@ export default function App() {
   }
 
   const section = project.sections.find((s) => s.id === sectionId) || project.sections[0] || null
-  const status = statusText(tool, project, activeIds, scene)
+  const status = statusText(tool, project, activeIds, scene, scTarget)
 
   return (
     <div className="flex h-full w-full flex-col bg-slate-100 text-slate-900">
@@ -494,6 +522,7 @@ export default function App() {
                   ['contacts', 'Contactos'],
                   ['faults', 'Fallas'],
                   ['structureContours', 'Contornos estr.'],
+                  ['structureLabels', 'Rótulos estr.'],
                   ['faultStructureContours', 'Contornos de falla'],
                   ['attitudes', 'Rumbo/manteo'],
                   ['sections', 'Perfiles'],
@@ -579,9 +608,19 @@ export default function App() {
                     setTool('select')
                     setSelection(hit)
                   }}
+                  onAddScRequest={(target) => {
+                    setScTarget(target)
+                    setTool('scontour')
+                  }}
                   onPick={(hit) => {
                     setSelection(hit)
                     if (hit?.kind === 'contact') setActiveIds((s) => ({ ...s, contact: hit.id }))
+                    // Tocar un contorno estructural deja activa su superficie:
+                    // es la que recibirá el próximo contorno que se trace.
+                    if (hit?.kind === 'sc' && hit.featureKind === 'contact')
+                      setActiveIds((s) => ({ ...s, contact: hit.id }))
+                    if (hit?.kind === 'sc' && hit.featureKind === 'fault')
+                      setActiveIds((s) => ({ ...s, fault: hit.id }))
                     if (hit?.kind === 'fault') setActiveIds((s) => ({ ...s, fault: hit.id }))
                     if (hit?.kind === 'section') setSectionId(hit.id)
                     if (hit?.kind === 'well') setWellId(hit.id)
@@ -751,6 +790,70 @@ export default function App() {
         </Modal>
       )}
 
+      {dialog?.kind === 'scontour' && (
+        <Modal title="Contorno estructural" onClose={() => setDialog(null)}>
+          <p className="mb-2 text-xs leading-relaxed text-slate-600">
+            Un contorno estructural es la recta de <b>cota constante</b> sobre la superficie: donde el contacto
+            pasa por esa altura. El motor los calcula desde los cruces de la traza con las curvas de nivel; el que
+            dibujes aquí manda sobre esa cota.
+          </p>
+          <Field label="Superficie a la que pertenece">
+            <select
+              className={inputCls}
+              value={`${dialog.target.kind}:${dialog.target.id}`}
+              onChange={(e) => {
+                const [kind, id] = e.target.value.split(':')
+                setDialog({ ...dialog, target: { kind, id } })
+              }}
+            >
+              {project.contacts.map((c) => (
+                <option key={c.id} value={`contact:${c.id}`}>
+                  {c.name}
+                </option>
+              ))}
+              {project.faults.map((f) => (
+                <option key={f.id} value={`fault:${f.id}`}>
+                  {f.name} (falla)
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="mt-2">
+            <Field label="Cota estructural (m s.n.m.)">
+              <input
+                autoFocus
+                type="number"
+                className={inputCls}
+                value={dialog.elevation}
+                onChange={(e) => setDialog({ ...dialog, elevation: Number(e.target.value) })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') saveStructureContour()
+                }}
+              />
+            </Field>
+          </div>
+          <div className="mt-3 flex justify-between gap-2">
+            <Btn
+              onClick={() =>
+                setDialog({ ...dialog, elevation: dialog.elevation - project.settings.contourInterval })
+              }
+            >
+              −{project.settings.contourInterval}
+            </Btn>
+            <Btn
+              onClick={() =>
+                setDialog({ ...dialog, elevation: dialog.elevation + project.settings.contourInterval })
+              }
+            >
+              +{project.settings.contourInterval}
+            </Btn>
+            <Btn variant="primary" className="flex-1" onClick={saveStructureContour}>
+              Añadir contorno
+            </Btn>
+          </div>
+        </Modal>
+      )}
+
       {dialog?.kind === 'scale' && (
         <Modal title="Calibrar escala" onClose={() => setDialog(null)}>
           <p className="mb-2 text-xs text-slate-600">
@@ -883,6 +986,19 @@ export default function App() {
     setDialog(null)
   }
 
+  function saveStructureContour() {
+    const { target, a, b, elevation } = dialog
+    dispatch({
+      type: 'sc.add',
+      kind: target.kind,
+      id: target.id,
+      items: [newStructureContour(elevation, [a, b])],
+    })
+    setLastScZ(elevation)
+    setDialog(null)
+    setTool('select')
+  }
+
   function saveScale() {
     const px = dist(dialog.a, dialog.b)
     if (!(px > 0) || !(dialog.meters > 0)) return
@@ -912,7 +1028,7 @@ function fitView(rect) {
   return { scale, tx: 20, ty: 20 }
 }
 
-function statusText(tool, project, activeIds, scene) {
+function statusText(tool, project, activeIds, scene, scTarget) {
   if (tool === 'contour') return `Curva de nivel · próxima cota ${project.settings.lastElevation} m`
   if (tool === 'contact') {
     const c = project.contacts.find((x) => x.id === activeIds.contact) || project.contacts[0]
@@ -922,13 +1038,20 @@ function statusText(tool, project, activeIds, scene) {
     const f = project.faults.find((x) => x.id === activeIds.fault) || project.faults[0]
     return f ? `Trazando falla: ${f.name}` : 'Se creará una falla nueva al trazar'
   }
+  if (tool === 'scontour') {
+    const list = scTarget?.kind === 'fault' ? project.faults : project.contacts
+    const target = scTarget ? list.find((x) => x.id === scTarget.id) : null
+    return target
+      ? `Traza el contorno estructural de ${target.name} y dale su cota`
+      : 'Traza una recta de cota constante: al soltar eliges superficie y cota'
+  }
   if (tool === 'scale') return 'Traza una línea de largo conocido'
   if (tool === 'north') return 'Traza una flecha apuntando al Norte'
   if (tool === 'frame') return 'Arrastra el rectángulo del área de trabajo'
   if (tool === 'section') return 'Traza la línea del perfil (A–A′)'
   if (tool === 'well') return 'Toca el mapa para ubicar el pozo'
   if (tool === 'erase') return 'Toca un rasgo para eliminarlo'
-  if (tool === 'select') return 'Toca un rasgo para seleccionarlo o moverlo'
+  if (tool === 'select') return 'Toca un rasgo para seleccionarlo o moverlo · pulsación larga abre sus opciones'
   if (!scene?.ready) return null
   return null
 }

@@ -122,20 +122,60 @@ export function darken(hex, k = 0.45) {
   return `#${c.map((x) => x.toString(16).padStart(2, '0')).join('')}`
 }
 
+/** Nombre automático de un contacto a partir del par de unidades que separa. */
+export function contactNameFor(project, lowerUnitId, upperUnitId) {
+  const lower = project.units.find((u) => u.id === lowerUnitId)
+  const upper = project.units.find((u) => u.id === upperUnitId)
+  return lower && upper ? `${lower.name} / ${upper.name}` : 'Contacto'
+}
+
 export function newContact(project, lowerUnitId, upperUnitId) {
   const lower = project.units.find((u) => u.id === lowerUnitId)
   const upper = project.units.find((u) => u.id === upperUnitId)
   return {
     id: uid('c'),
-    name: lower && upper ? `${lower.name} / ${upper.name}` : 'Contacto',
+    name: contactNameFor(project, lowerUnitId, upperUnitId),
     color: darken(upper?.color || lower?.color || '#334155', 0.45),
     type: 'concordante',
     lowerUnitId: lowerUnitId || null,
     upperUnitId: upperUnitId || null,
     manual: null, // { dipDir, dip } fuerza la actitud si faltan intersecciones
+    // Contornos estructurales puestos a mano: rectas de cota conocida sobre la
+    // superficie, que sustituyen a las que calcula el motor en esa cota.
+    structureContours: [], // { id, elevation, pts: [[x,y],[x,y]] } en píxeles
     traces: [],
   }
 }
+
+/**
+ * Cambio del par de unidades de un contacto. El nombre y el color se regeneran
+ * sólo si eran los automáticos: un nombre escrito a mano no se pisa.
+ */
+export function reassignContact(project, contact, lowerUnitId, upperUnitId) {
+  const patch = { lowerUnitId: lowerUnitId || null, upperUnitId: upperUnitId || null }
+  const auto = contactNameFor(project, contact.lowerUnitId, contact.upperUnitId)
+  if (!contact.name || contact.name === auto || contact.name === 'Contacto') {
+    patch.name = contactNameFor(project, lowerUnitId, upperUnitId)
+  }
+  const upper = project.units.find((u) => u.id === upperUnitId)
+  const lower = project.units.find((u) => u.id === lowerUnitId)
+  const autoColor = darken(
+    project.units.find((u) => u.id === contact.upperUnitId)?.color ||
+      project.units.find((u) => u.id === contact.lowerUnitId)?.color ||
+      '#334155',
+    0.45
+  )
+  if (!contact.color || contact.color === autoColor) {
+    patch.color = darken(upper?.color || lower?.color || '#334155', 0.45)
+  }
+  return patch
+}
+
+/** Contorno estructural puesto a mano: un segmento de cota conocida. */
+export function newStructureContour(elevation, pts) {
+  return { id: uid('sc'), elevation, pts: [pts[0], pts[pts.length - 1]] }
+}
+
 
 export function newFault(project) {
   return {
@@ -144,6 +184,7 @@ export function newFault(project) {
     kinematics: 'normal',
     manual: null, // { dipDir, dip }
     offset: null, // separación estimada (m), sólo informativa
+    structureContours: [],
     traces: [],
   }
 }

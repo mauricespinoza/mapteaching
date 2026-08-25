@@ -115,6 +115,55 @@ function apply(project, action) {
       }
     }
 
+    // --- Contornos estructurales puestos a mano ---
+    // Viven en el rasgo (contacto o falla) y sustituyen a los que calcula el
+    // motor en esa cota: el estudiante toma el control de esa curva.
+    case 'sc.add': {
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      return {
+        ...p,
+        [key]: replaceIn(p[key], action.id, (it) => ({
+          ...it,
+          structureContours: [...(it.structureContours || []), ...action.items],
+        })),
+      }
+    }
+    case 'sc.update': {
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      return {
+        ...p,
+        [key]: replaceIn(p[key], action.id, (it) => ({
+          ...it,
+          structureContours: replaceIn(it.structureContours || [], action.scId, (sc) => ({
+            ...sc,
+            ...action.patch,
+          })),
+        })),
+      }
+    }
+    case 'sc.delete': {
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      return {
+        ...p,
+        [key]: replaceIn(p[key], action.id, (it) => ({
+          ...it,
+          structureContours: (it.structureContours || []).filter((sc) => sc.id !== action.scId),
+        })),
+      }
+    }
+    case 'sc.clear': {
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      return {
+        ...p,
+        [key]: replaceIn(p[key], action.id, (it) => ({
+          ...it,
+          structureContours: action.elevation == null
+            ? []
+            : (it.structureContours || []).filter((sc) => sc.elevation !== action.elevation),
+        })),
+      }
+    }
+
     case 'section.add':
       return { ...p, sections: [...p.sections, action.section] }
     case 'section.update':

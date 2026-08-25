@@ -3,12 +3,13 @@
 // estructural, el modelo de elevación y las estadísticas para el panel de
 // resultados. Es la única capa que conoce a la vez el modelo de datos y el motor.
 
-import { toWorldList, toWorld } from './georef.js'
-import { buildSurface } from './structure.js'
+import { toWorldList, toWorld, toImage } from './georef.js'
+import { buildSurface, contourSegment } from './structure.js'
+import { inheritContactGeometry } from './parallel.js'
 import { buildBlocks, singleBlock } from './blocks.js'
 import { buildDem } from './dem.js'
 import { resample, polylineIntersections, dist, bboxOf } from './geom.js'
-import { sortedUnits, sortedContacts } from './model.js'
+import { sortedUnits, sortedContacts, kinematicsOf } from './model.js'
 
 /** Corta una polilínea allí donde la cruza una falla. */
 export function splitByFaults(pts, faultPolys) {
@@ -69,6 +70,16 @@ export function extendPolyline(pts, amount) {
   ]
 }
 
+/** Equidistancia de las curvas: mediana de los saltos entre cotas distintas. */
+function contourSpacing(worldContours) {
+  const zs = [...new Set(worldContours.map((c) => c.elevation))].sort((a, b) => a - b)
+  if (zs.length < 2) return 0
+  const gaps = []
+  for (let i = 1; i < zs.length; i++) gaps.push(zs[i] - zs[i - 1])
+  gaps.sort((a, b) => a - b)
+  return gaps[gaps.length >> 1]
+}
+
 export function buildScene(project) {
   const georef = project.georef
   const ready = Boolean(georef?.metersPerPx)
@@ -119,6 +130,24 @@ export function buildScene(project) {
   const extended = faultPolys.map((pts) => extendPolyline(pts, Math.max(side * 0.04, cell * 3)))
   const blocks = faultPolys.length ? buildBlocks(extended, bbox, cell) : singleBlock()
 
+  /**
+   * Contornos estructurales puestos a mano, en coordenadas mundo y repartidos
+   * por bloque: al otro lado de una falla la superficie es otra, así que una
+   * curva dibujada aquí no manda allí.
+   */
+  const manualContoursByBlock = (feature) => {
+    const out = new Map()
+    for (const sc of feature.structureContours || []) {
+      if (!sc?.pts || sc.pts.length < 2 || !Number.isFinite(sc.elevation)) continue
+      const [a, b] = toWorldList(georef, [sc.pts[0], sc.pts[sc.pts.length - 1]])
+      const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+      const block = blocks.blockAt(mid[0], mid[1])
+      if (!out.has(block)) out.set(block, [])
+      out.get(block).push({ id: sc.id, elevation: sc.elevation, a, b })
+    }
+    return out
+  }
+
   // Superficies de contacto, resueltas bloque a bloque.
   const contactSurfaces = new Map()
   for (const cw of contactWorld) {
@@ -133,6 +162,10 @@ export function buildScene(project) {
       if (!byBlock.has(piece.block)) byBlock.set(piece.block, [])
       byBlock.get(piece.block).push(piece.pts)
     }
+    // Un contorno dibujado a mano define la superficie aunque en ese bloque no
+    // haya traza: es un dato del estudiante y basta para resolverla.
+    const manualByBlock = manualContoursByBlock(cw.contact)
+    for (const block of manualByBlock.keys()) if (!byBlock.has(block)) byBlock.set(block, [])
     const surfaces = new Map()
     for (const [block, traces] of byBlock) {
       surfaces.set(
@@ -141,6 +174,7 @@ export function buildScene(project) {
           traces,
           contours: worldContours,
           manual: cw.contact.manual,
+          manualContours: manualByBlock.get(block) || [],
           name: cw.contact.name,
           tol,
         })
@@ -152,13 +186,15 @@ export function buildScene(project) {
   // Superficies de falla: se resuelven con todas sus trazas juntas.
   const faultSurfaces = new Map()
   for (const fw of faultWorld) {
-    if (!fw.traces.length) continue
+    const manualSc = [...manualContoursByBlock(fw.fault).values()].flat()
+    if (!fw.traces.length && !manualSc.length) continue
     faultSurfaces.set(
       fw.id,
       buildSurface({
         traces: fw.traces,
         contours: worldContours,
         manual: fw.fault.manual,
+        manualContours: manualSc,
         name: fw.fault.name,
         tol,
       })
@@ -184,6 +220,13 @@ export function buildScene(project) {
   const units = sortedUnits(project)
   const contacts = sortedContacts(project)
 
+  // Unidades sin datos propios: heredan el pliegue de la unidad de encima con
+  // espesor constante. Va después del modelo de elevación porque, cuando un
+  // contacto no cruza ninguna curva de nivel, el espesor se ajusta leyendo su
+  // traza sobre el relieve.
+  const zStep = contourSpacing(worldContours)
+  const inherited = inheritContactGeometry({ contacts, contactSurfaces, dem, tol, side, zStep })
+
   return {
     ready,
     georef,
@@ -195,6 +238,7 @@ export function buildScene(project) {
     dem,
     worldContours,
     contactSurfaces,
+    inherited,
     faultSurfaces,
     faultWorld,
     contactWorld,
@@ -210,6 +254,52 @@ export function buildScene(project) {
       return null
     },
   }
+}
+
+/**
+ * Contornos estructurales dibujables, en píxeles de imagen: lo que se pinta en
+ * el mapa y lo que se puede tocar para editarlo. Reúne los que calcula el motor
+ * y los que el estudiante ha puesto a mano, con el rasgo y la cota que
+ * representan, que es lo que va en su rótulo.
+ */
+export function structureContourItems(scene) {
+  if (!scene?.ready) return []
+  const out = []
+  const collect = (kind, feature, color, block, surf) => {
+    for (const sc of surf.structureContours || []) {
+      if (!sc.fit) continue
+      // El contorno calculado se prolonga un poco más allá de sus puntos, que es
+      // como se dibuja a mano; el puesto por el estudiante se dibuja exactamente
+      // donde lo trazó, ni un píxel más.
+      const seg = contourSegment(sc, null, sc.manualId ? 0 : 0.15)
+      if (!seg) continue
+      out.push({
+        key: `${kind}:${feature.id}:${block}:${sc.elevation}:${sc.limb}:${sc.manualId || ''}`,
+        kind,
+        featureId: feature.id,
+        name: feature.name,
+        color,
+        block,
+        elevation: sc.elevation,
+        limb: sc.limb,
+        manualId: sc.manualId || null,
+        n: sc.n,
+        a: toImage(scene.georef, seg[0]),
+        b: toImage(scene.georef, seg[1]),
+        points: sc.points.map((p) => toImage(scene.georef, p)),
+      })
+    }
+  }
+  for (const c of scene.contacts) {
+    const byBlock = scene.contactSurfaces.get(c.id)
+    if (!byBlock) continue
+    for (const [block, surf] of byBlock) collect('contact', c, c.color || '#0f172a', block, surf)
+  }
+  for (const f of scene.project.faults) {
+    const surf = scene.faultSurfaces.get(f.id)
+    if (surf) collect('fault', f, kinematicsOf(f.kinematics).color, null, surf)
+  }
+  return out
 }
 
 /** Resumen para el panel de resultados. */

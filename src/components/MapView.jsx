@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { render, toImagePt, renderHillshade } from '../lib/render2d.js'
+import { structureContourItems } from '../lib/scene.js'
+import { newStructureContour } from '../lib/model.js'
+import MapMenu from './MapMenu.jsx'
 import { thin, simplify, pointPolyline, dist, chaikin } from '../lib/geom.js'
 import { snapTargets, snapToLines, measureEnd, reading } from '../lib/measure.js'
 import { fmtDistance, strikeQuadrant } from '../lib/georef.js'
@@ -35,6 +38,7 @@ export default function MapView({
   onTapPoint,
   onPick,
   onEditRequest,
+  onAddScRequest,
   dispatch,
   status,
   modelViews,
@@ -48,6 +52,11 @@ export default function MapView({
   const [draft, setDraft] = useState(null)
   const [cursor, setCursor] = useState(null)
   const [edit, setEdit] = useState(null)
+  const [menu, setMenu] = useState(null)
+  // Contorno estructural en pleno arrastre: se dibuja desde aquí y sólo se
+  // escribe en el proyecto al soltar, así el motor no recalcula la escena en
+  // cada movimiento del lápiz y el deshacer no se llena de pasos intermedios.
+  const [scDraft, setScDraft] = useState(null)
   const [gestureHint, setGestureHint] = useState(null)
   // Regla: se mantiene fuera del proyecto porque es una lectura, no un dato.
   const [measure, setMeasure] = useState(null)
@@ -105,13 +114,111 @@ export default function MapView({
   )
 
   const isDrawTool = ['contour', 'contact', 'fault'].includes(tool)
-  const isTwoPointTool = ['scale', 'north', 'section', 'frame'].includes(tool)
+  const isTwoPointTool = ['scale', 'north', 'section', 'frame', 'scontour'].includes(tool)
+
+  // Contornos estructurales dibujables: la misma lista alimenta el dibujo y la
+  // prueba de impacto, así que lo que se ve es exactamente lo que se toca.
+  const scItems = useMemo(
+    () => (show.structureContours && scene?.ready ? structureContourItems(scene) : []),
+    [scene, show.structureContours]
+  )
+  const scVisible = useMemo(
+    () => scItems.filter((it) => it.kind !== 'fault' || show.faultStructureContours),
+    [scItems, show.faultStructureContours]
+  )
+
+  const scDrawn = useMemo(
+    () =>
+      scDraft
+        ? scVisible.map((it) => (it.key === scDraft.key ? { ...it, a: scDraft.pts[0], b: scDraft.pts[1] } : it))
+        : scVisible,
+    [scVisible, scDraft]
+  )
+
+  /** Contorno estructural más cercano al punto (en píxeles de imagen). */
+  const scHit = useCallback(
+    (p, tolPx = 14) => {
+      const tol = tolPx / view.scale
+      let best = null
+      for (const it of scVisible) {
+        const d = pointPolyline(p, [it.a, it.b]).d
+        if (d <= tol && (!best || d < best.d)) best = { it, d }
+      }
+      return best
+    },
+    [scVisible, view.scale]
+  )
+
+  /**
+   * Contornos que hay que fijar junto a uno dado: todos los de su cota en su
+   * bloque. Al pasar una cota a manos del estudiante, sus contornos hermanos
+   * —el otro limbo de un pliegue— tienen que quedarse donde estaban, porque un
+   * contorno puesto a mano sustituye a lo calculado en toda esa cota.
+   */
+  const scFamily = useCallback(
+    (it) =>
+      scItems.filter(
+        (s) =>
+          s.kind === it.kind &&
+          s.featureId === it.featureId &&
+          s.block === it.block &&
+          s.elevation === it.elevation &&
+          !s.manualId
+      ),
+    [scItems]
+  )
+
+  /**
+   * Fija el contorno calculado como dato del proyecto. Devuelve su id, para
+   * poder seguir trabajando sobre él. `pts` permite fijarlo ya movido, de modo
+   * que arrastrar deje un solo paso en el historial.
+   */
+  const materializeSc = useCallback(
+    (it, pts = null) => {
+      const update = (scId) => {
+        if (pts) dispatch({ type: 'sc.update', kind: it.kind, id: it.featureId, scId, patch: { pts } })
+        return scId
+      }
+      if (it.manualId) return update(it.manualId)
+      // El contorno pudo fijarse hace un instante y venir este `it` de un
+      // render anterior (dos toques seguidos en «+100», por ejemplo). Antes de
+      // crear otro se busca el que ya ocupa su sitio: uno de la misma cota y
+      // prácticamente encima, que sólo puede ser él.
+      const list = it.kind === 'fault' ? project.faults : project.contacts
+      const same = (list.find((f) => f.id === it.featureId)?.structureContours || []).filter(
+        (x) => x.elevation === it.elevation
+      )
+      if (same.length) {
+        const mid = (q) => [(q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2]
+        const here = mid([it.a, it.b])
+        const near = Math.max(dist(it.a, it.b) / 2, 20 / view.scale)
+        let best = null
+        for (const x of same) {
+          const d = dist(here, mid(x.pts))
+          if (d < near && (!best || d < best.d)) best = { x, d }
+        }
+        if (best) return update(best.x.id)
+      }
+      const family = scFamily(it)
+      const i = family.findIndex((s) => s.key === it.key)
+      if (i < 0) return null
+      // Cada uno se fija tal como se ve, de modo que la curva no dé un salto al
+      // pasar a ser un dato.
+      const items = family.map((s, k) =>
+        newStructureContour(s.elevation, k === i && pts ? pts : [s.a, s.b])
+      )
+      dispatch({ type: 'sc.add', kind: it.kind, id: it.featureId, items })
+      return items[i].id
+    },
+    [scFamily, dispatch, project, view.scale]
+  )
 
   const targets = useMemo(() => (tool === 'measure' ? snapTargets(project) : []), [tool, project])
   const measureRead = useMemo(() => reading(project, scene, measure), [project, scene, measure])
   // Al cambiar de herramienta la medida deja de tener sentido en pantalla.
   useEffect(() => {
     if (tool !== 'measure') setMeasure(null)
+    setMenu(null)
   }, [tool])
 
   /** Recalcula el extremo de la regla a partir del puntero. */
@@ -170,11 +277,12 @@ export default function MapView({
       modelViews,
       unitRaster,
       edit: edit ? { ...edit, preview: editPreview } : null,
+      scItems: scDrawn,
       width: size.width,
       height: size.height,
       dpr,
     })
-  }, [view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, edit, editPreview])
+  }, [view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, edit, editPreview, scDrawn])
 
   const toImg = useCallback((ev) => {
     const rect = canvasRef.current.getBoundingClientRect()
@@ -265,6 +373,23 @@ export default function MapView({
     [edit, dispatch]
   )
 
+  /**
+   * Arrastre de un contorno estructural. El dato no se crea hasta que el gesto
+   * se mueve de verdad (lo hace `onPointerMove`): un toque limpio sólo
+   * selecciona.
+   */
+  const startScDrag = (it, p, handle) => {
+    drag.current = {
+      mode: 'sc',
+      it,
+      handle,
+      a: it.a,
+      b: it.b,
+      origin: p,
+      moved: false,
+    }
+  }
+
   // --- Gestos multitáctiles: doble toque con 2 dedos deshace, con 3 rehace ---
   const registerTapDown = (ev) => {
     const g = taps.current
@@ -315,26 +440,63 @@ export default function MapView({
     flashTimer.current = setTimeout(() => setGestureHint(null), 900)
   }
 
+  /** Rasgo (o contorno estructural) más cercano al punto, para el menú de opciones. */
+  const findMenuTarget = useCallback(
+    (p, tolPx) => {
+      const hitNow = hitTest(p, tolPx)
+      const scNow = scHit(p, tolPx)
+      const target = scNow && (!hitNow || scNow.d < hitNow.d) ? { kind: 'sc', it: scNow.it } : hitNow
+      return target && MENU_KINDS.includes(target.kind) ? target : null
+    },
+    [hitTest, scHit]
+  )
+
+  const openMenuFor = useCallback(
+    (target, at) => {
+      if (target.kind === 'sc') onEditRequest?.(scSelection(target.it))
+      else if (['contact', 'fault', 'contour'].includes(target.kind)) onEditRequest?.(target)
+      setMenu({ at, hit: target })
+    },
+    [onEditRequest]
+  )
+
   // --- Punteros ---
   const onPointerDown = (ev) => {
     const canvas = canvasRef.current
     canvas.setPointerCapture(ev.pointerId)
-    pointers.current.set(ev.pointerId, ev)
-    registerTapDown(ev)
     const p = toImg(ev)
 
-    // Pulsación larga sobre una línea: entra en edición de vértices. Es la vía
-    // natural en tablet, donde no hay clic derecho ni teclas.
+    // Clic secundario del ratón: el equivalente de escritorio a la pulsación
+    // larga en tablet. Abre el menú del rasgo al instante y no hace nada más
+    // con el clic —ni selecciona, ni dibuja, ni navega—.
+    if (ev.button === 2) {
+      const target = findMenuTarget(p, touchTol(ev, 16))
+      if (target) {
+        const rect = canvas.getBoundingClientRect()
+        openMenuFor(target, [ev.clientX - rect.left, ev.clientY - rect.top])
+      }
+      return
+    }
+
+    pointers.current.set(ev.pointerId, ev)
+    registerTapDown(ev)
+
+    // Pulsación larga sobre una línea: entra en edición de vértices y despliega
+    // el menú del rasgo. Es la vía natural en tablet, donde no hay clic derecho
+    // ni teclas: ahí caben la reasignación de unidades, la cinemática de una
+    // falla, la cota de una curva y el borrado.
     clearTimeout(holdTimer.current)
-    if (tool !== 'select' && pointers.current.size === 1) {
-      const hitNow = hitTest(p, touchTol(ev, 18))
-      if (hitNow && ['contact', 'fault', 'contour'].includes(hitNow.kind)) {
+    if (!['erase', 'measure'].includes(tool) && pointers.current.size === 1) {
+      const target = findMenuTarget(p, touchTol(ev, 18))
+      if (target) {
+        const rect = canvas.getBoundingClientRect()
+        const at = [ev.clientX - rect.left, ev.clientY - rect.top]
         holdTimer.current = setTimeout(() => {
           if (drag.current?.stroke) return // se convirtió en trazo: no interrumpir
           drag.current = null
           setDraft(null)
-          onEditRequest?.(hitNow)
-          flash('Editar vértices')
+          openMenuFor(target, at)
+          flash('Opciones')
         }, 550)
       }
     }
@@ -369,6 +531,13 @@ export default function MapView({
 
     if (tool === 'erase') {
       const hit = hitTest(p, touchTol(ev, 16))
+      // Sólo se borran los contornos puestos a mano: los calculados no son un
+      // dato que quitar, sino el resultado del ajuste.
+      const sc = scHit(p, touchTol(ev, 14))
+      if (sc?.it.manualId && (!hit || sc.d < hit.d)) {
+        dispatch({ type: 'sc.delete', kind: sc.it.kind, id: sc.it.featureId, scId: sc.it.manualId })
+        return
+      }
       if (hit && hit.kind !== 'image') deleteHit(hit, dispatch)
       return
     }
@@ -403,7 +572,26 @@ export default function MapView({
           return
         }
       }
+      // Manijas del contorno estructural seleccionado: mandan sobre todo lo
+      // demás, porque suelen caer justo encima de las trazas.
+      const tolSc = touchTol(ev, 14) / view.scale
+      if (selection?.kind === 'sc') {
+        const cur = scVisible.find((x) => x.key === selection.key) || selection.it
+        if (cur) {
+          const handle = dist(p, cur.a) <= tolSc ? 'a' : dist(p, cur.b) <= tolSc ? 'b' : null
+          if (handle) {
+            startScDrag(cur, p, handle)
+            return
+          }
+        }
+      }
       const hit = hitTest(p, touchTol(ev, 16))
+      const sc = scHit(p, touchTol(ev, 14))
+      if (sc && (!hit || sc.d < hit.d)) {
+        onPick(scSelection(sc.it))
+        startScDrag(sc.it, p, 'move')
+        return
+      }
       onPick(hit)
       if (hit?.kind === 'well') drag.current = { mode: 'well', id: hit.id }
       else if (hit?.kind === 'model') drag.current = { mode: 'model', id: hit.id }
@@ -483,6 +671,16 @@ export default function MapView({
           d.kind === 'node' ? moveNode(e.nodes, d.index, p) : moveHandle(e.nodes, d.index, d.kind, p)
         return { ...e, nodes }
       })
+    } else if (d.mode === 'sc') {
+      const dx = p[0] - d.origin[0]
+      const dy = p[1] - d.origin[1]
+      // Sin haberse movido de verdad no se toca nada: así un toque limpio sobre
+      // un contorno lo selecciona sin convertirlo en dato.
+      if (!d.moved && Math.hypot(dx, dy) * view.scale < 4) return
+      d.moved = true
+      d.pts =
+        d.handle === 'a' ? [p, d.b] : d.handle === 'b' ? [d.a, p] : [shift(d.a, dx, dy), shift(d.b, dx, dy)]
+      setScDraft({ key: d.it.key, pts: d.pts })
     } else if (d.mode === 'well') {
       dispatch({ type: 'well.update', id: d.id, patch: { at: p } })
     } else if (d.mode === 'model') {
@@ -509,6 +707,11 @@ export default function MapView({
       // es mayor que con el lápiz porque el dedo apunta con menos precisión.
       const hit = hitTest(d.at, 30)
       onPick(hit)
+      return
+    }
+    if (d.mode === 'sc') {
+      setScDraft(null)
+      if (d.moved && d.pts) materializeSc(d.it, d.pts)
       return
     }
     if (d.mode === 'nodes') {
@@ -707,6 +910,23 @@ export default function MapView({
         </div>
       )}
 
+      {menu && (
+        <MapMenu
+          at={menu.at}
+          hit={menu.hit}
+          project={project}
+          dispatch={dispatch}
+          size={size}
+          onClose={() => setMenu(null)}
+          onAddSc={(target) => onAddScRequest?.(target)}
+          onSelect={(it) => {
+            const id = materializeSc(it)
+            if (id) onPick({ ...scSelection(it), manualId: id })
+            return id
+          }}
+        />
+      )}
+
       {gestureHint && (
         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-slate-900/85 px-6 py-3 text-lg font-semibold text-white shadow-2xl">
           {gestureHint}
@@ -719,6 +939,12 @@ export default function MapView({
         </div>
       )}
 
+      {selection?.kind === 'sc' && !edit && (
+        <div className="pointer-events-none absolute left-1/2 top-12 -translate-x-1/2 rounded-full bg-sky-900/80 px-3 py-1 text-[11px] text-sky-50 shadow">
+          Contorno estructural {selection.elevation} m · arrastra sus extremos para corregirlo
+        </div>
+      )}
+
       {edit && !activeNode && (
         <div className="pointer-events-none absolute left-1/2 top-12 -translate-x-1/2 rounded-full bg-sky-900/80 px-3 py-1 text-[11px] text-sky-50 shadow">
           Arrastra un nodo para moverlo · toca la línea para añadir uno
@@ -727,6 +953,24 @@ export default function MapView({
     </div>
   )
 }
+
+/** Rasgos que abren menú con una pulsación larga. */
+const MENU_KINDS = ['contact', 'fault', 'contour', 'section', 'well', 'model', 'sc']
+
+/** Selección de un contorno estructural, con lo justo para volver a encontrarlo. */
+function scSelection(it) {
+  return {
+    kind: 'sc',
+    key: it.key,
+    id: it.featureId,
+    featureKind: it.kind,
+    elevation: it.elevation,
+    manualId: it.manualId,
+    it,
+  }
+}
+
+const shift = (p, dx, dy) => [p[0] + dx, p[1] + dy]
 
 /** El dedo apunta con menos precisión que el lápiz: se le da más margen. */
 function touchTol(ev, base) {
@@ -750,6 +994,7 @@ function draftColor(tool) {
   if (tool === 'scale') return '#059669'
   if (tool === 'north') return '#1d4ed8'
   if (tool === 'section') return '#7c3aed'
+  if (tool === 'scontour') return '#0284c7'
   return '#0f172a'
 }
 
