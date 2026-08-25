@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Collapsible, Field, inputCls, Btn } from './ui.jsx'
 import { CONTACT_TYPES, KINEMATICS, newFault, sortedUnits, sortedContacts } from '../lib/model.js'
+import { fmtDistance } from '../lib/georef.js'
 
 /** Panel lateral con todas las entidades del proyecto. */
 /**
@@ -266,7 +267,16 @@ export default function LayersPanel({
                       <div key={b}>
                         Bloque {b}: {s.mean ? `${s.mean.quadrant} (${s.mean.dipDirNotation})` : 'sin actitud'} ·{' '}
                         {s.structureContours.filter((x) => x.fit).length} contornos
-                        {s.quality !== 'ok' && <span className="ml-1 text-amber-600">⚠ {qualityText(s.quality)}</span>}
+                        {s.inherited ? (
+                          <span className="ml-1 text-sky-700">
+                            ↳ sigue la geometría de «{s.inherited.name}» · espesor{' '}
+                            {fmtDistance(s.inherited.thickness)}
+                          </span>
+                        ) : (
+                          s.quality !== 'ok' && (
+                            <span className="ml-1 text-amber-600">⚠ {qualityText(s.quality)}</span>
+                          )
+                        )}
                       </div>
                     ))}
                   </div>
@@ -467,5 +477,6 @@ function qualityText(q) {
     insuficiente: 'sólo un punto por cota',
     'una-cota': 'una sola cota resuelta',
     manual: 'actitud impuesta a mano',
+    heredada: 'geometría heredada del contacto vecino',
   }[q] || q
 }

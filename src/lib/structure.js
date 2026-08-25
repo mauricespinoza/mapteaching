@@ -501,6 +501,35 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
     return (B.elevation - A.elevation) / ds
   }
 
+  // Paso de las diferencias finitas cuando la superficie no tiene ajuste local
+  // móvil: lo bastante ancho para que el gradiente no lea el ruido del ajuste.
+  const gradStep = Math.max(tol * 4, 1e-6)
+
+  /**
+   * Cota y gradiente local de la superficie en un punto, `{ z, a, b }` con
+   * `z = a·x + b·y + c` localmente. El ajuste local móvil da las dos cosas de
+   * una sola pasada; sin él, el gradiente sale por diferencias finitas. Es lo
+   * que necesita una superficie paralela para desplazarse un espesor
+   * perpendicular constante (parallel.js).
+   */
+  function sampleAt(x, y) {
+    if (mls && !manual) {
+      const m = mls.evaluate(x, y)
+      return { z: m.z, a: m.a, b: m.b }
+    }
+    const z = elevationAt(x, y)
+    if (!Number.isFinite(z)) return { z: null, a: 0, b: 0 }
+    const xp = elevationAt(x + gradStep, y)
+    const xm = elevationAt(x - gradStep, y)
+    const yp = elevationAt(x, y + gradStep)
+    const ym = elevationAt(x, y - gradStep)
+    return {
+      z,
+      a: Number.isFinite(xp) && Number.isFinite(xm) ? (xp - xm) / (2 * gradStep) : 0,
+      b: Number.isFinite(yp) && Number.isFinite(ym) ? (yp - ym) / (2 * gradStep) : 0,
+    }
+  }
+
   const quality = points3D.length === 0
     ? 'sin-datos'
     : usable.length >= 2
@@ -521,8 +550,11 @@ export function buildSurface({ traces, contours, manual = null, name = '', color
   return {
     name,
     color,
+    traces,
     points3D,
     mls,
+    gradStep,
+    sampleAt,
     limbCount,
     domains: dom,
     domainAttitudes,

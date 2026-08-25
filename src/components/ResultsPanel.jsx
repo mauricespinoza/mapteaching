@@ -80,6 +80,7 @@ export default function ResultsPanel({ scene, project }) {
                 </p>
               )
             )}
+            {r.surf.inherited && <InheritedNote info={r.surf.inherited} />}
             {unresolvedLimbs(r.surf) > 0 && (
               <p className="mb-1.5 text-[11px] text-slate-500">
                 {unresolvedLimbs(r.surf)} contorno(s) de otro limbo con una sola cota: dan rumbo, no manteo.
@@ -113,10 +114,12 @@ export default function ResultsPanel({ scene, project }) {
                 </tbody>
               </table>
             ) : (
-              <p className="text-[11px] text-amber-600">
-                No hay pares de contornos consecutivos: hacen falta al menos dos cotas con dos intersecciones cada
-                una.
-              </p>
+              !r.surf.inherited && (
+                <p className="text-[11px] text-amber-600">
+                  No hay pares de contornos consecutivos: hacen falta al menos dos cotas con dos intersecciones
+                  cada una.
+                </p>
+              )
             )}
           </div>
         ))}
@@ -140,6 +143,43 @@ export default function ResultsPanel({ scene, project }) {
           contorno aunque manteen igual.
         </p>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Contacto que no se resuelve con sus propios datos y sigue al contacto vecino
+ * manteniendo el espesor. El espesor sale de un ajuste, así que se publica con
+ * los datos que lo sostienen y su desajuste.
+ */
+function InheritedNote({ info }) {
+  const shaky = Number.isFinite(info.rms) && info.rms > Math.max(0.25 * info.thickness, 1)
+  return (
+    <div className="mb-1.5 rounded-lg bg-sky-50 px-2 py-1.5 text-[11px] leading-relaxed text-sky-900">
+      {info.upgrade ? (
+        <>
+          <b>Manteo medido, forma prestada.</b> Sus contornos estructurales dan un manteo, pero no cómo varía: la
+          geometría en profundidad sigue el pliegue de{' '}
+        </>
+      ) : (
+        <>
+          <b>Geometría heredada.</b> No hay contornos estructurales suficientes para resolver este contacto por sí
+          solo, así que sigue {info.folded ? 'el pliegue' : 'la geometría'} de{' '}
+        </>
+      )}
+      <b>«{info.name}»</b> ({info.from === 'techo' ? 'el contacto de encima' : 'el contacto de debajo'}) con un
+      espesor constante de <b>{fmtDistance(info.thickness)}</b> medido perpendicular a las capas.
+      <p className="mt-0.5 text-sky-800">
+        Espesor ajustado con {info.n} punto{info.n === 1 ? '' : 's'}{' '}
+        {info.source === 'curvas' ? 'de corte con las curvas de nivel' : 'de su traza leída sobre el relieve'}
+        {Number.isFinite(info.rms) && <> · desajuste RMS {info.rms.toFixed(0)} m</>}.
+      </p>
+      {shaky && (
+        <p className="mt-0.5 text-amber-700">
+          ⚠ Los datos de este contacto no encajan bien con un espesor constante: revisa la traza o impón la
+          actitud a mano.
+        </p>
+      )}
     </div>
   )
 }
@@ -179,7 +219,7 @@ function toCsv(rows) {
     if (r.surf.mean) {
       lines.push(
         [
-          `"${r.name} (promedio)"`,
+          `"${r.name}${r.surf.inherited ? ` (heredado de ${r.surf.inherited.name})` : ' (promedio)'}"`,
           r.kind,
           r.block ?? '',
           r.surf.mean.limb != null ? r.surf.mean.limb + 1 : '',

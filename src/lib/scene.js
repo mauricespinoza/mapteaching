@@ -5,6 +5,7 @@
 
 import { toWorldList, toWorld } from './georef.js'
 import { buildSurface } from './structure.js'
+import { inheritContactGeometry } from './parallel.js'
 import { buildBlocks, singleBlock } from './blocks.js'
 import { buildDem } from './dem.js'
 import { resample, polylineIntersections, dist, bboxOf } from './geom.js'
@@ -67,6 +68,16 @@ export function extendPolyline(pts, amount) {
     ...pts,
     [pts[pts.length - 1][0] + d1[0] * amount, pts[pts.length - 1][1] + d1[1] * amount],
   ]
+}
+
+/** Equidistancia de las curvas: mediana de los saltos entre cotas distintas. */
+function contourSpacing(worldContours) {
+  const zs = [...new Set(worldContours.map((c) => c.elevation))].sort((a, b) => a - b)
+  if (zs.length < 2) return 0
+  const gaps = []
+  for (let i = 1; i < zs.length; i++) gaps.push(zs[i] - zs[i - 1])
+  gaps.sort((a, b) => a - b)
+  return gaps[gaps.length >> 1]
 }
 
 export function buildScene(project) {
@@ -184,6 +195,13 @@ export function buildScene(project) {
   const units = sortedUnits(project)
   const contacts = sortedContacts(project)
 
+  // Unidades sin datos propios: heredan el pliegue de la unidad de encima con
+  // espesor constante. Va después del modelo de elevación porque, cuando un
+  // contacto no cruza ninguna curva de nivel, el espesor se ajusta leyendo su
+  // traza sobre el relieve.
+  const zStep = contourSpacing(worldContours)
+  const inherited = inheritContactGeometry({ contacts, contactSurfaces, dem, tol, side, zStep })
+
   return {
     ready,
     georef,
@@ -195,6 +213,7 @@ export function buildScene(project) {
     dem,
     worldContours,
     contactSurfaces,
+    inherited,
     faultSurfaces,
     faultWorld,
     contactWorld,

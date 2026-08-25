@@ -147,6 +147,47 @@ notaciones habituales: cuadrante (`N45°E / 30° SE`) y dirección de manteo
 Si una superficie tiene pocas intersecciones (una sola cota resuelta, un punto
 por cota), la app lo advierte y permite **imponer la actitud a mano**.
 
+#### Unidades sin datos propios: geometría heredada
+
+Una unidad que aflora en una franja estrecha —o cuya traza corre entre dos
+curvas sin llegar a cruzarlas— no da los dos contornos estructurales que hacen
+falta para medirle el manteo. Con esos pocos puntos, el ajuste plano devuelve
+una superficie que no tiene nada que ver con la estructura del sector: bajo un
+pliegue, la aplana justo donde el pliegue es la respuesta.
+
+En una serie concordante la respuesta geológica es la de siempre: **las capas de
+abajo repiten el pliegue de las de arriba**. Cuando un contacto no se puede
+resolver solo, la app le da la geometría del contacto concordante vecino
+resuelto más próximo —primero busca hacia el techo, que es donde suele estar la
+unidad mejor expuesta, y si no hay ninguno, hacia la base— construyendo la
+superficie **paralela** a él (pliegue paralelo o concéntrico, clase 1B de
+Ramsay): la misma forma, desplazada un **espesor verdadero constante** medido
+perpendicular a las capas. En cota ese desplazamiento no es constante, vale
+`e / cos δ` con δ el manteo local, y por eso el contacto heredado se separa más
+en los flancos que en las charnelas, igual que un contacto real.
+
+El espesor no se inventa: se ajusta por mínimos cuadrados a los pocos datos que
+el contacto sí tiene —sus cruces con curvas de nivel y, si no llegan a tres, su
+traza leída sobre el relieve, que también son puntos de su superficie—. Con un
+solo dato basta, porque la forma ya la pone el contacto de referencia y lo único
+que queda por determinar es el espesor. El panel **Resultados** publica de quién
+hereda cada contacto, el espesor ajustado, cuántos datos lo sostienen y su
+desajuste, y avisa cuando los datos no encajan con un espesor constante.
+
+Hay un segundo caso, más sutil: un contacto cuya traza sólo corta curvas de
+nivel en un tramo **sí da un manteo, pero no cómo varía** — se resuelve como un
+plano bajo un pliegue. Cuando el contacto vecino está plegado y los datos
+propios encajan con un espesor constante (dentro de media equidistancia), el
+contacto conserva sus medidas —su rumbo y manteo son datos del mapa— y toma
+prestada sólo la **forma en profundidad**. Si sus datos contradicen el pliegue,
+mandan ellos: la geometría prestada sería una hipótesis peor que la medida.
+
+Dos límites deliberados: la herencia **se corta en las discordancias y en los
+contactos intrusivos** (bajo una inconformidad las capas están truncadas, así
+que no son paralelas a ella; sobre ella, en cambio, sí), y **no cruza una
+falla** — cada bloque ajusta su propio espesor con sus propios datos. Un
+contacto con la actitud impuesta a mano tampoco se toca.
+
 El panel **Datos** incluye además una sección didáctica que dibuja, para cada
 par de contornos, el **triángulo rectángulo** del que sale el manteo —la
 diferencia de cotas Δh como cateto vertical y la separación horizontal d como
@@ -179,7 +220,8 @@ reproduce de forma exacta. Los contornos estructurales se agrupan además **por
 limbo** (ver §4), de modo que las rectas de un mismo flanco se ajustan juntas.
 
 Una unidad sólo se rellena donde al menos uno de sus dos contactos está resuelto
-en ese bloque: sin ninguno no se sabe dónde empieza ni dónde acaba, y rellenar
+en ese bloque —contando los que resuelven **heredando la geometría del contacto
+vecino** (§4)—: sin ninguno no se sabe dónde empieza ni dónde acaba, y rellenar
 «desde el fondo hasta la topografía» la extendía sobre bloques de falla en los
 que no hay dato suyo. Los polígonos toman el color asignado a cada unidad, igual
 que en planta.
@@ -238,6 +280,7 @@ src/lib/
   store.js       reducer con historial (deshacer/rehacer)
   db.js          IndexedDB (proyectos e imágenes)
   domains.js     reparto de una superficie en limbos y ondas (RANSAC)
+  parallel.js    geometría heredada: superficies paralelas de espesor constante
   measure.js     regla del mapa: imán a las trazas y medida ortogonal
   structure.js   contornos estructurales, rumbo/manteo y modelo de superficie
   blocks.js      partición en bloques por las fallas
