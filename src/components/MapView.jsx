@@ -52,6 +52,12 @@ export default function MapView({
   const [draft, setDraft] = useState(null)
   const [cursor, setCursor] = useState(null)
   const [edit, setEdit] = useState(null)
+  // Espejo síncrono de `edit`. Durante un arrastre de nodos hacen falta las
+  // posiciones recién calculadas antes de que React vuelva a pintar, y sobre
+  // todo hace falta poder guardarlas al soltar sin meter el `dispatch` dentro
+  // de un actualizador de estado: React puede volver a ejecutar el actualizador
+  // en cada repintado, y cada repetición despachaba otra vez.
+  const editRef = useRef(null)
   const [menu, setMenu] = useState(null)
   // Contorno estructural en pleno arrastre: se dibuja desde aquí y sólo se
   // escribe en el proyecto al soltar, así el motor no recalcula la escena en
@@ -107,6 +113,10 @@ export default function MapView({
           }
     )
   }, [editable])
+
+  useEffect(() => {
+    editRef.current = edit
+  }, [edit])
 
   const editPreview = useMemo(
     () => (edit?.nodes?.length ? flattenNodes(edit.nodes, 6) : null),
@@ -357,15 +367,16 @@ export default function MapView({
     (nodes) => {
       const pts = flattenNodes(nodes, 6)
       if (pts.length < 2) return
-      if (!edit) return
-      if (edit.kind === 'contour') {
-        dispatch({ type: 'contour.update', id: edit.id, patch: { pts, nodes } })
+      const target = editRef.current || edit
+      if (!target) return
+      if (target.kind === 'contour') {
+        dispatch({ type: 'contour.update', id: target.id, patch: { pts, nodes } })
       } else {
         dispatch({
           type: 'trace.update',
-          kind: edit.kind,
-          id: edit.id,
-          traceId: edit.traceId,
+          kind: target.kind,
+          id: target.id,
+          traceId: target.traceId,
           patch: { pts, nodes },
         })
       }
@@ -561,12 +572,18 @@ export default function MapView({
         const h = hitTestNodes(edit.nodes, p, touchTol(ev, 12) / view.scale, edit.activeIndex)
         if (h?.type === 'node' || h?.type === 'hIn' || h?.type === 'hOut') {
           drag.current = { mode: 'nodes', kind: h.type, index: h.index }
-          setEdit((e) => ({ ...e, activeIndex: h.index }))
+          setEdit((e) => {
+            const next = { ...e, activeIndex: h.index }
+            editRef.current = next
+            return next
+          })
           return
         }
         if (h?.type === 'segment') {
           const nodes = insertNode(edit.nodes, h.index, h.t)
-          setEdit((e) => ({ ...e, nodes, activeIndex: h.index + 1 }))
+          const next = { ...edit, nodes, activeIndex: h.index + 1 }
+          editRef.current = next
+          setEdit(next)
           commitNodes(nodes)
           drag.current = { mode: 'nodes', kind: 'node', index: h.index + 1 }
           return
@@ -665,12 +682,12 @@ export default function MapView({
         setDraft((prev) => (prev ? { ...prev, cursor: p } : prev))
       }
     } else if (d.mode === 'nodes') {
-      setEdit((e) => {
-        if (!e) return e
-        const nodes =
-          d.kind === 'node' ? moveNode(e.nodes, d.index, p) : moveHandle(e.nodes, d.index, d.kind, p)
-        return { ...e, nodes }
-      })
+      const e = editRef.current
+      if (!e?.nodes) return
+      const nodes = d.kind === 'node' ? moveNode(e.nodes, d.index, p) : moveHandle(e.nodes, d.index, d.kind, p)
+      const next = { ...e, nodes }
+      editRef.current = next
+      setEdit(next)
     } else if (d.mode === 'sc') {
       const dx = p[0] - d.origin[0]
       const dy = p[1] - d.origin[1]
@@ -715,10 +732,9 @@ export default function MapView({
       return
     }
     if (d.mode === 'nodes') {
-      setEdit((e) => {
-        if (e?.nodes) commitNodes(e.nodes)
-        return e
-      })
+      // El guardado va aquí y no dentro de `setEdit`: un despacho dentro de un
+      // actualizador se repite con cada repintado y llenaba el historial.
+      if (editRef.current?.nodes) commitNodes(editRef.current.nodes)
       return
     }
     if (d.mode === 'measure') {
@@ -792,7 +808,9 @@ export default function MapView({
   const activeNode = edit?.nodes?.[edit.activeIndex]
 
   const applyNodes = (nodes, activeIndex = edit.activeIndex) => {
-    setEdit((e) => ({ ...e, nodes, activeIndex }))
+    const next = { ...edit, nodes, activeIndex }
+    editRef.current = next
+    setEdit(next)
     commitNodes(nodes)
   }
 
@@ -859,7 +877,11 @@ export default function MapView({
           </button>
           <button
             className="rounded-full bg-white/15 px-3 py-1.5 hover:bg-white/25"
-            onClick={() => setEdit((e) => ({ ...e, activeIndex: -1 }))}
+            onClick={() => {
+              const next = { ...edit, activeIndex: -1 }
+              editRef.current = next
+              setEdit(next)
+            }}
           >
             Listo
           </button>

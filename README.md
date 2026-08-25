@@ -54,8 +54,8 @@ y vértice anguloso. La polilínea que consume el motor se regenera a partir de
 las curvas, así que la edición no altera ningún cálculo.
 
 **Gestos en tablet**: doble toque con dos dedos deshace, con tres dedos rehace.
-Una **pulsación larga** sobre cualquier rasgo entra en edición de vértices y
-abre su **menú de opciones**, que es la vía para lo que no cabe en el lienzo y
+Una **pulsación larga** sobre cualquier rasgo —o el **clic derecho** con ratón—
+entra en edición de vértices y abre su **menú de opciones**, que es la vía para lo que no cabe en el lienzo y
 en tablet no tiene ni clic derecho ni teclas:
 
 | Rasgo | Qué ofrece el menú |
@@ -272,14 +272,49 @@ vecino** (§4)—: sin ninguno no se sabe dónde empieza ni dónde acaba, y rell
 que no hay dato suyo. Los polígonos toman el color asignado a cada unidad, igual
 que en planta.
 
-### 7. Vista 3D
+### 7. El relieve a partir de las curvas
+
+Casi todo lo demás se apoya en saber la cota del terreno en cualquier punto: el
+mapa geológico en planta, la topografía del perfil, el drapeado en 3D y la
+columna del pozo. Ese relieve se reconstruye como se hace a mano, dibujando
+**curvas intermedias equiespaciadas** entre una curva de nivel y la siguiente
+—310, 320, … 390 entre la de 300 y la de 400—, que van pasando gradualmente de
+la forma de una a la de la otra. La app no dibuja unas cuantas curvas sueltas
+sino el campo continuo del que salen: en cada punto mide la distancia a la curva
+de abajo y a la de arriba y reparte la cota entre ambas, de modo que las curvas
+intermedias son las curvas de nivel de ese campo y el paso de una a otra es
+gradual por construcción.
+
+Lo que decide el resultado es **con qué par de curvas se interpola**. Tomar las
+dos cotas más cercanas no vale: junto a un collado la segunda más próxima salta
+de la de arriba a la de abajo de un punto al siguiente, y la cota da un brinco
+de casi dos equidistancias — ésos eran los saltos. Por eso las curvas se
+rasterizan primero y se etiquetan las **regiones** que delimitan; dentro de una
+región las dos curvas que la encierran no cambian, las distancias se miden sin
+salir de ella y el campo no puede saltar. Una curva que se va por el borde de la
+lámina se prolonga hasta el borde: si no, queda un pasillo abierto por fuera que
+une bandas de cotas muy distintas.
+
+Las regiones que sólo tocan una curva son el interior de una curva cerrada: una
+**cumbre o una depresión**. Ahí no hay nada que interpolar y hay que prolongar.
+Se levanta (o se hunde) una bóveda que arranca con la misma pendiente que trae
+la ladera de fuera y se aplana en el centro, acotada a una equidistancia —por
+encima ya tocaría otra curva dibujada—. Es lo que se lee en el mapa, y evita
+tanto la meseta plana como el pico inventado.
+
+Sobre superficies sintéticas de cota conocida (un cono, dos cerros con su
+collado, un valle meandriforme, una cuenca cerrada) el relieve reconstruido no
+supera en más de 1–2° la pendiente máxima real, y en el ejercicio de ejemplo la
+aspereza baja de 0,68 a 0,23 m y el mayor pico local de 8,7 a 2,6 m.
+
+### 8. Vista 3D
 
 Topografía reconstruida desde las curvas (con la imagen del mapa drapeada como
 textura si la hay), curvas y trazas sobre el terreno, superficies de contacto por
 bloque, planos de falla, pozos con sus intersecciones y los planos de los
 perfiles. Exageración vertical y capas conmutables.
 
-### 8. Pozos
+### 9. Pozos
 
 Con la posición, la profundidad medida (MD), el *trend* y el *plunge* la app
 calcula la trayectoria en 3D, sus intersecciones con contactos y fallas
@@ -287,7 +322,7 @@ calcula la trayectoria en 3D, sus intersecciones con contactos y fallas
 **espesor real** de cada unidad, corregido por el ángulo entre el pozo y el polo
 del contacto.
 
-### 9. Proyectos
+### 10. Proyectos
 
 Autoguardado en el navegador, varios proyectos, **exportar/importar** el ejercicio
 completo (`.mapteaching.json`, con la imagen embebida) para repartirlo a los
@@ -304,7 +339,8 @@ geometría original.
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
 `G` contorno estructural · `R` escala · `D` medir · `N` norte · `S` perfil ·
 `W` pozo · `M` modelo · `B` área de trabajo · `E` borrar ·
-`Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo · `Esc` cancelar.
+`Supr` borrar lo seleccionado · `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer ·
+`Enter` cerrar trazo · `Esc` cancelar.
 
 ---
 
@@ -330,7 +366,7 @@ src/lib/
   measure.js     regla del mapa: imán a las trazas y medida ortogonal
   structure.js   contornos estructurales, rumbo/manteo y modelo de superficie
   blocks.js      partición en bloques por las fallas
-  dem.js         modelo de elevación desde las curvas (transformada de distancia)
+  dem.js         relieve desde las curvas (regiones, curvas intermedias, bóvedas)
   scene.js       ensamblaje de la escena geológica
   section.js     construcción de perfiles
   wells.js       trayectoria y columna de pozos

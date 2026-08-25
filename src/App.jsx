@@ -22,6 +22,15 @@ import {
   Maximize2,
   Minimize2,
   Menu,
+  Waves,
+  Tag,
+  PenLine,
+  Split,
+  Contrast,
+  Type,
+  Compass,
+  Palette,
+  Frame,
 } from 'lucide-react'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
 import MapView from './components/MapView.jsx'
@@ -43,6 +52,27 @@ import { dist, norm, sub } from './lib/geom.js'
 import * as db from './lib/db.js'
 import { downloadText, downloadCanvasPng } from './lib/exportFile.js'
 import { fmtDistance } from './lib/georef.js'
+
+/**
+ * Interruptores de capa de la barra del mapa. Van como iconos: en tablet los
+ * rótulos de texto ocupaban dos filas enteras y se comían el mapa. El nombre
+ * queda en el `title` y en el rótulo accesible.
+ */
+const LAYER_TOGGLES = [
+  { k: 'contours', label: 'Curvas de nivel', icon: Waves },
+  { k: 'contourLabels', label: 'Cotas de las curvas', icon: Tag },
+  { k: 'contacts', label: 'Contactos', icon: PenLine },
+  { k: 'faults', label: 'Fallas', icon: Split },
+  { k: 'structureContours', label: 'Contornos estructurales', icon: Contrast },
+  { k: 'structureLabels', label: 'Rótulos de los contornos', icon: Type },
+  { k: 'faultStructureContours', label: 'Contornos estructurales de las fallas', icon: Split },
+  { k: 'attitudes', label: 'Rumbo y manteo', icon: Compass },
+  { k: 'sections', label: 'Trazas de perfil', icon: Spline },
+  { k: 'wells', label: 'Pozos', icon: Crosshair },
+  { k: 'hillshade', label: 'Relieve sombreado', icon: Mountain },
+  { k: 'unitFill', label: 'Relleno de unidades', icon: Palette },
+  { k: 'models', label: 'Modelos sintéticos', icon: Layers3 },
+]
 
 const DEFAULT_SHOW = {
   contours: true,
@@ -161,6 +191,33 @@ export default function App() {
     if (tool !== 'scontour') setScTarget(null)
   }, [tool])
 
+  /**
+   * Borra el rasgo seleccionado. De un contacto o una falla borra la traza
+   * elegida, no el rasgo entero: es lo que se ha seleccionado en el mapa, y el
+   * menú de opciones sigue estando para borrarlo completo. Devuelve si hubo
+   * algo que borrar.
+   */
+  const deleteSelection = useCallback(() => {
+    const sel = selection
+    if (!sel) return false
+    if (sel.kind === 'contour') dispatch({ type: 'contour.delete', id: sel.id })
+    else if (sel.kind === 'contact' && sel.traceId)
+      dispatch({ type: 'trace.delete', kind: 'contact', id: sel.id, traceId: sel.traceId })
+    else if (sel.kind === 'fault' && sel.traceId)
+      dispatch({ type: 'trace.delete', kind: 'fault', id: sel.id, traceId: sel.traceId })
+    else if (sel.kind === 'section') dispatch({ type: 'section.delete', id: sel.id })
+    else if (sel.kind === 'well') dispatch({ type: 'well.delete', id: sel.id })
+    else if (sel.kind === 'model') dispatch({ type: 'model.delete', id: sel.id })
+    else if (sel.kind === 'sc') {
+      // Un contorno calculado no es un dato que borrar, sino el resultado del
+      // ajuste: sólo se quitan los puestos a mano.
+      if (!sel.manualId) return false
+      dispatch({ type: 'sc.delete', kind: sel.featureKind, id: sel.id, scId: sel.manualId })
+    } else return false
+    setSelection(null)
+    return true
+  }, [selection])
+
   // --- Atajos ---
   useEffect(() => {
     const onKey = (e) => {
@@ -176,12 +233,18 @@ export default function App() {
         dispatch({ type: 'history.redo' })
         return
       }
+      // Supr / Del borra lo que esté seleccionado: en el computador es lo que
+      // se espera, y ahorra ir a buscar la goma o el menú.
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (deleteSelection()) e.preventDefault()
+        return
+      }
       const found = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase())
       if (found && !e.ctrlKey && !e.metaKey) setTool(found.id)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [deleteSelection])
 
   // El «modo enfoque» es propio: oculta la interfaz y deja el mapa a pantalla
   // completa por CSS. Se intenta además la pantalla completa del navegador,
@@ -515,51 +578,55 @@ export default function App() {
         <main className="relative flex min-w-0 flex-1 flex-col">
           {tab === 'mapa' && (
             <>
-              <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 bg-white px-3 py-1.5 text-[11px]">
-                {[
-                  ['contours', 'Curvas'],
-                  ['contourLabels', 'Cotas'],
-                  ['contacts', 'Contactos'],
-                  ['faults', 'Fallas'],
-                  ['structureContours', 'Contornos estr.'],
-                  ['structureLabels', 'Rótulos estr.'],
-                  ['faultStructureContours', 'Contornos de falla'],
-                  ['attitudes', 'Rumbo/manteo'],
-                  ['sections', 'Perfiles'],
-                  ['wells', 'Pozos'],
-                  ['hillshade', 'Relieve'],
-                  ['unitFill', 'Unidades'],
-                  ['models', 'Modelos'],
-                ].map(([k, label]) => (
+              <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 bg-white px-3 py-1.5 text-[11px]">
+                {LAYER_TOGGLES.map(({ k, label, icon: Icon }) => (
                   <button
                     key={k}
                     onClick={() => setShow((s) => ({ ...s, [k]: !s[k] }))}
-                    className={`rounded-full px-2.5 py-1 font-medium transition ${
-                      show[k] ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-500'
+                    title={`${label}: ${show[k] ? 'visible' : 'oculta'}`}
+                    aria-pressed={show[k]}
+                    aria-label={label}
+                    className={`grid h-9 w-9 place-items-center rounded-lg transition ${
+                      show[k] ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-400 hover:text-slate-600'
                     }`}
                   >
-                    {label}
+                    <Icon size={17} />
                   </button>
                 ))}
-                <span className="ml-auto text-slate-500">
+                <span className="mx-2 h-6 w-px bg-slate-200" />
+                {/* Acciones: sólo el icono mientras la barra vaya justa, para
+                    que no empuje los interruptores a otra fila. */}
+                <button
+                  onClick={() => setRecalcNonce((n) => n + 1)}
+                  title="Recalcular contornos estructurales, perfiles, 3D y pozos"
+                  className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  <RefreshCw size={15} />
+                  <span className="hidden xl:inline">Recalcular</span>
+                </button>
+                <button
+                  onClick={() => setView(null)}
+                  title="Encuadrar el mapa en la ventana"
+                  className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  <Frame size={15} />
+                  <span className="hidden xl:inline">Encuadrar</span>
+                </button>
+                <button
+                  onClick={() =>
+                    mapCanvasRef.current && downloadCanvasPng(mapCanvasRef.current, `${project.name}-mapa.png`)
+                  }
+                  title="Exportar el mapa como PNG"
+                  className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  <Download size={15} />
+                  <span className="hidden xl:inline">PNG</span>
+                </button>
+                <span className="ml-auto hidden text-slate-500 lg:inline">
                   {project.georef.metersPerPx
                     ? `1 px ≈ ${project.georef.metersPerPx.toFixed(2)} m · ${countVertices(project)} vértices`
                     : 'sin escala'}
                 </span>
-                <Btn
-                  onClick={() => setRecalcNonce((n) => n + 1)}
-                  title="Recalcular contornos estructurales, perfiles, 3D y pozos"
-                >
-                  <RefreshCw size={13} /> Recalcular
-                </Btn>
-                <Btn onClick={() => setView(null)}>Encuadrar</Btn>
-                <Btn
-                  onClick={() =>
-                    mapCanvasRef.current && downloadCanvasPng(mapCanvasRef.current, `${project.name}-mapa.png`)
-                  }
-                >
-                  PNG
-                </Btn>
               </div>
               {selection?.kind === 'image' && project.image && (
                 <div className="pointer-events-auto absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-slate-900/90 px-3 py-2 text-xs text-white shadow-2xl">
