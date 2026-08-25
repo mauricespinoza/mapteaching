@@ -84,7 +84,7 @@ export function newProject(name = 'Ejercicio sin título') {
       lastElevation: 0,
       sectionDepth: 2000,
       vExag: 1,
-      demResolution: 200,
+      demResolution: 300,
       demSmoothing: 2, // pasadas de suavizado del relieve
       // Visibilidad, opacidad y bloqueo por capa. Una capa bloqueada no se
       // puede seleccionar ni editar en el mapa.

@@ -69,6 +69,11 @@ export default function HelpPanel({ project, dispatch }) {
           recortados a él. Se quita desde la tarjeta «Área de trabajo» del panel de capas.
         </li>
         <li>
+          En el computador, el <b>clic derecho</b> abre ese mismo menú, y la tecla <b>Supr</b> borra la línea
+          seleccionada: de un contacto o una falla quita la traza elegida, no el rasgo entero. Todo es
+          reversible con <span className="font-mono">Ctrl+Z</span>.
+        </li>
+        <li>
           Traza <b>perfiles</b> y ábrelos para ver la geometría en profundidad, y ubica <b>pozos</b> (con
           profundidad, trend y plunge) para predecir la columna que cortarían.
         </li>
@@ -154,6 +159,7 @@ export default function HelpPanel({ project, dispatch }) {
         <li>Ctrl+Z / Ctrl+Y</li>
         <li>Enter · cerrar trazo</li>
         <li>Esc · cancelar trazo</li>
+        <li>Supr · borrar selección</li>
       </ul>
     </div>
   )

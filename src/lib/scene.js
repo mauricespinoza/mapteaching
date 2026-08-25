@@ -8,7 +8,7 @@ import { buildSurface, contourSegment } from './structure.js'
 import { inheritContactGeometry } from './parallel.js'
 import { buildBlocks, singleBlock } from './blocks.js'
 import { buildDem } from './dem.js'
-import { resample, polylineIntersections, dist, bboxOf } from './geom.js'
+import { polylineIntersections, dist, bboxOf } from './geom.js'
 import { sortedUnits, sortedContacts, kinematicsOf } from './model.js'
 
 /** Corta una polilínea allí donde la cruza una falla. */
@@ -201,17 +201,20 @@ export function buildScene(project) {
     )
   }
 
-  // Modelo de elevación a partir de las curvas.
-  const res = project.settings.demResolution || 120
-  const step = Math.max(side / res / 2, tol)
-  const levels = worldContours.map((c) => ({ elevation: c.elevation, samples: resample(c.pts, step) }))
+  // Modelo de elevación a partir de las curvas. Se agrupan por cota y se pasan
+  // como polilíneas: el motor las rasteriza él mismo para que cada curva quede
+  // continua y separe de verdad las dos laderas que tiene a los lados.
+  // No hay interfaz para esta resolución, así que un 200 guardado es el valor
+  // por defecto antiguo: se sube el suelo para que los ejercicios ya creados
+  // también ganen el relieve fino.
+  const res = Math.max(project.settings.demResolution || 0, 300)
   const merged = new Map()
-  for (const l of levels) {
-    if (!merged.has(l.elevation)) merged.set(l.elevation, [])
-    merged.get(l.elevation).push(...l.samples)
+  for (const c of worldContours) {
+    if (!merged.has(c.elevation)) merged.set(c.elevation, [])
+    merged.get(c.elevation).push(c.pts)
   }
   const dem = buildDem(
-    [...merged.entries()].map(([elevation, samples]) => ({ elevation, samples })),
+    [...merged.entries()].map(([elevation, lines]) => ({ elevation, lines })),
     bbox,
     res,
     project.settings.demSmoothing ?? 2
