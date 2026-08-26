@@ -41,6 +41,13 @@ function apply(project, action) {
       return { ...p, contours: p.contours.filter((c) => c.id !== action.id) }
     case 'contour.clear':
       return { ...p, contours: [] }
+    // Alta en bloque de las curvas que genera un relieve. Va en una sola acción
+    // para que quepa en un solo paso de deshacer: son decenas de curvas y
+    // añadirlas de una en una dejaría el historial inservible.
+    case 'contour.bulk': {
+      const nuevas = action.contours.map((c) => ({ id: uid('cv'), elevation: c.elevation, pts: c.pts }))
+      return { ...p, contours: action.replace ? nuevas : [...p.contours, ...nuevas] }
+    }
 
     case 'unit.add': {
       const unit = newUnit(p, action.name)

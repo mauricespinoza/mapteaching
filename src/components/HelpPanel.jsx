@@ -1,4 +1,5 @@
 import { inputCls } from './ui.jsx'
+import { BUILD } from '../lib/version.js'
 
 /** Guía de trabajo y enunciado del ejercicio. */
 export default function HelpPanel({ project, dispatch }) {
@@ -86,7 +87,11 @@ export default function HelpPanel({ project, dispatch }) {
 
       <h3 className="mb-2 mt-5 text-sm font-semibold text-slate-800">Modelos sintéticos</h3>
       <p className="mb-2 text-[13px] leading-relaxed">
-        En la pestaña <b>Modelos</b> puedes ir en la dirección contraria: en vez de deducir la estructura a
+        La pestaña <b>Modelos</b> tiene dos mitades: en <b>Capas</b> defines la estructura y en{' '}
+        <b>Curvas de nivel</b> el terreno sobre el que aflora.
+      </p>
+      <p className="mb-2 text-[13px] leading-relaxed">
+        Con <b>Capas</b> vas en la dirección contraria a lo habitual: en vez de deducir la estructura a
         partir del mapa, defines la estructura y la app dibuja el mapa que produciría. Marca un punto y elige:
       </p>
       <ul className="list-disc space-y-1.5 pl-5 text-[13px] leading-relaxed">
@@ -108,6 +113,17 @@ export default function HelpPanel({ project, dispatch }) {
       <p className="mb-2 mt-2 text-[13px] leading-relaxed">
         Todo funciona incluso sin curvas de nivel (terreno plano). Si las hay, las trazas se calculan cortando
         la topografía real, que es donde el ejercicio se vuelve interesante.
+      </p>
+      <p className="mb-2 mt-2 text-[13px] leading-relaxed">
+        Con <b>Curvas de nivel</b> generas el relieve de partida sin digitalizarlo: siete topografías típicas
+        —cerro, cuenca cerrada, valle en V, valle meandriforme, dos valles y una cuchilla, meseta con escarpe
+        y ladera uniforme—, cada una con cota de base, desnivel, equidistancia y orientación ajustables. Las
+        curvas que salen son las isolíneas <i>exactas</i> de ese relieve, así que puedes contrastar tu lectura
+        contra la respuesta. También puedes <b>importar un modelo de elevación</b> (malla ASCII de ESRI{' '}
+        <span className="font-mono">.asc</span>, volcado <span className="font-mono">XYZ</span> o{' '}
+        <span className="font-mono">CSV</span>, o una imagen en escala de grises) y sacarle las curvas; si trae
+        tamaño de celda, la app puede tomar de ahí también la escala del mapa. Generar sustituye las curvas
+        que hubiera, en un solo Ctrl+Z.
       </p>
       <p className="mb-2 text-[13px] leading-relaxed">
         Al crear un modelo se <b>aplica al mapa</b> automáticamente: sus capas y contactos pasan a ser
@@ -167,6 +183,10 @@ export default function HelpPanel({ project, dispatch }) {
         <li>Supr · borrar selección</li>
         <li>←↑→↓ · desplazar</li>
       </ul>
+
+      <p className="mt-3 text-[11px] text-slate-400">
+        Versión del {BUILD}. Si sale un aviso de versión nueva arriba, pulsa «Actualizar» para traerla.
+      </p>
     </div>
   )
 }

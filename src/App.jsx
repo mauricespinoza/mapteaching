@@ -32,6 +32,7 @@ import {
   Palette,
   Frame,
 } from 'lucide-react'
+import { watchForUpdate } from './lib/version.js'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
 import MapView from './components/MapView.jsx'
 import SectionView from './components/SectionView.jsx'
@@ -122,6 +123,11 @@ export default function App() {
   const [tab, setTab] = useState('mapa')
   const [panel, setPanel] = useState('capas')
   const [panelOpen, setPanelOpen] = useState(true)
+  // Versión nueva desplegada mientras la pestaña estaba abierta: se avisa, no se
+  // recarga sola (a media clase, perder el ejercicio sería peor que la versión
+  // vieja; el proyecto está guardado, pero el aviso deja decidir cuándo).
+  const [updateReady, setUpdateReady] = useState(false)
+  useEffect(() => watchForUpdate(() => setUpdateReady(true)), [])
   const [tool, setTool] = useState('pan')
   const [fullscreen, setFullscreen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -475,6 +481,17 @@ export default function App() {
 
   return (
     <div className="flex h-full w-full flex-col bg-slate-100 text-slate-900">
+      {updateReady && (
+        <div className="flex items-center justify-center gap-2 bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white">
+          Hay una versión nueva de MapTeaching.
+          <button
+            className="rounded-md bg-white/20 px-2 py-0.5 font-semibold hover:bg-white/30"
+            onClick={() => window.location.reload()}
+          >
+            Actualizar
+          </button>
+        </div>
+      )}
       {/* Barra superior */}
       <header
         className={`${fullscreen ? 'hidden' : 'flex'} flex-wrap items-center gap-2 border-b border-slate-800/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-3 py-2 text-slate-100 shadow-sm`}

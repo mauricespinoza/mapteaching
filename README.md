@@ -74,7 +74,13 @@ tienen control de **opacidad** y un **candado** que impide seleccionarlos y
 editarlos. Las unidades nuevas toman por defecto los colores de la tabla
 cronoestratigráfica internacional (CGMW/ICS), del Precámbrico al Cuaternario.
 
-### 3. Modelos estructurales sintéticos
+### 3. Modelos sintéticos
+
+El panel **Modelos** tiene dos mitades, que responden a preguntas distintas: en
+**Capas** se define la estructura, y en **Curvas de nivel** el terreno sobre el
+que esa estructura aflora.
+
+#### Capas: estructuras sintéticas
 
 El camino inverso: en vez de deducir la estructura desde el mapa, se define la
 estructura y la app dibuja **la traza que produciría en planta**. Se marca un
@@ -110,6 +116,29 @@ modelo sigue mandando en *qué* unidad es cada región, que es lo que no se pued
 leer del mapa sin resolver la estructura, pero ya no en dónde acaba: antes el
 borde entre dos colores caía donde dijera la superficie ajustada, a decenas de
 metros de la línea dibujada.
+
+#### Curvas de nivel: el relieve de partida
+
+Sin curvas de nivel no hay cota del terreno, y sin cota no hay contornos
+estructurales, ni perfil, ni relieve 3D. Digitalizarlas sobre una carta
+escaneada es lento, y para practicar la lectura del relieve basta con un terreno
+de laboratorio del que se conoce la respuesta. La app genera las curvas de siete
+**topografías típicas** —cerro, cuenca cerrada, valle en V, valle meandriforme,
+dos valles separados por una cuchilla, meseta con escarpe y ladera uniforme—,
+cada una con su miniatura, y con cota de base, desnivel, equidistancia y
+orientación ajustables. Las curvas que salen son las **isolíneas exactas** de
+ese relieve, no un dibujo aproximado, así que el alumno puede contrastar su
+lectura contra la verdad.
+
+También se puede **importar un modelo de elevación** y sacarle las curvas:
+malla ASCII de ESRI (`.asc`, la exportación estándar de un SIG), volcado `XYZ` o
+`CSV` de x y z, o una imagen en escala de grises como mapa de alturas. El modelo
+se encaja en el área de la imagen **conservando su proporción** —estirarlo
+deformaría el relieve y con él los manteos que se midan después—, y si trae
+tamaño de celda se puede tomar de ahí también **la escala del mapa**, que es lo
+que hace que manteos, espesores y la barra de escala salgan en metros de verdad.
+
+Generar sustituye las curvas que hubiera, en un solo paso de deshacer.
 
 ### 4. Contornos estructurales, rumbo y manteo
 
@@ -454,6 +483,7 @@ src/lib/
   marching.js    isolíneas (usado por el generador de ejercicios)
   sample.js      ejercicio sintético de demostración
   models.js      modelos sintéticos: plano, serie de capas y tren de pliegues
+  terrain.js     curvas de nivel de topografías típicas y de un DEM importado
   render2d.js    dibujo del mapa en canvas
 src/components/  interfaz (mapa, perfil, 3D, pozos, paneles)
 ```
