@@ -183,8 +183,8 @@ function InheritedNote({ info }) {
           solo, así que sigue {info.folded ? 'el pliegue' : 'la geometría'} de{' '}
         </>
       )}
-      <b>«{info.name}»</b> ({info.from === 'techo' ? 'el contacto de encima' : 'el contacto de debajo'}) con un
-      espesor constante de <b>{fmtDistance(info.thickness)}</b> medido perpendicular a las capas.
+      <b>«{info.name}»</b> (el contacto de encima) con un espesor constante de{' '}
+      <b>{fmtDistance(info.thickness)}</b> medido perpendicular a las capas.
       <p className="mt-0.5 text-sky-800">
         Espesor ajustado con {info.n} punto{info.n === 1 ? '' : 's'}{' '}
         {info.source === 'curvas' ? 'de corte con las curvas de nivel' : 'de su traza leída sobre el relieve'}

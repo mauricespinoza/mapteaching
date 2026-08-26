@@ -31,8 +31,17 @@
 // toma prestada la forma en profundidad, siempre que los datos del contacto
 // encajen con un espesor constante; si la contradicen, mandan ellos.
 //
-// La herencia se corta en las discordancias y en los contactos intrusivos: bajo
-// una inconformidad las capas están truncadas, así que no son paralelas a ella.
+// La herencia va **sólo hacia abajo**, hacia las capas más antiguas. Que un
+// contacto esté plegado obliga a las capas de debajo a repetir ese pliegue —son
+// las que el pliegue arrastró consigo—, pero no dice nada de las de encima: una
+// serie más joven puede estar depositada en discordancia sobre el pliegue ya
+// formado, y entonces no lo sigue. Un contacto sin datos propios que sólo tenga
+// vecinos resueltos por debajo se queda sin resolver, que es la respuesta
+// honesta: el mapa no da para saber su forma en profundidad.
+//
+// La herencia se corta además en las discordancias y en los contactos
+// intrusivos: bajo una inconformidad las capas están truncadas, así que tampoco
+// son paralelas a ella.
 
 import { attitudeFromGradient } from './structure.js'
 import { resample } from './geom.js'
@@ -212,12 +221,11 @@ const flatUnderFold = (contact, surf, reference) =>
 /**
  * Reparte la geometría resuelta entre los contactos que no la tienen.
  *
- * Se recorre la pila de techo a base para que la herencia se encadene (si el
+ * Sólo hacia abajo: cada contacto busca su referencia hacia el techo. Se
+ * recorre la pila de techo a base para que la herencia se encadene —si el
  * contacto de arriba ya heredó su forma, el siguiente hacia abajo puede
- * apoyarse en él) y, en una segunda pasada, se admite como referencia un
- * contacto de más abajo para los que no tienen ninguno resuelto encima.
- * Trabaja bloque a bloque: a través de una falla los espesores se ajustan por
- * separado, con los datos de cada lado.
+ * apoyarse en él—. Trabaja bloque a bloque: a través de una falla los espesores
+ * se ajustan por separado, con los datos de cada lado.
  *
  * Muta `contactSurfaces` y devuelve la lista de herencias aplicadas.
  */
@@ -229,7 +237,6 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
   // resolvió su manteo: media equidistancia, que es la precisión con la que las
   // curvas de nivel sitúan un punto en cota.
   const foldTol = Math.max(zStep * 0.5, tol * 2)
-  const indexOf = new Map(contacts.map((c, i) => [c.id, i]))
 
   const surfaceOf = (contactId, block) => contactSurfaces.get(contactId)?.get(block) || null
 
@@ -246,16 +253,13 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
       : { surface: surf, contactId: contact.id, name: contact.name }
 
   /**
-   * Intenta resolver el contacto `i` con el contacto resuelto más próximo en la
-   * dirección `dir` (+1 hacia el techo, −1 hacia la base).
+   * Intenta resolver el contacto `i` con el contacto resuelto más próximo hacia
+   * el techo.
    */
-  function inherit(i, dir) {
+  function inherit(i) {
     const contact = contacts[i]
     const byBlock = contactSurfaces.get(contact.id)
     if (!byBlock) return
-    // Hacia abajo hay que cruzar el propio contacto: si él mismo es una
-    // discordancia, las capas de abajo están truncadas y no lo siguen.
-    if (dir < 0 && isUnconformable(contact)) return
     for (const [block, surf] of byBlock) {
       const unresolved = needsGeometry(contact, surf)
       // Un contacto ya resuelto sólo cambia de geometría en el caso de «hay
@@ -263,12 +267,11 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
       if (!unresolved && !singleDip(contact, surf)) continue
       const obs = offsetObservations(surf, dem, step)
       if (!obs) continue
-      for (let j = i + dir; j >= 0 && j < contacts.length; j += dir) {
+      for (let j = i + 1; j < contacts.length; j++) {
         const between = contacts[j]
-        // Hacia el techo la discordancia se cruza al llegar a ella; hacia la
-        // base, sólo al pasar de largo (una unidad sí es paralela a la
-        // discordancia sobre la que se depositó).
-        if (dir > 0 && isUnconformable(between)) break
+        // La discordancia corta la herencia al llegar a ella: bajo una
+        // inconformidad las capas están truncadas y no son paralelas a ella.
+        if (isUnconformable(between)) break
         const ref = surfaceOf(between.id, block)
         if (canReference(ref)) {
           const root = rootOf(ref, between)
@@ -288,7 +291,6 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
                 root: root.surface,
                 block,
                 upgrade,
-                from: (indexOf.get(root.contactId) ?? i) > i ? 'techo' : 'base',
                 source: obs.source,
               })
             )
@@ -302,12 +304,10 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
           }
           break
         }
-        if (dir < 0 && isUnconformable(between)) break
       }
     }
   }
 
-  for (let i = contacts.length - 1; i >= 0; i--) inherit(i, +1)
-  for (let i = 0; i < contacts.length; i++) inherit(i, -1)
+  for (let i = contacts.length - 1; i >= 0; i--) inherit(i)
   return applied
 }

@@ -49,13 +49,15 @@ export default function HelpPanel({ project, dispatch }) {
         </li>
         <li>
           Si una unidad <b>no cruza suficientes curvas de nivel</b> para dar dos contornos estructurales, no se
-          queda sin geometría: <b>hereda la de la unidad concordante vecina</b> —normalmente la de encima, que es
-          la que suele estar mejor expuesta— <b>manteniendo el espesor constante</b>. Así, bajo un pliegue, las
-          capas inferiores se pliegan igual en vez de aplanarse. El espesor no se inventa: se ajusta con los
-          pocos datos que la unidad sí tiene. Lo mismo vale para una traza que sólo corta curvas en un tramo:
-          da un manteo, pero no cómo varía, así que conserva su medida y toma prestada la forma en profundidad.
-          La herencia se corta en las discordancias y en los contactos intrusivos, y no cruza una falla: a cada
-          lado se ajusta por separado.
+          queda sin geometría: <b>hereda la de la unidad concordante de encima</b>, <b>manteniendo el espesor
+          constante</b>. Así, bajo un pliegue, las capas inferiores se pliegan igual en vez de aplanarse. El
+          espesor no se inventa: se ajusta con los pocos datos que la unidad sí tiene. Lo mismo vale para una
+          traza que sólo corta curvas en un tramo: da un manteo, pero no cómo varía, así que conserva su medida
+          y toma prestada la forma en profundidad. La herencia va <b>sólo hacia abajo</b>, hacia las capas más
+          antiguas: un pliegue arrastra consigo a las capas de debajo, pero las de encima pueden estar en
+          discordancia sobre él y no seguirlo, así que una unidad que sólo tenga vecinos resueltos por debajo se
+          queda sin resolver. También se corta en las discordancias y en los contactos intrusivos, y no cruza
+          una falla: a cada lado se ajusta por separado.
         </li>
         <li>
           Con la <b>regla</b> mides distancias sobre el mapa. Con el <b>imán</b> activo los extremos se pegan a
