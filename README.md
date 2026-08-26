@@ -100,10 +100,16 @@ Todo funciona **sin necesidad de importar nada**: sobre terreno plano ya se ven
 los patrones de afloramiento. Si hay curvas de nivel digitalizadas, las trazas
 se calculan cortando la topografía real.
 
-En planta se pinta además el **mapa geológico**: recorriendo una grilla se
-evalúa qué unidad aflora en cada punto (la topografía queda por encima de su
-contacto basal y por debajo del que la limita arriba), de modo que los polígonos
-definidos por contactos sucesivos aparecen rellenos con el color de su unidad.
+En planta se pinta además el **mapa geológico**, y lo delimitan las trazas, no el
+modelo: las trazas de contactos y fallas se rasterizan como muros, se etiquetan
+las regiones que dejan entre sí, y cada región recibe **una sola** unidad —la que
+más veces gana al comparar la topografía con la pila estratigráfica dentro de
+ella—. Así el color sólo puede cambiar sobre una traza, que es lo que se ve en un
+mapa geológico, y una unidad que topa con una falla se detiene en la falla. El
+modelo sigue mandando en *qué* unidad es cada región, que es lo que no se puede
+leer del mapa sin resolver la estructura, pero ya no en dónde acaba: antes el
+borde entre dos colores caía donde dijera la superficie ajustada, a decenas de
+metros de la línea dibujada.
 
 ### 4. Contornos estructurales, rumbo y manteo
 
@@ -192,6 +198,21 @@ pozo. Al fijar una cota se fijan **todos sus contornos en ese bloque** —los do
 limbos de un pliegue, si los hay—, para que corregir uno no borre el otro. En la
 tabla de resultados, los manteos calculados con un contorno puesto a mano quedan
 marcados con «✎».
+
+#### La pila no se invierte
+
+Cada contacto se ajusta a sus propios datos, así que lejos de ellos extrapola a
+su aire y un contacto puede acabar **por debajo** del que tiene debajo. Eso no
+existe en una serie estratigráfica, y cuando pasa el mapa geológico deja de
+tener sentido. Antes de usarlas, las cotas de todos los contactos de un punto se
+corrigen al **ajuste monótono más cercano** (*pool adjacent violators*): la
+secuencia no decreciente que menos se aparta de lo que dice cada superficie, de
+modo que donde dos se contradicen ambas ceden a medias en vez de que una arrastre
+a la otra. Donde quedan a la misma cota, la unidad se acuña.
+
+Es la única restricción que la estratigrafía impone gratis, y no depende de
+ningún dato nuevo. La usan el mapa en planta, el perfil, el 3D y la columna del
+pozo, así que las cuatro vistas cuentan la misma historia.
 
 #### Unidades sin datos propios: geometría heredada
 
@@ -302,10 +323,21 @@ la ladera de fuera y se aplana en el centro, acotada a una equidistancia —por
 encima ya tocaría otra curva dibujada—. Es lo que se lee en el mapa, y evita
 tanto la meseta plana como el pico inventado.
 
+Cuando las curvas no cubren toda la lámina —lo normal al digitalizar sobre una
+carta escaneada—, el margen exterior es una región que toca muchas cotas a la
+vez. Ahí no hay un par que mande, así que la cota se promedia por inverso del
+cuadrado de la distancia a cada curva: vale exactamente la cota de la curva al
+llegar a ella y pasa de una a otra sin costuras.
+
 Sobre superficies sintéticas de cota conocida (un cono, dos cerros con su
 collado, un valle meandriforme, una cuenca cerrada) el relieve reconstruido no
 supera en más de 1–2° la pendiente máxima real, y en el ejercicio de ejemplo la
 aspereza baja de 0,68 a 0,23 m y el mayor pico local de 8,7 a 2,6 m.
+
+En la **vista 3D** el terreno se dibuja con su sombreado calculado del propio
+modelo de elevación (sol al NO, 45° de altura), que multiplica la imagen del
+mapa cuando está drapeada: con la luz de la escena sola, un escaneo claro deja
+la superficie lavada y el relieve no se lee.
 
 ### 8. Vista 3D
 
@@ -339,8 +371,9 @@ geometría original.
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
 `G` contorno estructural · `R` escala · `D` medir · `N` norte · `S` perfil ·
 `W` pozo · `M` modelo · `B` área de trabajo · `E` borrar ·
-`Supr` borrar lo seleccionado · `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer ·
-`Enter` cerrar trazo · `Esc` cancelar.
+`Supr` borrar lo seleccionado · `←↑→↓` desplazar el mapa (con `Mayús`, a
+zancadas) · `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo ·
+`Esc` cancelar.
 
 ---
 

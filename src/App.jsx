@@ -74,6 +74,14 @@ const LAYER_TOGGLES = [
   { k: 'models', label: 'Modelos sintéticos', icon: Layers3 },
 ]
 
+/** Flechas del teclado → dirección de desplazamiento del mapa. */
+const ARROWS = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+}
+
 const DEFAULT_SHOW = {
   contours: true,
   contourLabels: true,
@@ -218,6 +226,24 @@ export default function App() {
     return true
   }, [selection])
 
+  /**
+   * Desplaza el mapa. El paso es una fracción del lienzo, no un número fijo de
+   * píxeles del mapa: así se recorre igual de rápido esté como esté el zoom.
+   */
+  const panBy = useCallback(
+    (dx, dy, big = false) => {
+      setView((v) => {
+        const base = v || fitView(project.image || project.virtualSize || { width: 1200, height: 900 })
+        const el = mapCanvasRef.current
+        const w = el?.clientWidth || 800
+        const h = el?.clientHeight || 600
+        const step = big ? 0.25 : 0.08
+        return { ...base, tx: base.tx - dx * w * step, ty: base.ty - dy * h * step }
+      })
+    },
+    [project.image, project.virtualSize]
+  )
+
   // --- Atajos ---
   useEffect(() => {
     const onKey = (e) => {
@@ -239,12 +265,20 @@ export default function App() {
         if (deleteSelection()) e.preventDefault()
         return
       }
+      // Flechas: desplazan el mapa. Un paso corto, o un cuarto de pantalla con
+      // Mayúsculas, que es lo que se espera al recorrer una lámina grande.
+      const arrow = ARROWS[e.key]
+      if (arrow && tab === 'mapa') {
+        e.preventDefault()
+        panBy(arrow[0], arrow[1], e.shiftKey)
+        return
+      }
       const found = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase())
       if (found && !e.ctrlKey && !e.metaKey) setTool(found.id)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [deleteSelection])
+  }, [deleteSelection, panBy, tab])
 
   // El «modo enfoque» es propio: oculta la interfaz y deja el mapa a pantalla
   // completa por CSS. Se intenta además la pantalla completa del navegador,

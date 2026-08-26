@@ -13,17 +13,14 @@ export function wellDirection(trendDeg, plungeDeg) {
 }
 
 function contactElevationsAt(scene, x, y) {
-  const out = []
-  for (const c of scene.contacts) {
-    const surf = scene.contactSurfaceAt(c.id, x, y)
-    if (!surf || !surf.defined) {
-      out.push({ contact: c, z: null, surf: null })
-      continue
-    }
-    const z = surf.elevationAt(x, y)
-    out.push({ contact: c, z: Number.isFinite(z) ? z : null, surf })
-  }
-  return out
+  // La pila corregida, no cada contacto por su cuenta: la columna del pozo debe
+  // ver la misma serie que el mapa y el perfil, sin contactos invertidos.
+  const stack = scene.stackAt(x, y).z
+  return scene.contacts.map((c, i) => ({
+    contact: c,
+    z: Number.isFinite(stack[i]) ? stack[i] : null,
+    surf: scene.contactSurfaceAt(c.id, x, y),
+  }))
 }
 
 /** Unidad estratigráfica en un punto, dadas las cotas de los contactos. */
@@ -67,7 +64,8 @@ export function buildWellModel(well, scene) {
         prev = null
         continue
       }
-      const zs = surf.elevationAt(s.x, s.y)
+      const zs =
+        kind === 'contacto' ? scene.contactElevationAt(id, s.x, s.y) : surf.elevationAt(s.x, s.y)
       if (!Number.isFinite(zs)) {
         prev = null
         continue

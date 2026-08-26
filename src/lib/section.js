@@ -177,16 +177,21 @@ export function buildSectionModel(section, scene) {
       return segs
     }
 
-    // Elevación de cada contacto a lo largo del dominio.
+    // Elevación de cada contacto a lo largo del dominio. Se pide la pila
+    // completa en cada punto —una sola vez para todos los contactos— para que
+    // el perfil vea la misma serie que el mapa: sin contactos cruzados.
+    const stacks = dd.map((d) => {
+      const p = at(d)
+      return scene.stackAt(p[0], p[1]).z.slice()
+    })
     const zByContact = new Map()
-    for (const c of scene.contacts) {
-      const surf = scene.contactSurfaces.get(c.id)?.get(dom.blockId)
-      if (!surf || !surf.defined) continue
-      const zs = dd.map((d) => {
-        const p = at(d)
-        const z = surf.elevationAt(p[0], p[1])
+    for (let ci = 0; ci < scene.contacts.length; ci++) {
+      const c = scene.contacts[ci]
+      const zs = stacks.map((st) => {
+        const z = st[ci]
         return Number.isFinite(z) ? z : null
       })
+      if (!zs.some((z) => z != null)) continue
       zByContact.set(c.id, zs)
       const idx = contactIndex.get(c.id)
       const below = []
