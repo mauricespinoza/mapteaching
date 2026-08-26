@@ -80,6 +80,24 @@ function contourSpacing(worldContours) {
   return gaps[gaps.length >> 1]
 }
 
+/**
+ * Área de trabajo como predicado en coordenadas mundo, para el modelo de
+ * elevación. Es lo mismo que `frameTest` de models.js, pero sin la escena: el
+ * relieve se calcula antes de que la escena exista.
+ */
+function demFrameTest(project, georef) {
+  const frame = project?.frame
+  if (!frame?.a || !frame?.b) return null
+  const x0 = Math.min(frame.a[0], frame.b[0])
+  const x1 = Math.max(frame.a[0], frame.b[0])
+  const y0 = Math.min(frame.a[1], frame.b[1])
+  const y1 = Math.max(frame.a[1], frame.b[1])
+  return (wx, wy) => {
+    const px = toImage(georef, [wx, wy])
+    return px[0] >= x0 && px[0] <= x1 && px[1] >= y0 && px[1] <= y1
+  }
+}
+
 export function buildScene(project) {
   const georef = project.georef
   const ready = Boolean(georef?.metersPerPx)
@@ -213,11 +231,16 @@ export function buildScene(project) {
     if (!merged.has(c.elevation)) merged.set(c.elevation, [])
     merged.get(c.elevation).push(c.pts)
   }
+  // La grilla cubre toda la imagen, pero las curvas sólo se digitalizan dentro
+  // del área de trabajo. Sin decírselo, el margen vacío que queda alrededor es
+  // un pasillo abierto que une todas las bandas de cota y el relieve se calcula
+  // a ciegas. (Es el mismo criterio que usa el mapa de unidades.)
   const dem = buildDem(
     [...merged.entries()].map(([elevation, lines]) => ({ elevation, lines })),
     bbox,
     res,
-    project.settings.demSmoothing ?? 2
+    project.settings.demSmoothing ?? 2,
+    demFrameTest(project, georef)
   )
 
   const units = sortedUnits(project)

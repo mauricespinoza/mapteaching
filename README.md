@@ -304,7 +304,21 @@ la forma de una a la de la otra. La app no dibuja unas cuantas curvas sueltas
 sino el campo continuo del que salen: en cada punto mide la distancia a la curva
 de abajo y a la de arriba y reparte la cota entre ambas, de modo que las curvas
 intermedias son las curvas de nivel de ese campo y el paso de una a otra es
-gradual por construcción.
+gradual por construcción. Sólo entran en este cálculo las curvas de nivel
+topográficas: los contactos y las fallas son trazas geológicas, no isohipsas, y
+no dicen nada de la cota del terreno.
+
+Ese reparto **no es lineal**. Con el reparto lineal la ladera es un plano dentro
+de cada banda —baja con pendiente equidistancia/ancho-de-banda, constante— y al
+cruzar la curva siguiente cambia de golpe a la pendiente de la banda de al lado:
+la cota es continua, pero la pendiente no, y el sombreado lee justo la
+pendiente, así que cada curva salía dibujada como una arista, una franja de
+terraza. Dentro de cada banda el reparto es una **cúbica de Hermite monótona**
+que llega a cada curva con la pendiente promedio —media armónica— de las dos
+bandas que allí se juntan; como las dos bandas vecinas calculan esa misma media,
+la ladera cruza la curva sin quiebre. Al ser monótona no se pasa de las cotas de
+sus curvas: entre la de 300 y la de 400 no puede haber ni un pico de 410 ni un
+hoyo de 290, y las curvas intermedias salen repartidas de verdad.
 
 Lo que decide el resultado es **con qué par de curvas se interpola**. Tomar las
 dos cotas más cercanas no vale: junto a un collado la segunda más próxima salta
@@ -312,9 +326,18 @@ de la de arriba a la de abajo de un punto al siguiente, y la cota da un brinco
 de casi dos equidistancias — ésos eran los saltos. Por eso las curvas se
 rasterizan primero y se etiquetan las **regiones** que delimitan; dentro de una
 región las dos curvas que la encierran no cambian, las distancias se miden sin
-salir de ella y el campo no puede saltar. Una curva que se va por el borde de la
-lámina se prolonga hasta el borde: si no, queda un pasillo abierto por fuera que
-une bandas de cotas muy distintas.
+salir de ella y el campo no puede saltar.
+
+Para que ese etiquetado signifique algo, las curvas tienen que cerrar el paso de
+verdad. Si entre el final de una curva y el borde de la lámina queda un pasillo
+abierto, las dos laderas que separaba se reencuentran rodeando por fuera y pasan
+a ser la misma región; con unos pocos pasillos el mapa entero acaba siendo una
+sola región, sin par de curvas que mande en ningún sitio. Por eso los extremos
+que se salen de la lámina se prolongan hasta salir de ella, y **lo que queda
+fuera del área de trabajo es barrera**: ahí no hay curvas que digitalizar, así
+que el margen vacío es el pasillo más ancho de todos. El relieve se prolonga
+hacia ese margen copiando el nodo válido más cercano, para que el borde del
+recorte no abra un escalón en la vista 3D.
 
 Las regiones que sólo tocan una curva son el interior de una curva cerrada: una
 **cumbre o una depresión**. Ahí no hay nada que interpolar y hay que prolongar.
@@ -323,16 +346,22 @@ la ladera de fuera y se aplana en el centro, acotada a una equidistancia —por
 encima ya tocaría otra curva dibujada—. Es lo que se lee en el mapa, y evita
 tanto la meseta plana como el pico inventado.
 
-Cuando las curvas no cubren toda la lámina —lo normal al digitalizar sobre una
-carta escaneada—, el margen exterior es una región que toca muchas cotas a la
-vez. Ahí no hay un par que mande, así que la cota se promedia por inverso del
-cuadrado de la distancia a cada curva: vale exactamente la cota de la curva al
-llegar a ella y pasa de una a otra sin costuras.
+Donde falta una curva, una región puede tocar tres cotas o más y no haber un par
+que mande. Ahí no se promedian las cotas sueltas —hacerlo por inverso del
+cuadrado de la distancia deja pegado a su cota todo el entorno de cada curva, y
+vuelve el aterrazado— sino **parejas** de curvas: cada pareja propone el mismo
+reparto que en una banda y pesa según lo estrecho que sea el paso entre sus dos
+curvas por allí, de modo que la pareja que de verdad encierra al punto manda y
+las demás apenas cuentan.
 
 Sobre superficies sintéticas de cota conocida (un cono, dos cerros con su
 collado, un valle meandriforme, una cuenca cerrada) el relieve reconstruido no
 supera en más de 1–2° la pendiente máxima real, y en el ejercicio de ejemplo la
-aspereza baja de 0,68 a 0,23 m y el mayor pico local de 8,7 a 2,6 m.
+aspereza baja de 0,68 a 0,23 m y el mayor pico local de 8,7 a 2,6 m. Midiendo
+en qué parte de la banda cae cada nodo —0 sobre una curva, 0,5 a medio camino—
+el reparto pasó de amontonar el 29 % de los nodos pegados a las curvas a
+repartirlos parejo, 10 % en cada décimo de banda, que es lo que significa
+«curvas intermedias equiespaciadas».
 
 En la **vista 3D** el terreno se dibuja con su sombreado calculado del propio
 modelo de elevación (sol al NO, 45° de altura), que multiplica la imagen del
@@ -399,7 +428,7 @@ src/lib/
   measure.js     regla del mapa: imán a las trazas y medida ortogonal
   structure.js   contornos estructurales, rumbo/manteo y modelo de superficie
   blocks.js      partición en bloques por las fallas
-  dem.js         relieve desde las curvas (regiones, curvas intermedias, bóvedas)
+  dem.js         relieve desde las curvas (regiones, cúbica monótona, bóvedas)
   scene.js       ensamblaje de la escena geológica
   section.js     construcción de perfiles
   wells.js       trayectoria y columna de pozos
