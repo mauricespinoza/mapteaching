@@ -69,8 +69,9 @@ export default function HelpPanel({ project, dispatch }) {
           recortados a él. Se quita desde la tarjeta «Área de trabajo» del panel de capas.
         </li>
         <li>
-          En el computador, el <b>clic derecho</b> abre ese mismo menú, y la tecla <b>Supr</b> borra la línea
-          seleccionada: de un contacto o una falla quita la traza elegida, no el rasgo entero. Todo es
+          En el computador, el <b>clic derecho</b> abre ese mismo menú, la tecla <b>Supr</b> borra la línea
+          seleccionada —de un contacto o una falla quita la traza elegida, no el rasgo entero— y las{' '}
+          <b>flechas</b> desplazan el mapa (con <span className="font-mono">Mayús</span>, a zancadas). Todo es
           reversible con <span className="font-mono">Ctrl+Z</span>.
         </li>
         <li>
@@ -160,6 +161,7 @@ export default function HelpPanel({ project, dispatch }) {
         <li>Enter · cerrar trazo</li>
         <li>Esc · cancelar trazo</li>
         <li>Supr · borrar selección</li>
+        <li>←↑→↓ · desplazar</li>
       </ul>
     </div>
   )

@@ -230,6 +230,83 @@ export function buildScene(project) {
   const zStep = contourSpacing(worldContours)
   const inherited = inheritContactGeometry({ contacts, contactSurfaces, dem, tol, side, zStep })
 
+  /**
+   * Ajuste monótono más cercano (pool adjacent violators). Devuelve la
+   * secuencia no decreciente que menos se aparta de la dada, en mínimos
+   * cuadrados: donde dos contactos se contradicen, ambos ceden a medias en vez
+   * de que uno arrastre al otro.
+   */
+  const isotonic = (values) => {
+    const n = values.length
+    if (n < 2) return values
+    const mean = new Float64Array(n)
+    const weight = new Int32Array(n)
+    let top = -1
+    for (let i = 0; i < n; i++) {
+      mean[++top] = values[i]
+      weight[top] = 1
+      while (top > 0 && mean[top - 1] > mean[top]) {
+        const w = weight[top - 1] + weight[top]
+        mean[top - 1] = (mean[top - 1] * weight[top - 1] + mean[top] * weight[top]) / w
+        weight[top - 1] = w
+        top--
+      }
+    }
+    const out = new Array(n)
+    let p = 0
+    for (let b = 0; b <= top; b++) for (let k = 0; k < weight[b]; k++) out[p++] = mean[b]
+    return out
+  }
+
+  /**
+   * Pila estratigráfica en un punto: la cota de cada contacto, resuelto en el
+   * bloque que le toca, **corregida para que no se invierta**.
+   *
+   * Cada contacto se ajusta por su cuenta, así que lejos de sus datos se
+   * extrapola a su aire y un contacto puede acabar por debajo del que tiene
+   * debajo. Eso no existe en una serie estratigráfica, y cuando pasa el mapa
+   * geológico deja de tener sentido: en este ejercicio el techo de la Unidad 3
+   * caía hasta 349 m por debajo de su base en un tercio del mapa. La pila se
+   * fuerza monótona, que es la única restricción que la estratigrafía impone
+   * gratis y no depende de ningún dato nuevo.
+   *
+   * El resultado se guarda para la última consulta: quien recorre una grilla
+   * suele pedir todos los contactos del mismo punto, uno tras otro. El array
+   * devuelto se reutiliza, así que hay que leerlo antes de la siguiente llamada.
+   */
+  const stackCache = { x: NaN, y: NaN, block: null, z: [] }
+  function stackAt(x, y) {
+    if (x === stackCache.x && y === stackCache.y) return stackCache
+    const block = blocks.blockAt(x, y)
+    const raw = []
+    const idx = []
+    const z = new Array(contacts.length).fill(null)
+    for (let i = 0; i < contacts.length; i++) {
+      const surf = contactSurfaces.get(contacts[i].id)?.get(block)
+      if (!surf?.defined) continue
+      const v = surf.elevationAt(x, y)
+      if (!Number.isFinite(v)) continue
+      idx.push(i)
+      raw.push(v)
+    }
+    const fixed = isotonic(raw)
+    // Donde dos contactos se contradecían, el ajuste monótono los deja a la
+    // misma cota: la unidad se acuña. Se separan un centímetro para que en 3D
+    // no parpadeen dos superficies coincidentes; por debajo de eso no hay dato
+    // que valga.
+    for (let k = 0; k < idx.length; k++) {
+      const v = k > 0 ? Math.max(fixed[k], z[idx[k - 1]] + 0.01) : fixed[k]
+      z[idx[k]] = v
+    }
+    stackCache.x = x
+    stackCache.y = y
+    stackCache.block = block
+    stackCache.z = z
+    return stackCache
+  }
+
+  const contactIndex = new Map(contacts.map((c, i) => [c.id, i]))
+
   return {
     ready,
     georef,
@@ -248,6 +325,18 @@ export function buildScene(project) {
     units,
     contacts,
     project,
+    stackAt,
+    contactIndex,
+    /**
+     * Cota de un contacto en un punto, ya corregida para que la pila
+     * estratigráfica no se invierta. Es lo que deben usar el mapa geológico,
+     * el perfil, el 3D y los pozos.
+     */
+    contactElevationAt(contactId, x, y) {
+      const i = contactIndex.get(contactId)
+      if (i == null) return null
+      return stackAt(x, y).z[i]
+    },
     /** Superficie de un contacto en el bloque que corresponde a un punto. */
     contactSurfaceAt(contactId, x, y) {
       const byBlock = contactSurfaces.get(contactId)

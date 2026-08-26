@@ -319,7 +319,6 @@ export function buildDem(levels, bbox, res = 200, smoothPasses = 3) {
     else if (hi[r] - lo[r] === 1) kind[r] = BAND
     else kind[r] = MIXED
   }
-  const isCap = kind
 
   // Las celdas por las que pasa una curva también se evalúan con el campo, no se
   // clavan a la cota: la curva pasa por algún punto dentro de la celda, no por
@@ -396,7 +395,7 @@ export function buildDem(levels, bbox, res = 200, smoothPasses = 3) {
   const capApex = new Float64Array(count)
   for (let k = 0; k < n; k++) {
     const r = region[k]
-    if (r < 0 || !isCap[r]) continue
+    if (r < 0 || kind[r] !== CAP) continue
     const d = distTo(lo[r], k)
     if (d > capApex[r]) capApex[r] = d
   }
@@ -421,7 +420,7 @@ export function buildDem(levels, bbox, res = 200, smoothPasses = 3) {
         const jj = j + dj
         if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue
         const r = region[jj * nx + ii]
-        if (r >= 0 && isCap[r] && lo[r] === li) {
+        if (r >= 0 && kind[r] === CAP && lo[r] === li) {
           capId = r
           break
         }
@@ -435,7 +434,7 @@ export function buildDem(levels, bbox, res = 200, smoothPasses = 3) {
         if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue
         const kn = jj * nx + ii
         const r = region[kn]
-        if (r < 0 || r === capId || isCap[r]) continue
+        if (r < 0 || r === capId || kind[r] !== BAND) continue
         const zLo = elevationOf[lo[r]]
         const zHi = elevationOf[hi[r]]
         if (hi[r] === li && lo[r] < li) upVotes[capId]++
@@ -456,7 +455,7 @@ export function buildDem(levels, bbox, res = 200, smoothPasses = 3) {
   const capHeight = new Float64Array(count)
   const capSign = new Float64Array(count)
   for (let r = 0; r < count; r++) {
-    if (!isCap[r] || !Number.isFinite(lo[r])) continue
+    if (kind[r] !== CAP || !Number.isFinite(lo[r])) continue
     const li = lo[r]
     const sign = upVotes[r] >= downVotes[r] && upVotes[r] > 0 ? 1 : downVotes[r] > 0 ? -1 : 0
     capSign[r] = sign
@@ -477,7 +476,7 @@ export function buildDem(levels, bbox, res = 200, smoothPasses = 3) {
 
   for (let k = 0; k < n; k++) {
     const r = evalRegion[k]
-    if (r < 0 || !isCap[r]) continue
+    if (r < 0 || kind[r] !== CAP) continue
     const z0 = Number.isFinite(lo[r]) ? elevationOf[lo[r]] : elevationOf[0]
     const apex = capApex[r]
     if (!capSign[r] || apex < 1e-9) {

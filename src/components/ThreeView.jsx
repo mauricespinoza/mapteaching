@@ -111,6 +111,7 @@ export default function ThreeView({ project, scene, image }) {
       const uv = geo.attributes.uv
       const colors = new Float32Array(pos.count * 3)
       const color = new THREE.Color()
+      const useTexNow = show.texture && image && project.image
       for (let j = 0; j < dem.ny; j++) {
         for (let i = 0; i < dem.nx; i++) {
           const idx = j * dem.nx + i
@@ -120,8 +121,19 @@ export default function ThreeView({ project, scene, image }) {
           const y = bbox.minY + j * dem.cell
           const z = dem.z[idx]
           pos.setXYZ(vi, x - cx, y - cy, (z - cz) * vExag)
-          const t = (z - dem.zmin) / zRange
-          color.setHSL(0.32 - 0.28 * t, 0.42, 0.34 + 0.34 * t)
+          // Sombreado del relieve calculado del propio modelo de elevación —el
+          // que sale de interpolar las curvas de nivel—, no sólo de las luces
+          // de la escena: con la imagen del mapa drapeada encima, la luz sola
+          // deja la superficie lavada y el relieve no se lee.
+          const s = hillshade(dem, i, j, vExag)
+          if (useTexNow) {
+            // Multiplica la textura: la imagen se ve, pero con su relieve.
+            color.setScalar(0.55 + 0.7 * s)
+          } else {
+            const t = (z - dem.zmin) / zRange
+            color.setHSL(0.32 - 0.28 * t, 0.42, 0.34 + 0.34 * t)
+            color.multiplyScalar(0.55 + 0.7 * s)
+          }
           colors[vi * 3] = color.r
           colors[vi * 3 + 1] = color.g
           colors[vi * 3 + 2] = color.b
@@ -150,9 +162,11 @@ export default function ThreeView({ project, scene, image }) {
       }
       geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
       geo.computeVertexNormals()
-      const useTex = show.texture && image && project.image
+      const useTex = useTexNow
       const mat = new THREE.MeshStandardMaterial({
-        vertexColors: !useTex,
+        // El color por vértice lleva el sombreado, así que va siempre: con
+        // textura la multiplica, sin ella aporta también el tinte hipsométrico.
+        vertexColors: true,
         map: useTex ? new THREE.CanvasTexture(toCanvas(image)) : null,
         roughness: 0.95,
         metalness: 0,
@@ -195,24 +209,25 @@ export default function ThreeView({ project, scene, image }) {
 
     // Superficies de contacto por bloque
     if (show.surfaces) {
-      for (const c of scene.contacts) {
-        const byBlock = scene.contactSurfaces.get(c.id)
-        if (!byBlock) continue
+      for (const { contactIndex: ci, verts } of contactMeshes(scene, P, zBottom, dem, inFrame)) {
+        const c = scene.contacts[ci]
         const unit = scene.units.find((u) => u.id === c.upperUnitId)
         const color = new THREE.Color(unit?.color || c.color || '#38bdf8')
-        for (const [blockId, surf] of byBlock) {
-          if (!surf.defined) continue
-          const mesh = surfaceMesh(scene, surf, blockId, P, zBottom, dem, inFrame)
-          if (!mesh) continue
-          mesh.material = new THREE.MeshStandardMaterial({
-            color,
-            transparent: true,
-            opacity: 0.62,
-            side: THREE.DoubleSide,
-            roughness: 0.8,
-          })
-          content.add(mesh)
-        }
+        const geo = new THREE.BufferGeometry()
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+        geo.computeVertexNormals()
+        content.add(
+          new THREE.Mesh(
+            geo,
+            new THREE.MeshStandardMaterial({
+              color,
+              transparent: true,
+              opacity: 0.62,
+              side: THREE.DoubleSide,
+              roughness: 0.8,
+            })
+          )
+        )
       }
     }
 
@@ -412,51 +427,91 @@ function lineFrom(points, color, opacity = 1, width = 1) {
 }
 
 /** Malla de una superficie geológica, limitada al bloque que le corresponde. */
-function surfaceMesh(scene, surf, blockId, P, zMin, dem, inFrame) {
+/**
+ * Sombreado del relieve en un nodo del modelo de elevación: la iluminación
+ * clásica de un MED, con el sol al NO y 45° de altura. Devuelve 0..1.
+ */
+function hillshade(dem, i, j, vExag = 1) {
+  const { nx, ny, cell, z } = dem
+  const i0 = Math.max(0, i - 1)
+  const i1 = Math.min(nx - 1, i + 1)
+  const j0 = Math.max(0, j - 1)
+  const j1 = Math.min(ny - 1, j + 1)
+  const dzdx = (vExag * (z[j * nx + i1] - z[j * nx + i0])) / ((i1 - i0) * cell)
+  const dzdy = (vExag * (z[j1 * nx + i] - z[j0 * nx + i])) / ((j1 - j0) * cell)
+  const slope = Math.atan(Math.hypot(dzdx, dzdy))
+  const aspect = Math.atan2(dzdy, -dzdx)
+  const az = ((360 - 315 + 90) * Math.PI) / 180
+  const alt = (45 * Math.PI) / 180
+  const hs = Math.cos(alt) * Math.sin(slope) * Math.cos(az - aspect) + Math.sin(alt) * Math.cos(slope)
+  return Math.max(0, Math.min(1, hs))
+}
+
+/**
+ * Superficies de contacto en 3D, todas de una pasada.
+ *
+ * Se recorre la malla una sola vez y en cada nodo se pide la **pila
+ * estratigráfica completa** (scene.stackAt), no cada contacto por su cuenta:
+ * así ninguna superficie acaba por debajo de la que tiene debajo —cada contacto
+ * se ajusta a sus propios datos y, lejos de ellos, se cruzaban— y además sale
+ * más barato, porque la pila se calcula una vez para todos.
+ *
+ * Una celda que cruza una falla no se dibuja: cada bloque es un cuerpo aparte y
+ * las unidades tienen que detenerse en la estructura, no atravesarla.
+ */
+function contactMeshes(scene, P, zMin, dem, inFrame) {
   const { bbox } = scene
   // Malla fina: el borde de la superficie se recorta contra la topografía, y
   // con pocas celdas ese recorte se ve escalonado.
-  const N = 96
+  const N = 110
   const dx = (bbox.maxX - bbox.minX) / N
   const dy = (bbox.maxY - bbox.minY) / N
-  const verts = []
-  // Sólo se dibuja la parte de la superficie que está bajo la topografía:
-  // lo que quedaría por encima ya está erosionado.
-  const push = (x, y) => {
-    const z = surf.elevationAt(x, y)
-    if (!Number.isFinite(z)) return null
-    // Por arriba se corta contra la topografía (ya está erosionada); por abajo
-    // se apoya en el plano base, en vez de romper la malla y dejar el borde
-    // escalonado.
-    if (z > dem.elevationAt(x, y)) return null
-    return P(x, y, Math.max(zMin, z))
-  }
-  for (let j = 0; j < N; j++) {
-    for (let i = 0; i < N; i++) {
-      const x0 = bbox.minX + i * dx
-      const y0 = bbox.minY + j * dy
-      const x1 = x0 + dx
-      const y1 = y0 + dy
-      const inside = [
-        [x0, y0],
-        [x1, y0],
-        [x1, y1],
-        [x0, y1],
-      ].every((p) => scene.blocks.blockAt(p[0], p[1]) === blockId && (!inFrame || inFrame(p[0], p[1])))
-      if (!inside) continue
-      const a = push(x0, y0)
-      const b = push(x1, y0)
-      const c = push(x1, y1)
-      const d = push(x0, y1)
-      if (!a || !b || !c || !d) continue
-      verts.push(...a.toArray(), ...b.toArray(), ...c.toArray(), ...a.toArray(), ...c.toArray(), ...d.toArray())
+  const nc = scene.contacts.length
+  const nodes = new Array((N + 1) * (N + 1))
+  for (let j = 0; j <= N; j++) {
+    for (let i = 0; i <= N; i++) {
+      const x = bbox.minX + i * dx
+      const y = bbox.minY + j * dy
+      if (inFrame && !inFrame(x, y)) continue
+      const st = scene.stackAt(x, y)
+      // La pila reutiliza su array entre consultas: hay que copiarla.
+      nodes[j * (N + 1) + i] = { x, y, block: st.block, z: st.z.slice(), zt: dem.elevationAt(x, y) }
     }
   }
-  if (!verts.length) return null
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
-  geo.computeVertexNormals()
-  return new THREE.Mesh(geo)
+  const byKey = new Map()
+  for (let j = 0; j < N; j++) {
+    for (let i = 0; i < N; i++) {
+      const a = nodes[j * (N + 1) + i]
+      const b = nodes[j * (N + 1) + i + 1]
+      const c = nodes[(j + 1) * (N + 1) + i + 1]
+      const d = nodes[(j + 1) * (N + 1) + i]
+      if (!a || !b || !c || !d) continue
+      // La celda cruza una falla: se deja el hueco, que es donde acaba el bloque.
+      if (b.block !== a.block || c.block !== a.block || d.block !== a.block) continue
+      for (let ci = 0; ci < nc; ci++) {
+        const za = a.z[ci]
+        const zb = b.z[ci]
+        const zc = c.z[ci]
+        const zd = d.z[ci]
+        if (za == null || zb == null || zc == null || zd == null) continue
+        // Sólo la parte que queda bajo la topografía: lo de arriba ya está
+        // erosionado.
+        if (za > a.zt || zb > b.zt || zc > c.zt || zd > d.zt) continue
+        const key = `${ci}|${a.block}`
+        let verts = byKey.get(key)
+        if (!verts) byKey.set(key, (verts = { contactIndex: ci, verts: [] }))
+        const pa = P(a.x, a.y, Math.max(zMin, za))
+        const pb = P(b.x, b.y, Math.max(zMin, zb))
+        const pc = P(c.x, c.y, Math.max(zMin, zc))
+        const pd = P(d.x, d.y, Math.max(zMin, zd))
+        verts.verts.push(
+          ...pa.toArray(), ...pb.toArray(), ...pc.toArray(),
+          ...pa.toArray(), ...pc.toArray(), ...pd.toArray()
+        )
+      }
+    }
+  }
+  return [...byKey.values()].filter((v) => v.verts.length)
 }
 
 /** Cinta que representa el plano de falla desde la traza hacia la profundidad. */
