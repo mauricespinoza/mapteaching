@@ -224,14 +224,21 @@ pliegue, la aplana justo donde el pliegue es la respuesta.
 
 En una serie concordante la respuesta geológica es la de siempre: **las capas de
 abajo repiten el pliegue de las de arriba**. Cuando un contacto no se puede
-resolver solo, la app le da la geometría del contacto concordante vecino
-resuelto más próximo —primero busca hacia el techo, que es donde suele estar la
-unidad mejor expuesta, y si no hay ninguno, hacia la base— construyendo la
-superficie **paralela** a él (pliegue paralelo o concéntrico, clase 1B de
-Ramsay): la misma forma, desplazada un **espesor verdadero constante** medido
-perpendicular a las capas. En cota ese desplazamiento no es constante, vale
-`e / cos δ` con δ el manteo local, y por eso el contacto heredado se separa más
-en los flancos que en las charnelas, igual que un contacto real.
+resolver solo, la app le da la geometría del contacto concordante resuelto más
+próximo **hacia el techo**, construyendo la superficie **paralela** a él
+(pliegue paralelo o concéntrico, clase 1B de Ramsay): la misma forma, desplazada
+un **espesor verdadero constante** medido perpendicular a las capas. En cota ese
+desplazamiento no es constante, vale `e / cos δ` con δ el manteo local, y por
+eso el contacto heredado se separa más en los flancos que en las charnelas,
+igual que un contacto real.
+
+La herencia va **sólo hacia abajo**, hacia las capas más antiguas, y nunca al
+revés. Que un contacto esté plegado obliga a las capas de debajo a repetir ese
+pliegue —son las que el pliegue arrastró consigo—, pero no dice nada de las de
+encima: una serie más joven puede estar depositada en discordancia sobre el
+pliegue ya formado, y entonces no lo sigue. Un contacto sin datos propios que
+sólo tenga vecinos resueltos por debajo se queda sin resolver, que es la
+respuesta honesta: el mapa no da para saber su forma en profundidad.
 
 El espesor no se inventa: se ajusta por mínimos cuadrados a los pocos datos que
 el contacto sí tiene —sus cruces con curvas de nivel y, si no llegan a tres, su
