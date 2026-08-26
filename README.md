@@ -277,6 +277,18 @@ inundación sobre una grilla). Cada contacto se resuelve **por separado en cada
 bloque**, de modo que el desplazamiento a través de la falla aparece por sí solo
 en el mapa, en el perfil y en el 3D — no hay que indicar ningún salto a mano.
 
+Esa partición vale en la superficie, porque la traza es justo donde el plano de
+falla corta el terreno; en profundidad, no. Por eso el corte entre bloques **no
+baja a plomo desde la traza sino que sigue el plano de la falla**: el criterio no
+es de qué lado de la traza cae un punto sino de qué lado del plano, es decir si
+su cota está por encima o por debajo de `z_falla(x, y)`. Así el bloque de un lado
+se mete por debajo de la falla y el de enfrente se retira, tanto en el perfil
+como en el 3D. Con una falla de 82° el corte se desplaza 276 m en planta a 2 km
+de profundidad; antes se quedaba clavado bajo la traza, como si toda falla fuera
+vertical. La superficie que manda es la misma que resuelven los contornos
+estructurales de la falla, así que la línea que se dibuja en el perfil y el corte
+que produce son una sola geometría, curva incluida.
+
 ### 6. Perfil estructural
 
 Para cada traza A–A′: topografía, relleno de las unidades entre sus contactos,

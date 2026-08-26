@@ -58,6 +58,10 @@ export function buildSectionModel(section, scene) {
   const topoMax = Math.max(...topo)
   const topoMin = Math.min(...topo)
   const bottom = topoMin - (section.depth || 2000)
+  // Cada dominio se calcula un poco más allá de sus bordes: bajo una falla
+  // inclinada, el bloque de un lado se mete por debajo del de enfrente y hay
+  // que tener geometría suya para rellenar ese hueco.
+  const margin = Math.min(L * 0.35, (topoMax - bottom) * 2)
 
   // ---- Fallas: intersección con la traza del perfil y manteo aparente ----
   const segAB = [A, B]
@@ -89,6 +93,45 @@ export function buildSectionModel(section, scene) {
   }
   faultCrossings.sort((a, b) => a.d - b.d)
 
+  // Cota del plano de falla a lo largo del perfil, tomada de la superficie que
+  // resuelven sus contornos estructurales y no de una recta con el manteo medio:
+  // el recorte de las unidades y la línea que se dibuja salen los dos de aquí,
+  // así que en el perfil la falla y el corte que produce son la misma
+  // superficie. Se ancla al cruce con la traza, que es el dato duro: allí el
+  // plano corta la topografía por definición.
+  const PN = 260
+  const dSpan = L + 2 * margin
+  for (const fc of faultCrossings) {
+    const zs = new Float64Array(PN).fill(NaN)
+    let any = false
+    if (fc.surf?.defined) {
+      for (let i = 0; i < PN; i++) {
+        const p = at(-margin + (dSpan * i) / (PN - 1))
+        const v = fc.surf.elevationAt(p[0], p[1])
+        if (Number.isFinite(v)) {
+          zs[i] = v
+          any = true
+        }
+      }
+    }
+    const lookup = (d) => {
+      const t = ((d + margin) / dSpan) * (PN - 1)
+      const i = Math.max(0, Math.min(PN - 2, Math.floor(t)))
+      const f = Math.max(0, Math.min(1, t - i))
+      const a = zs[i]
+      const b = zs[i + 1]
+      if (!Number.isFinite(a)) return b
+      if (!Number.isFinite(b)) return a
+      return a + (b - a) * f
+    }
+    if (!any) {
+      fc.zPlane = (d) => fc.z - fc.k * (d - fc.d)
+      continue
+    }
+    const shift = fc.z - lookup(fc.d)
+    fc.zPlane = Number.isFinite(shift) ? (d) => lookup(d) + shift : lookup
+  }
+
   // ---- Dominios: tramos del perfil con el mismo bloque estructural ----
   const domains = []
   let start = 0
@@ -107,16 +150,20 @@ export function buildSectionModel(section, scene) {
 
   const boundaryFn = (crossing, insideD, insideZ) => {
     if (!crossing) return null
+    // Con el plano casi paralelo al perfil el criterio «encima o debajo» no
+    // discrimina —el corte apenas lo cruza—, y ahí lo sensato es cortar a plomo.
     const useDip = Math.abs(crossing.k) > Math.tan(8 * RAD)
     const f = useDip
-      ? (d, z) => crossing.k * (d - crossing.d) + (z - crossing.z)
+      ? (d, z) => {
+          const zp = crossing.zPlane(d)
+          return Number.isFinite(zp) ? z - zp : crossing.k * (d - crossing.d) + (z - crossing.z)
+        }
       : (d) => d - crossing.d
     const sign = Math.sign(f(insideD, insideZ)) || 1
     return (d, z) => sign * f(d, z)
   }
 
   // ---- Superficies de contacto por dominio ----
-  const margin = Math.min(L * 0.35, (topoMax - bottom) * 2)
   const contactsOut = scene.contacts.map((c) => ({
     id: c.id,
     name: c.name,
@@ -180,9 +227,13 @@ export function buildSectionModel(section, scene) {
     // Elevación de cada contacto a lo largo del dominio. Se pide la pila
     // completa en cada punto —una sola vez para todos los contactos— para que
     // el perfil vea la misma serie que el mapa: sin contactos cruzados.
+    // Se pide siempre la pila *de este bloque*, aunque el punto caiga en planta
+    // sobre el bloque de al lado: más allá del borde del dominio es justo donde
+    // este bloque se mete por debajo de la falla, y tomar allí la pila del
+    // vecino era lo que hacía que el corte bajara recto desde la traza.
     const stacks = dd.map((d) => {
       const p = at(d)
-      return scene.stackAt(p[0], p[1]).z.slice()
+      return scene.stackAt(p[0], p[1], dom.blockId).z.slice()
     })
     const zByContact = new Map()
     for (let ci = 0; ci < scene.contacts.length; ci++) {
@@ -243,25 +294,31 @@ export function buildSectionModel(section, scene) {
     const f = Math.max(0, Math.min(1, t - i))
     return topo[i] + (topo[i + 1] - topo[i]) * f
   }
+  // La falla se dibuja siguiendo su propia superficie —la misma con la que se
+  // recortan las unidades—, muestreada entre la topografía y el fondo del
+  // perfil. Se queda el tramo continuo que pasa por el cruce con la traza: si
+  // el plano vuelve a asomar más allá, ése ya es otro afloramiento.
   const faultsOut = faultCrossings.map((fc) => {
-    const zAt = (d) => fc.z - fc.k * (d - fc.d)
-    // La traza arranca donde el plano corta la topografía y baja hasta el fondo.
-    let p0 = [fc.d, fc.z]
-    let p1
-    if (Math.abs(fc.k) > 1e-6) {
-      const dBot = fc.d + (fc.z - bottom) / fc.k
-      p1 = [dBot, bottom]
-      // Hacia arriba se prolonga sólo mientras siga bajo la superficie.
-      const stepUp = Math.sign(fc.d - dBot) * (L / 200)
-      for (let k = 1; k <= 200; k++) {
-        const d = fc.d + stepUp * k
-        if (d < 0 || d > L) break
-        const z = zAt(d)
-        if (z > topoAt(d) || z > topoMax) break
-        p0 = [d, z]
-      }
-    } else {
-      p1 = [fc.d, bottom]
+    const zAt = fc.zPlane
+    const STEPS = 320
+    const runs = []
+    let run = []
+    for (let i = 0; i < STEPS; i++) {
+      const d = (L * i) / (STEPS - 1)
+      const z = zAt(d)
+      if (Number.isFinite(z) && z <= topoAt(d) + 1e-6 && z >= bottom) run.push([d, z])
+      else if (run.length) ((runs.push(run)), (run = []))
+    }
+    if (run.length) runs.push(run)
+    let path = runs.find((r) => r[0][0] <= fc.d && r[r.length - 1][0] >= fc.d)
+    if (!path) path = runs.sort((a, b) => b.length - a.length)[0]
+    if (!path || path.length < 2) {
+      // Plano vertical o sin superficie utilizable: una recta con su manteo.
+      const dBot = Math.abs(fc.k) > 1e-6 ? fc.d + (fc.z - bottom) / fc.k : fc.d
+      path = [
+        [fc.d, fc.z],
+        [dBot, bottom],
+      ]
     }
     return {
       faultId: fc.faultId,
@@ -273,7 +330,8 @@ export function buildSectionModel(section, scene) {
       dip: fc.dip,
       dipDir: fc.dipDir,
       dipsTowardPlus: fc.k > 0,
-      line: [p0, p1],
+      path,
+      line: [path[0], path[path.length - 1]],
       zAt,
     }
   })

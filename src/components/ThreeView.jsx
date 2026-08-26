@@ -467,47 +467,96 @@ function contactMeshes(scene, P, zMin, dem, inFrame) {
   const dx = (bbox.maxX - bbox.minX) / N
   const dy = (bbox.maxY - bbox.minY) / N
   const nc = scene.contacts.length
-  const nodes = new Array((N + 1) * (N + 1))
+  const nn = (N + 1) * (N + 1)
+
+  // Rejilla común: coordenadas, topografía y —lo que decide el corte— la cota
+  // del plano de cada falla en cada nodo. Se calcula una sola vez porque cada
+  // superficie de contacto se prueba contra ella muchas veces.
+  const gx = new Float64Array(nn)
+  const gy = new Float64Array(nn)
+  const gz = new Float64Array(nn).fill(NaN)
+  const cuts = scene.faultCuts || []
+  const zf = cuts.map(() => new Float64Array(nn).fill(NaN))
   for (let j = 0; j <= N; j++) {
     for (let i = 0; i <= N; i++) {
+      const k = j * (N + 1) + i
       const x = bbox.minX + i * dx
       const y = bbox.minY + j * dy
+      gx[k] = x
+      gy[k] = y
       if (inFrame && !inFrame(x, y)) continue
-      const st = scene.stackAt(x, y)
-      // La pila reutiliza su array entre consultas: hay que copiarla.
-      nodes[j * (N + 1) + i] = { x, y, block: st.block, z: st.z.slice(), zt: dem.elevationAt(x, y) }
+      gz[k] = dem.elevationAt(x, y)
+      for (let c = 0; c < cuts.length; c++) zf[c][k] = cuts[c].surf.elevationAt(x, y)
     }
   }
+
+  // Bloques que tienen alguna superficie resuelta.
+  const blockIds = new Set()
+  for (const byBlock of scene.contactSurfaces.values()) for (const b of byBlock.keys()) blockIds.add(b)
+
   const byKey = new Map()
-  for (let j = 0; j < N; j++) {
-    for (let i = 0; i < N; i++) {
-      const a = nodes[j * (N + 1) + i]
-      const b = nodes[j * (N + 1) + i + 1]
-      const c = nodes[(j + 1) * (N + 1) + i + 1]
-      const d = nodes[(j + 1) * (N + 1) + i]
-      if (!a || !b || !c || !d) continue
-      // La celda cruza una falla: se deja el hueco, que es donde acaba el bloque.
-      if (b.block !== a.block || c.block !== a.block || d.block !== a.block) continue
-      for (let ci = 0; ci < nc; ci++) {
-        const za = a.z[ci]
-        const zb = b.z[ci]
-        const zc = c.z[ci]
-        const zd = d.z[ci]
-        if (za == null || zb == null || zc == null || zd == null) continue
-        // Sólo la parte que queda bajo la topografía: lo de arriba ya está
-        // erosionado.
-        if (za > a.zt || zb > b.zt || zc > c.zt || zd > d.zt) continue
-        const key = `${ci}|${a.block}`
-        let verts = byKey.get(key)
-        if (!verts) byKey.set(key, (verts = { contactIndex: ci, verts: [] }))
-        const pa = P(a.x, a.y, Math.max(zMin, za))
-        const pb = P(b.x, b.y, Math.max(zMin, zb))
-        const pc = P(c.x, c.y, Math.max(zMin, zc))
-        const pd = P(d.x, d.y, Math.max(zMin, zd))
-        verts.verts.push(
-          ...pa.toArray(), ...pb.toArray(), ...pc.toArray(),
-          ...pa.toArray(), ...pc.toArray(), ...pd.toArray()
-        )
+  for (const block of blockIds) {
+    // De qué lado de cada falla vive este bloque. Un 0 quiere decir que esa
+    // falla no lo limita (se acaba dentro de él) y entonces no lo corta.
+    const want = cuts.map((c) => scene.blockSideOf(block, c.id))
+    /**
+     * ¿Le toca a este bloque el punto (nodo k, cota z)? El criterio es de qué
+     * lado del *plano* de falla queda, no de qué lado de su traza: así el
+     * bloque de abajo se mete por debajo de la falla y el de arriba se retira,
+     * en vez de cortarse los dos a plomo bajo la traza.
+     */
+    const mine = (k, z) => {
+      for (let c = 0; c < cuts.length; c++) {
+        if (!want[c]) continue
+        const v = zf[c][k]
+        if (!Number.isFinite(v)) continue
+        if ((z > v ? 1 : -1) !== want[c]) return false
+      }
+      return true
+    }
+
+    // Pila de este bloque en cada nodo, extrapolada más allá de su extensión en
+    // planta: es lo que ocupa el hueco que la falla inclinada deja debajo.
+    const stacks = new Array(nn)
+    for (let k = 0; k < nn; k++) {
+      if (!Number.isFinite(gz[k])) continue
+      stacks[k] = scene.stackAt(gx[k], gy[k], block).z.slice()
+    }
+
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const ka = j * (N + 1) + i
+        const kb = ka + 1
+        const kc = (j + 1) * (N + 1) + i + 1
+        const kd = (j + 1) * (N + 1) + i
+        const sa = stacks[ka]
+        const sb = stacks[kb]
+        const sc = stacks[kc]
+        const sd = stacks[kd]
+        if (!sa || !sb || !sc || !sd) continue
+        for (let ci = 0; ci < nc; ci++) {
+          const za = sa[ci]
+          const zb = sb[ci]
+          const zc = sc[ci]
+          const zd = sd[ci]
+          if (za == null || zb == null || zc == null || zd == null) continue
+          // Sólo la parte que queda bajo la topografía: lo de arriba ya está
+          // erosionado.
+          if (za > gz[ka] || zb > gz[kb] || zc > gz[kc] || zd > gz[kd]) continue
+          // Y sólo la que queda del lado de la falla que le toca a este bloque.
+          if (!mine(ka, za) || !mine(kb, zb) || !mine(kc, zc) || !mine(kd, zd)) continue
+          const key = `${ci}|${block}`
+          let verts = byKey.get(key)
+          if (!verts) byKey.set(key, (verts = { contactIndex: ci, verts: [] }))
+          const pa = P(gx[ka], gy[ka], Math.max(zMin, za))
+          const pb = P(gx[kb], gy[kb], Math.max(zMin, zb))
+          const pc = P(gx[kc], gy[kc], Math.max(zMin, zc))
+          const pd = P(gx[kd], gy[kd], Math.max(zMin, zd))
+          verts.verts.push(
+            ...pa.toArray(), ...pb.toArray(), ...pc.toArray(),
+            ...pa.toArray(), ...pc.toArray(), ...pd.toArray()
+          )
+        }
       }
     }
   }

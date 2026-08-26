@@ -158,22 +158,10 @@ export default function SectionView({ project, scene, section, dispatch }) {
               const kin = kinematicsOf(f.kinematics)
               return (
                 <g key={`${f.faultId}-${i}`}>
-                  <line
-                    x1={X(f.line[0][0])}
-                    y1={Y(f.line[0][1])}
-                    x2={X(f.line[1][0])}
-                    y2={Y(f.line[1][1])}
-                    stroke="#111827"
-                    strokeWidth="3.4"
-                  />
-                  <line
-                    x1={X(f.line[0][0])}
-                    y1={Y(f.line[0][1])}
-                    x2={X(f.line[1][0])}
-                    y2={Y(f.line[1][1])}
-                    stroke={kin.color}
-                    strokeWidth="2"
-                  />
+                  {/* Sigue la superficie de la falla, no una recta: si sus
+                      contornos estructurales dicen que se tuerce, se tuerce. */}
+                  <polyline points={poly(f.path || f.line)} fill="none" stroke="#111827" strokeWidth="3.4" />
+                  <polyline points={poly(f.path || f.line)} fill="none" stroke={kin.color} strokeWidth="2" />
                   {slipArrows(f, X, Y)}
                 </g>
               )

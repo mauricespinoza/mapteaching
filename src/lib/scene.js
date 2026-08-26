@@ -219,6 +219,93 @@ export function buildScene(project) {
     )
   }
 
+  // ---- Con qué falla y de qué lado limita cada bloque ----
+  //
+  // Los bloques se etiquetan en planta, sobre la traza de la falla, y eso vale
+  // en la superficie: la traza es justo donde el plano de falla corta el
+  // terreno. Pero en profundidad el plano se va de lado, y quedarse con la
+  // etiqueta de planta equivale a cortar las unidades a plomo bajo la traza,
+  // como si toda falla fuera vertical.
+  //
+  // El criterio correcto no es en qué lado de la *traza* está un punto sino de
+  // qué lado del *plano* está: (x, y, z) queda por encima de la falla si
+  // z > z_falla(x, y). Cada bloque está entero a un lado de ese plano, y saber
+  // a cuál basta para cortar bien a cualquier profundidad. Se averigua a un
+  // paso a cada lado de la traza: allí donde el plano se hunde bajo el terreno
+  // hay roca *sobre* la falla —ése es el bloque de encima—, y donde se levanta
+  // y ya está erosionado sólo queda roca *bajo* ella.
+  const faultCuts = []
+  const blockSides = new Map()
+  {
+    const probe = Math.max(cell * 3, side * 0.004)
+    const votes = new Map()
+    const key = (block, faultId) => `${block}|${faultId}`
+    for (const fw of faultWorld) {
+      const surf = faultSurfaces.get(fw.id)
+      if (!surf?.defined) continue
+      let used = false
+      for (const tr of fw.traces) {
+        for (let i = 1; i < tr.length; i++) {
+          const a = tr[i - 1]
+          const b = tr[i]
+          const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+          if (len < 1e-9) continue
+          const ux = -(b[1] - a[1]) / len
+          const uy = (b[0] - a[0]) / len
+          const mx = (a[0] + b[0]) / 2
+          const my = (a[1] + b[1]) / 2
+          const p = [mx + ux * probe, my + uy * probe]
+          const q = [mx - ux * probe, my - uy * probe]
+          const zp = surf.elevationAt(p[0], p[1])
+          const zq = surf.elevationAt(q[0], q[1])
+          if (!Number.isFinite(zp) || !Number.isFinite(zq) || Math.abs(zp - zq) < tol) continue
+          const bp = blocks.blockAt(p[0], p[1])
+          const bq = blocks.blockAt(q[0], q[1])
+          // Si a los dos lados hay el mismo bloque, aquí la falla no separa
+          // nada (se está fuera de su extremo) y el punto no dice nada.
+          if (!bp || !bq || bp === bq) continue
+          const above = zp < zq ? bp : bq
+          const below = zp < zq ? bq : bp
+          for (const [block, s] of [
+            [above, 1],
+            [below, -1],
+          ]) {
+            const k = key(block, fw.id)
+            const v = votes.get(k) || [0, 0]
+            v[s > 0 ? 0 : 1]++
+            votes.set(k, v)
+          }
+          used = true
+        }
+      }
+      if (used) faultCuts.push({ id: fw.id, surf })
+    }
+    // Un bloque con votos repartidos no está limpiamente a un lado —la falla se
+    // acaba dentro de él— y entonces esa falla no lo corta.
+    for (const [k, [plus, minus]] of votes) {
+      const total = plus + minus
+      if (plus >= total * 0.8) blockSides.set(k, 1)
+      else if (minus >= total * 0.8) blockSides.set(k, -1)
+    }
+  }
+
+  /**
+   * ¿Pertenece el punto (x, y, z) al bloque `block`? Lo decide el lado del
+   * plano de cada falla que lo limita, así que el corte sigue la falla en
+   * profundidad en vez de bajar recto desde su traza.
+   */
+  function belongsToBlock(block, x, y, z) {
+    if (!faultCuts.length) return true
+    for (const cut of faultCuts) {
+      const want = blockSides.get(`${block}|${cut.id}`)
+      if (!want) continue
+      const zf = cut.surf.elevationAt(x, y)
+      if (!Number.isFinite(zf)) continue
+      if ((z > zf ? 1 : -1) !== want) return false
+    }
+    return true
+  }
+
   // Modelo de elevación a partir de las curvas. Se agrupan por cota y se pasan
   // como polilíneas: el motor las rasteriza él mismo para que cada curva quede
   // continua y separe de verdad las dos laderas que tiene a los lados.
@@ -296,11 +383,15 @@ export function buildScene(project) {
    * El resultado se guarda para la última consulta: quien recorre una grilla
    * suele pedir todos los contactos del mismo punto, uno tras otro. El array
    * devuelto se reutiliza, así que hay que leerlo antes de la siguiente llamada.
+   *
+   * Con `forceBlock` se pide la pila de un bloque concreto aunque el punto caiga
+   * en planta sobre otro: es lo que hace falta bajo una falla inclinada, donde
+   * el bloque de un lado se mete por debajo del de enfrente.
    */
   const stackCache = { x: NaN, y: NaN, block: null, z: [] }
-  function stackAt(x, y) {
-    if (x === stackCache.x && y === stackCache.y) return stackCache
-    const block = blocks.blockAt(x, y)
+  function stackAt(x, y, forceBlock) {
+    const block = forceBlock || blocks.blockAt(x, y)
+    if (x === stackCache.x && y === stackCache.y && block === stackCache.block) return stackCache
     const raw = []
     const idx = []
     const z = new Array(contacts.length).fill(null)
@@ -338,6 +429,11 @@ export function buildScene(project) {
     tol,
     mpp,
     blocks,
+    /** Fallas que cortan bloques, con su superficie: el corte en profundidad. */
+    faultCuts,
+    /** Lado de cada falla (+1 encima, −1 debajo) en que queda cada bloque. */
+    blockSideOf: (block, faultId) => blockSides.get(`${block}|${faultId}`) || 0,
+    belongsToBlock,
     dem,
     worldContours,
     contactSurfaces,

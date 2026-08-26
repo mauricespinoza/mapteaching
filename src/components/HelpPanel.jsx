@@ -29,7 +29,9 @@ export default function HelpPanel({ project, dispatch }) {
         </li>
         <li>
           <b>Digitaliza las fallas</b> e indica su cinemática. Las fallas parten el mapa en bloques: cada contacto
-          se resuelve por separado en cada bloque, y así aparece el desplazamiento.
+          se resuelve por separado en cada bloque, y así aparece el desplazamiento. En el perfil y en el 3D el
+          corte entre bloques <b>sigue el plano de la falla</b>, no baja recto desde su traza: el bloque de un
+          lado se mete por debajo y el de enfrente se retira, tanto más cuanto menor sea el manteo.
         </li>
         <li>
           Revisa los <b>contornos estructurales</b> y la tabla de <b>rumbo y manteo</b> por pares de contornos
