@@ -228,20 +228,31 @@ limbos de un pliegue, si los hay—, para que corregir uno no borre el otro. En 
 tabla de resultados, los manteos calculados con un contorno puesto a mano quedan
 marcados con «✎».
 
-#### La pila no se invierte
+#### Cuando dos superficies se cortan: manda la joven
 
 Cada contacto se ajusta a sus propios datos, así que lejos de ellos extrapola a
-su aire y un contacto puede acabar **por debajo** del que tiene debajo. Eso no
-existe en una serie estratigráfica, y cuando pasa el mapa geológico deja de
-tener sentido. Antes de usarlas, las cotas de todos los contactos de un punto se
-corrigen al **ajuste monótono más cercano** (*pool adjacent violators*): la
-secuencia no decreciente que menos se aparta de lo que dice cada superficie, de
-modo que donde dos se contradicen ambas ceden a medias en vez de que una arrastre
-a la otra. Donde quedan a la misma cota, la unidad se acuña.
+su aire y dos superficies acaban cruzándose — en el ejercicio de prueba, en la
+cuarta parte del mapa. Eso no existe en una serie estratigráfica, y hay una sola
+manera de deshacerlo que sea geología: **la superficie más joven pasa entera por
+encima y las antiguas se limitan contra ella**. Una capa depositada después no
+la deforma la que tiene debajo; en una discordancia angular las capas plegadas
+quedan cortadas contra el techo de la discordancia, y el mapa de subafloramiento
+es justo el rastro de ese corte.
 
-Es la única restricción que la estratigrafía impone gratis, y no depende de
-ningún dato nuevo. La usan el mapa en planta, el perfil, el 3D y la columna del
-pozo, así que las cuatro vistas cuentan la misma historia.
+Así que antes de usarlas, las cotas de los contactos de un punto se recorren de
+techo a muro y cada uno se baja hasta el de encima si lo sobrepasa. La
+superficie joven no se mueve ni un metro y la antigua se acuña contra ella;
+donde queda cortada, el contacto antiguo **deja de existir**: no se dibuja ni su
+línea en el perfil ni su superficie en el 3D, aunque su cota siga haciendo falta
+para saber dónde termina la unidad de debajo.
+
+En el ejercicio de prueba la discordancia (techo de la Unidad 4) se hundía hasta
+174 m arrastrada por el pliegue de debajo; ahora no se mueve, y el contacto
+plegado queda truncado en el 22 % del mapa. El perfil pasó a mostrar dos
+unidades más, que antes quedaban aplastadas bajo una discordancia hundida.
+
+La regla la usan el mapa en planta, el perfil, el 3D y la columna del pozo, así
+que las cuatro vistas cuentan la misma historia.
 
 #### Unidades sin datos propios: geometría heredada
 
@@ -314,9 +325,22 @@ su cota está por encima o por debajo de `z_falla(x, y)`. Así el bloque de un l
 se mete por debajo de la falla y el de enfrente se retira, tanto en el perfil
 como en el 3D. Con una falla de 82° el corte se desplaza 276 m en planta a 2 km
 de profundidad; antes se quedaba clavado bajo la traza, como si toda falla fuera
-vertical. La superficie que manda es la misma que resuelven los contornos
-estructurales de la falla, así que la línea que se dibuja en el perfil y el corte
-que produce son una sola geometría, curva incluida.
+vertical.
+
+Manda **una sola superficie de falla**, la que resuelven sus contornos
+estructurales, y la usan por igual el corte de las unidades, la línea del perfil
+y el plano que se dibuja en 3D: lo que se ve y lo que corta son el mismo objeto,
+curva incluida. Antes el 3D dibujaba en su lugar una rampa con el manteo medio,
+que se separaba del corte hasta 39 m.
+
+Esa superficie se ajusta a los cruces de la traza con las curvas de nivel, así
+que pasa por esos puntos pero entre ellos se aparta del terreno — hasta 39 m en
+el ejercicio de prueba —, y sin embargo la traza *entera* está sobre el plano
+por definición: es donde la falla corta el terreno. Ese residuo se mide a lo
+largo de la traza y se suma a la superficie, ponderado por la distancia en
+planta; como sólo depende de (x, y), se propaga buzamiento abajo igual que hace
+un plano. Con la corrección, el plano pasa por su traza con 0,2 m de desvío
+medio.
 
 ### 6. Perfil estructural
 
@@ -423,6 +447,16 @@ textura si la hay), curvas y trazas sobre el terreno, superficies de contacto po
 bloque, planos de falla, pozos con sus intersecciones y los planos de los
 perfiles. Exageración vertical y capas conmutables.
 
+Cada superficie de contacto se recorta **en el punto exacto** en que la limita
+cada cosa, no en el borde de la celda de la malla: la topografía (por encima ya
+está erosionada, y el borde que queda es su traza en el mapa), el plano de cada
+falla que limita el bloque y la superficie joven que la trunca. El recorte es un
+Sutherland–Hodgman sobre cada celda en el que se interpolan a la vez la posición
+y cada criterio, así que los bordes salen curvos y limpios en vez de aserrados
+al tamaño de la celda. Medido sobre el ejercicio de prueba: ningún vértice se
+sale de la topografía más de 0,7 m ni del plano de falla más de 0,6 m, sobre un
+relieve de 942 m.
+
 ### 9. Pozos
 
 Con la posición, la profundidad medida (MD), el *trend* y el *plunge* la app
@@ -478,6 +512,7 @@ src/lib/
   blocks.js      partición en bloques por las fallas
   dem.js         relieve desde las curvas (regiones, cúbica monótona, bóvedas)
   scene.js       ensamblaje de la escena geológica
+  surfaces3d.js  mallas 3D de contactos y planos de falla, con sus recortes
   section.js     construcción de perfiles
   wells.js       trayectoria y columna de pozos
   marching.js    isolíneas (usado por el generador de ejercicios)
@@ -485,7 +520,7 @@ src/lib/
   models.js      modelos sintéticos: plano, serie de capas y tren de pliegues
   terrain.js     curvas de nivel de topografías típicas y de un DEM importado
   render2d.js    dibujo del mapa en canvas
-src/components/  interfaz (mapa, perfil, 3D, pozos, paneles)
+src/components/  interfaz (mapa, perfil, 3D, pozos, paneles, iconos propios)
 ```
 
 Sin backend ni dependencias de servicios externos: React, Vite, Tailwind y

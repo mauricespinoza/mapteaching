@@ -3,7 +3,6 @@ import {
   MousePointer2,
   Waves,
   PenLine,
-  Split,
   Ruler,
   Compass,
   Spline,
@@ -14,13 +13,14 @@ import {
   MoveHorizontal,
   Contrast,
 } from 'lucide-react'
+import { FaultIcon } from './icons.jsx'
 
 export const TOOLS = [
   { id: 'pan', label: 'Navegar', icon: Hand, key: 'H' },
   { id: 'select', label: 'Seleccionar', icon: MousePointer2, key: 'V' },
   { id: 'contour', label: 'Curva de nivel', icon: Waves, key: 'C' },
   { id: 'contact', label: 'Contacto', icon: PenLine, key: 'X' },
-  { id: 'fault', label: 'Falla', icon: Split, key: 'F' },
+  { id: 'fault', label: 'Falla', icon: FaultIcon, key: 'F' },
   { id: 'scontour', label: 'Contorno estr.', icon: Contrast, key: 'G' },
   { id: 'scale', label: 'Escala gráfica', icon: Ruler, key: 'R' },
   { id: 'measure', label: 'Medir', icon: MoveHorizontal, key: 'D' },

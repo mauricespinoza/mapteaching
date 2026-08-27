@@ -36,7 +36,15 @@ export default function HelpPanel({ project, dispatch }) {
           <b>Digitaliza las fallas</b> e indica su cinemática. Las fallas parten el mapa en bloques: cada contacto
           se resuelve por separado en cada bloque, y así aparece el desplazamiento. En el perfil y en el 3D el
           corte entre bloques <b>sigue el plano de la falla</b>, no baja recto desde su traza: el bloque de un
-          lado se mete por debajo y el de enfrente se retira, tanto más cuanto menor sea el manteo.
+          lado se mete por debajo y el de enfrente se retira, tanto más cuanto menor sea el manteo. El plano que
+          se ve en 3D y la línea que se dibuja en el perfil son <b>esa misma superficie</b>, la que resuelven los
+          contornos estructurales de la falla, así que las unidades se cortan justo donde se ve la falla.
+        </li>
+        <li>
+          Cuando <b>dos superficies se cruzan</b> —lejos de sus datos cada una extrapola a su aire— manda la más
+          joven: <b>pasa entera por encima</b> y las antiguas se limitan contra ella, que es lo que ocurre en una
+          discordancia angular. Donde queda cortado, el contacto antiguo deja de dibujarse: el borde que se ve es
+          su <b>línea de subafloramiento</b> bajo la discordancia.
         </li>
         <li>
           Revisa los <b>contornos estructurales</b> y la tabla de <b>rumbo y manteo</b> por pares de contornos

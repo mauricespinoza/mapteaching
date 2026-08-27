@@ -98,6 +98,63 @@ function demFrameTest(project, georef) {
   }
 }
 
+/**
+ * Corrige una superficie de falla para que pase por su traza.
+ *
+ * El plano se ajusta a los cruces de la traza con las curvas de nivel: pasa por
+ * esos puntos, pero entre ellos se aparta —en el ejercicio de prueba hasta 39 m
+ * sobre un relieve de 942—. Y sin embargo la traza *entera* está sobre el plano
+ * por definición: es donde la falla corta el terreno. Se mide ese residuo a lo
+ * largo de la traza y se suma a la superficie, ponderado por la distancia en
+ * planta. Como la corrección sólo depende de (x, y), es la misma a cualquier
+ * profundidad —se propaga buzamiento abajo—, que es lo que hace un plano.
+ *
+ * Importa porque esa misma superficie hace tres cosas a la vez: dibujar el plano
+ * en 3D, dibujar la falla en el perfil y **cortar las unidades** en los dos. Si
+ * el dibujo y el corte no salen de la misma superficie, las unidades aparecen
+ * cortadas donde la falla no está.
+ */
+function anchorToTrace(surf, traces, dem, side) {
+  if (!surf?.defined || !dem?.valid) return surf
+  const step = Math.max(side * 0.01, 1)
+  const anchors = []
+  for (const tr of traces) {
+    let acc = Infinity
+    for (let i = 0; i < tr.length; i++) {
+      if (i > 0) acc += dist(tr[i - 1], tr[i])
+      if (acc < step) continue
+      acc = 0
+      const zs = surf.elevationAt(tr[i][0], tr[i][1])
+      const zt = dem.elevationAt(tr[i][0], tr[i][1])
+      if (Number.isFinite(zs) && Number.isFinite(zt)) anchors.push([tr[i][0], tr[i][1], zt - zs])
+    }
+  }
+  if (!anchors.length) return surf
+  // Núcleo suave del ancho del muestreo: junto a la traza manda el residuo de
+  // ahí mismo, y lejos se mezclan los vecinos sin saltos donde la traza dobla.
+  const h2 = step * step
+  const correction = (x, y) => {
+    let w = 0
+    let s = 0
+    for (const a of anchors) {
+      const dx = a[0] - x
+      const dy = a[1] - y
+      const d2 = dx * dx + dy * dy + h2
+      const k = 1 / (d2 * d2)
+      w += k
+      s += k * a[2]
+    }
+    return w > 0 ? s / w : 0
+  }
+  return {
+    ...surf,
+    elevationAt: (x, y) => {
+      const v = surf.elevationAt(x, y)
+      return Number.isFinite(v) ? v + correction(x, y) : v
+    },
+  }
+}
+
 export function buildScene(project) {
   const georef = project.georef
   const ready = Boolean(georef?.metersPerPx)
@@ -147,6 +204,30 @@ export function buildScene(project) {
   const cell = project.settings.blockCell || side / 220
   const extended = faultPolys.map((pts) => extendPolyline(pts, Math.max(side * 0.04, cell * 3)))
   const blocks = faultPolys.length ? buildBlocks(extended, bbox, cell) : singleBlock()
+
+  // Modelo de elevación a partir de las curvas. Se agrupan por cota y se pasan
+  // como polilíneas: el motor las rasteriza él mismo para que cada curva quede
+  // continua y separe de verdad las dos laderas que tiene a los lados.
+  // No hay interfaz para esta resolución, así que un 200 guardado es el valor
+  // por defecto antiguo: se sube el suelo para que los ejercicios ya creados
+  // también ganen el relieve fino.
+  const res = Math.max(project.settings.demResolution || 0, 300)
+  const merged = new Map()
+  for (const c of worldContours) {
+    if (!merged.has(c.elevation)) merged.set(c.elevation, [])
+    merged.get(c.elevation).push(c.pts)
+  }
+  // La grilla cubre toda la imagen, pero las curvas sólo se digitalizan dentro
+  // del área de trabajo. Sin decírselo, el margen vacío que queda alrededor es
+  // un pasillo abierto que une todas las bandas de cota y el relieve se calcula
+  // a ciegas. (Es el mismo criterio que usa el mapa de unidades.)
+  const dem = buildDem(
+    [...merged.entries()].map(([elevation, lines]) => ({ elevation, lines })),
+    bbox,
+    res,
+    project.settings.demSmoothing ?? 2,
+    demFrameTest(project, georef)
+  )
 
   /**
    * Contornos estructurales puestos a mano, en coordenadas mundo y repartidos
@@ -206,17 +287,15 @@ export function buildScene(project) {
   for (const fw of faultWorld) {
     const manualSc = [...manualContoursByBlock(fw.fault).values()].flat()
     if (!fw.traces.length && !manualSc.length) continue
-    faultSurfaces.set(
-      fw.id,
-      buildSurface({
-        traces: fw.traces,
-        contours: worldContours,
-        manual: fw.fault.manual,
-        manualContours: manualSc,
-        name: fw.fault.name,
-        tol,
-      })
-    )
+    const surf = buildSurface({
+      traces: fw.traces,
+      contours: worldContours,
+      manual: fw.fault.manual,
+      manualContours: manualSc,
+      name: fw.fault.name,
+      tol,
+    })
+    faultSurfaces.set(fw.id, anchorToTrace(surf, fw.traces, dem, side))
   }
 
   // ---- Con qué falla y de qué lado limita cada bloque ----
@@ -306,30 +385,6 @@ export function buildScene(project) {
     return true
   }
 
-  // Modelo de elevación a partir de las curvas. Se agrupan por cota y se pasan
-  // como polilíneas: el motor las rasteriza él mismo para que cada curva quede
-  // continua y separe de verdad las dos laderas que tiene a los lados.
-  // No hay interfaz para esta resolución, así que un 200 guardado es el valor
-  // por defecto antiguo: se sube el suelo para que los ejercicios ya creados
-  // también ganen el relieve fino.
-  const res = Math.max(project.settings.demResolution || 0, 300)
-  const merged = new Map()
-  for (const c of worldContours) {
-    if (!merged.has(c.elevation)) merged.set(c.elevation, [])
-    merged.get(c.elevation).push(c.pts)
-  }
-  // La grilla cubre toda la imagen, pero las curvas sólo se digitalizan dentro
-  // del área de trabajo. Sin decírselo, el margen vacío que queda alrededor es
-  // un pasillo abierto que une todas las bandas de cota y el relieve se calcula
-  // a ciegas. (Es el mismo criterio que usa el mapa de unidades.)
-  const dem = buildDem(
-    [...merged.entries()].map(([elevation, lines]) => ({ elevation, lines })),
-    bbox,
-    res,
-    project.settings.demSmoothing ?? 2,
-    demFrameTest(project, georef)
-  )
-
   const units = sortedUnits(project)
   const contacts = sortedContacts(project)
 
@@ -341,60 +396,73 @@ export function buildScene(project) {
   const inherited = inheritContactGeometry({ contacts, contactSurfaces, dem, tol, side, zStep })
 
   /**
-   * Ajuste monótono más cercano (pool adjacent violators). Devuelve la
-   * secuencia no decreciente que menos se aparta de la dada, en mínimos
-   * cuadrados: donde dos contactos se contradicen, ambos ceden a medias en vez
-   * de que uno arrastre al otro.
+   * Regla de superposición: **la superficie joven manda y la vieja se limita
+   * contra ella.**
+   *
+   * Cada contacto se ajusta a sus propios datos, así que lejos de ellos se
+   * extrapola a su aire y dos superficies acaban cruzándose. En este ejercicio
+   * pasa en la cuarta parte del mapa. La solución de antes era un ajuste
+   * monótono que repartía el desacuerdo a medias entre las dos, y eso es lo que
+   * no puede ser: la de encima es la más joven —se depositó después—, y una
+   * capa depositada después no la deforma la que tiene debajo. En una
+   * discordancia angular la superficie joven pasa entera por encima y las
+   * antiguas, plegadas, quedan cortadas contra ella; el mapa de subafloramiento
+   * es justo el rastro de ese corte.
+   *
+   * Así que la pila se recorre de techo a muro y cada contacto se baja hasta el
+   * de encima si lo sobrepasa. La superficie joven no se mueve ni un metro
+   * —antes se hundía hasta 174 m en este ejercicio— y la antigua se acuña
+   * contra ella. Donde eso ocurre el contacto viejo ya no existe: `cut` lo
+   * marca para que no se dibuje su línea ni su superficie, aunque su cota siga
+   * ahí para que la unidad de debajo sepa dónde termina.
+   *
+   * `room` es lo mismo pero medido: cuánto sitio le queda al contacto por
+   * debajo de la superficie joven más baja que tiene encima. Cambia de signo
+   * justo en la línea de subafloramiento, así que quien dibuja en una malla
+   * puede cortar ahí exactamente en vez de en el borde de la celda.
    */
-  const isotonic = (values) => {
-    const n = values.length
-    if (n < 2) return values
-    const mean = new Float64Array(n)
-    const weight = new Int32Array(n)
-    let top = -1
-    for (let i = 0; i < n; i++) {
-      mean[++top] = values[i]
-      weight[top] = 1
-      while (top > 0 && mean[top - 1] > mean[top]) {
-        const w = weight[top - 1] + weight[top]
-        mean[top - 1] = (mean[top - 1] * weight[top - 1] + mean[top] * weight[top]) / w
-        weight[top - 1] = w
-        top--
+  const truncate = (values) => {
+    const z = values.slice()
+    const cut = new Array(values.length).fill(false)
+    const room = new Array(values.length).fill(Infinity)
+    let lid = Infinity
+    for (let i = z.length - 1; i >= 0; i--) {
+      room[i] = lid - values[i]
+      if (z[i] > lid) {
+        z[i] = lid
+        cut[i] = true
       }
+      lid = z[i]
     }
-    const out = new Array(n)
-    let p = 0
-    for (let b = 0; b <= top; b++) for (let k = 0; k < weight[b]; k++) out[p++] = mean[b]
-    return out
+    return { z, cut, room }
   }
 
   /**
    * Pila estratigráfica en un punto: la cota de cada contacto, resuelto en el
-   * bloque que le toca, **corregida para que no se invierta**.
-   *
-   * Cada contacto se ajusta por su cuenta, así que lejos de sus datos se
-   * extrapola a su aire y un contacto puede acabar por debajo del que tiene
-   * debajo. Eso no existe en una serie estratigráfica, y cuando pasa el mapa
-   * geológico deja de tener sentido: en este ejercicio el techo de la Unidad 3
-   * caía hasta 349 m por debajo de su base en un tercio del mapa. La pila se
-   * fuerza monótona, que es la única restricción que la estratigrafía impone
-   * gratis y no depende de ningún dato nuevo.
+   * bloque que le toca, con la regla de superposición ya aplicada (ver
+   * `truncate`). Devuelve `z` —la cota de cada contacto, o `null` si ahí no hay
+   * superficie resuelta—, `cut` —qué contactos ha cortado uno más joven, y por
+   * tanto no existen en ese punto— y `room` —el margen que le queda a cada uno
+   * bajo la superficie que lo corta, negativo donde está cortado—.
    *
    * El resultado se guarda para la última consulta: quien recorre una grilla
-   * suele pedir todos los contactos del mismo punto, uno tras otro. El array
-   * devuelto se reutiliza, así que hay que leerlo antes de la siguiente llamada.
+   * suele pedir todos los contactos del mismo punto, uno tras otro. Los arrays
+   * devueltos se reutilizan, así que hay que leerlos antes de la siguiente
+   * llamada.
    *
    * Con `forceBlock` se pide la pila de un bloque concreto aunque el punto caiga
    * en planta sobre otro: es lo que hace falta bajo una falla inclinada, donde
    * el bloque de un lado se mete por debajo del de enfrente.
    */
-  const stackCache = { x: NaN, y: NaN, block: null, z: [] }
+  const stackCache = { x: NaN, y: NaN, block: null, z: [], cut: [], room: [] }
   function stackAt(x, y, forceBlock) {
     const block = forceBlock || blocks.blockAt(x, y)
     if (x === stackCache.x && y === stackCache.y && block === stackCache.block) return stackCache
     const raw = []
     const idx = []
     const z = new Array(contacts.length).fill(null)
+    const cut = new Array(contacts.length).fill(false)
+    const room = new Array(contacts.length).fill(null)
     for (let i = 0; i < contacts.length; i++) {
       const surf = contactSurfaces.get(contacts[i].id)?.get(block)
       if (!surf?.defined) continue
@@ -403,19 +471,18 @@ export function buildScene(project) {
       idx.push(i)
       raw.push(v)
     }
-    const fixed = isotonic(raw)
-    // Donde dos contactos se contradecían, el ajuste monótono los deja a la
-    // misma cota: la unidad se acuña. Se separan un centímetro para que en 3D
-    // no parpadeen dos superficies coincidentes; por debajo de eso no hay dato
-    // que valga.
+    const fixed = truncate(raw)
     for (let k = 0; k < idx.length; k++) {
-      const v = k > 0 ? Math.max(fixed[k], z[idx[k - 1]] + 0.01) : fixed[k]
-      z[idx[k]] = v
+      z[idx[k]] = fixed.z[k]
+      cut[idx[k]] = fixed.cut[k]
+      room[idx[k]] = fixed.room[k]
     }
     stackCache.x = x
     stackCache.y = y
     stackCache.block = block
     stackCache.z = z
+    stackCache.cut = cut
+    stackCache.room = room
     return stackCache
   }
 
@@ -447,14 +514,16 @@ export function buildScene(project) {
     stackAt,
     contactIndex,
     /**
-     * Cota de un contacto en un punto, ya corregida para que la pila
-     * estratigráfica no se invierta. Es lo que deben usar el mapa geológico,
-     * el perfil, el 3D y los pozos.
+     * Cota de un contacto en un punto, ya con la regla de superposición
+     * aplicada, o `null` si allí el contacto no existe —lo ha cortado uno más
+     * joven—. Es lo que deben usar el mapa geológico, el perfil, el 3D y los
+     * pozos.
      */
     contactElevationAt(contactId, x, y) {
       const i = contactIndex.get(contactId)
       if (i == null) return null
-      return stackAt(x, y).z[i]
+      const st = stackAt(x, y)
+      return st.cut[i] ? null : st.z[i]
     },
     /** Superficie de un contacto en el bloque que corresponde a un punto. */
     contactSurfaceAt(contactId, x, y) {

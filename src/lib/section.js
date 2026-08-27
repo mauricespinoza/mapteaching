@@ -97,8 +97,8 @@ export function buildSectionModel(section, scene) {
   // resuelven sus contornos estructurales y no de una recta con el manteo medio:
   // el recorte de las unidades y la línea que se dibuja salen los dos de aquí,
   // así que en el perfil la falla y el corte que produce son la misma
-  // superficie. Se ancla al cruce con la traza, que es el dato duro: allí el
-  // plano corta la topografía por definición.
+  // superficie —y la misma que corta en 3D—. La superficie ya viene anclada a
+  // la traza de la falla, así que aquí no hay que reajustar nada.
   const PN = 260
   const dSpan = L + 2 * margin
   for (const fc of faultCrossings) {
@@ -128,8 +128,7 @@ export function buildSectionModel(section, scene) {
       fc.zPlane = (d) => fc.z - fc.k * (d - fc.d)
       continue
     }
-    const shift = fc.z - lookup(fc.d)
-    fc.zPlane = Number.isFinite(shift) ? (d) => lookup(d) + shift : lookup
+    fc.zPlane = lookup
   }
 
   // ---- Dominios: tramos del perfil con el mismo bloque estructural ----
@@ -233,28 +232,39 @@ export function buildSectionModel(section, scene) {
     // vecino era lo que hacía que el corte bajara recto desde la traza.
     const stacks = dd.map((d) => {
       const p = at(d)
-      return scene.stackAt(p[0], p[1], dom.blockId).z.slice()
+      const st = scene.stackAt(p[0], p[1], dom.blockId)
+      return { z: st.z.slice(), cut: st.cut.slice() }
     })
     const zByContact = new Map()
     for (let ci = 0; ci < scene.contacts.length; ci++) {
       const c = scene.contacts[ci]
       const zs = stacks.map((st) => {
-        const z = st[ci]
+        const z = st.z[ci]
         return Number.isFinite(z) ? z : null
       })
       if (!zs.some((z) => z != null)) continue
       zByContact.set(c.id, zs)
       const idx = contactIndex.get(c.id)
-      const below = []
-      const above = []
+      // La línea se parte en tramos continuos: donde no hay cota, y donde un
+      // contacto más joven lo ha cortado. Ahí el contacto antiguo ya no existe
+      // —su cota sigue haciendo falta para cerrar la unidad de debajo, pero
+      // dibujarla la calcaría sobre la discordancia—. Sin partir, la línea
+      // saltaría el hueco de lado a lado.
+      const runs = { below: [], above: [] }
+      let cur = null
       for (let i = 0; i < m; i++) {
         const z = zs[i]
-        if (z == null) continue
-        ;(z <= tz[i] ? below : above).push([dd[i], z])
+        const ok = z != null && !stacks[i].cut[ci]
+        const where = ok ? (z <= tz[i] ? 'below' : 'above') : null
+        if (!where || !cur || cur.where !== where) {
+          if (cur && cur.pts.length >= 2) runs[cur.where].push(cur.pts)
+          cur = where ? { where, pts: [] } : null
+        }
+        if (cur) cur.pts.push([dd[i], z])
       }
-      // Se parten los tramos por saltos (por si la interpolación deja huecos).
-      for (const seg of clipLine(below)) if (seg.length >= 2) contactsOut[idx].lines.push(seg)
-      for (const seg of clipLine(above)) if (seg.length >= 2) contactsOut[idx].air.push(seg)
+      if (cur && cur.pts.length >= 2) runs[cur.where].push(cur.pts)
+      for (const line of runs.below) for (const seg of clipLine(line)) if (seg.length >= 2) contactsOut[idx].lines.push(seg)
+      for (const line of runs.above) for (const seg of clipLine(line)) if (seg.length >= 2) contactsOut[idx].air.push(seg)
     }
 
     // Relleno de cada unidad entre su contacto basal y su techo.

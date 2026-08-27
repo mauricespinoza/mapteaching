@@ -5,6 +5,7 @@ import { toWorldList, toImage } from '../lib/georef.js'
 import { kinematicsOf } from '../lib/model.js'
 import { frameTest, modelExtent } from '../lib/models.js'
 import { buildWellModel } from '../lib/wells.js'
+import { contactMeshes, faultSheetMesh } from '../lib/surfaces3d.js'
 
 /**
  * Vista 3D: topografía reconstruida desde las curvas de nivel, trazas
@@ -209,12 +210,12 @@ export default function ThreeView({ project, scene, image }) {
 
     // Superficies de contacto por bloque
     if (show.surfaces) {
-      for (const { contactIndex: ci, verts } of contactMeshes(scene, P, zBottom, dem, inFrame)) {
+      for (const { contactIndex: ci, tris } of contactMeshes(scene, { zMin: zBottom, inFrame })) {
         const c = scene.contacts[ci]
         const unit = scene.units.find((u) => u.id === c.upperUnitId)
         const color = new THREE.Color(unit?.color || c.color || '#38bdf8')
         const geo = new THREE.BufferGeometry()
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(toScene(tris, P), 3))
         geo.computeVertexNormals()
         content.add(
           new THREE.Mesh(
@@ -235,12 +236,14 @@ export default function ThreeView({ project, scene, image }) {
     if (show.faults) {
       for (const fw of scene.faultWorld) {
         const surf = scene.faultSurfaces.get(fw.id)
-        const att = surf?.mean
         const color = new THREE.Color(kinematicsOf(fw.fault.kinematics).color)
         for (const tr of fw.traces) {
           for (const run of clipRuns(tr, inFrame)) {
-            const geo = faultRibbon(run, att, dem, P, zBottom, inFrame)
-            if (!geo) continue
+            const tris = faultSheetMesh(run, surf, dem, { zBottom, inFrame, side: scene.side })
+            if (!tris) continue
+            const geo = new THREE.BufferGeometry()
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(toScene(tris, P), 3))
+            geo.computeVertexNormals()
             content.add(
               new THREE.Mesh(
                 geo,
@@ -448,154 +451,19 @@ function hillshade(dem, i, j, vExag = 1) {
 }
 
 /**
- * Superficies de contacto en 3D, todas de una pasada.
- *
- * Se recorre la malla una sola vez y en cada nodo se pide la **pila
- * estratigráfica completa** (scene.stackAt), no cada contacto por su cuenta:
- * así ninguna superficie acaba por debajo de la que tiene debajo —cada contacto
- * se ajusta a sus propios datos y, lejos de ellos, se cruzaban— y además sale
- * más barato, porque la pila se calcula una vez para todos.
- *
- * Una celda que cruza una falla no se dibuja: cada bloque es un cuerpo aparte y
- * las unidades tienen que detenerse en la estructura, no atravesarla.
+ * Lleva a la escena una tira de triángulos en coordenadas de terreno: los
+ * módulos de geología trabajan en metros y con z hacia arriba, y aquí se
+ * aplican el centrado y la exageración vertical de la vista.
  */
-function contactMeshes(scene, P, zMin, dem, inFrame) {
-  const { bbox } = scene
-  // Malla fina: el borde de la superficie se recorta contra la topografía, y
-  // con pocas celdas ese recorte se ve escalonado.
-  const N = 110
-  const dx = (bbox.maxX - bbox.minX) / N
-  const dy = (bbox.maxY - bbox.minY) / N
-  const nc = scene.contacts.length
-  const nn = (N + 1) * (N + 1)
-
-  // Rejilla común: coordenadas, topografía y —lo que decide el corte— la cota
-  // del plano de cada falla en cada nodo. Se calcula una sola vez porque cada
-  // superficie de contacto se prueba contra ella muchas veces.
-  const gx = new Float64Array(nn)
-  const gy = new Float64Array(nn)
-  const gz = new Float64Array(nn).fill(NaN)
-  const cuts = scene.faultCuts || []
-  const zf = cuts.map(() => new Float64Array(nn).fill(NaN))
-  for (let j = 0; j <= N; j++) {
-    for (let i = 0; i <= N; i++) {
-      const k = j * (N + 1) + i
-      const x = bbox.minX + i * dx
-      const y = bbox.minY + j * dy
-      gx[k] = x
-      gy[k] = y
-      if (inFrame && !inFrame(x, y)) continue
-      gz[k] = dem.elevationAt(x, y)
-      for (let c = 0; c < cuts.length; c++) zf[c][k] = cuts[c].surf.elevationAt(x, y)
-    }
+function toScene(tris, P) {
+  const out = new Float32Array(tris.length)
+  for (let i = 0; i < tris.length; i += 3) {
+    const v = P(tris[i], tris[i + 1], tris[i + 2])
+    out[i] = v.x
+    out[i + 1] = v.y
+    out[i + 2] = v.z
   }
-
-  // Bloques que tienen alguna superficie resuelta.
-  const blockIds = new Set()
-  for (const byBlock of scene.contactSurfaces.values()) for (const b of byBlock.keys()) blockIds.add(b)
-
-  const byKey = new Map()
-  for (const block of blockIds) {
-    // De qué lado de cada falla vive este bloque. Un 0 quiere decir que esa
-    // falla no lo limita (se acaba dentro de él) y entonces no lo corta.
-    const want = cuts.map((c) => scene.blockSideOf(block, c.id))
-    /**
-     * ¿Le toca a este bloque el punto (nodo k, cota z)? El criterio es de qué
-     * lado del *plano* de falla queda, no de qué lado de su traza: así el
-     * bloque de abajo se mete por debajo de la falla y el de arriba se retira,
-     * en vez de cortarse los dos a plomo bajo la traza.
-     */
-    const mine = (k, z) => {
-      for (let c = 0; c < cuts.length; c++) {
-        if (!want[c]) continue
-        const v = zf[c][k]
-        if (!Number.isFinite(v)) continue
-        if ((z > v ? 1 : -1) !== want[c]) return false
-      }
-      return true
-    }
-
-    // Pila de este bloque en cada nodo, extrapolada más allá de su extensión en
-    // planta: es lo que ocupa el hueco que la falla inclinada deja debajo.
-    const stacks = new Array(nn)
-    for (let k = 0; k < nn; k++) {
-      if (!Number.isFinite(gz[k])) continue
-      stacks[k] = scene.stackAt(gx[k], gy[k], block).z.slice()
-    }
-
-    for (let j = 0; j < N; j++) {
-      for (let i = 0; i < N; i++) {
-        const ka = j * (N + 1) + i
-        const kb = ka + 1
-        const kc = (j + 1) * (N + 1) + i + 1
-        const kd = (j + 1) * (N + 1) + i
-        const sa = stacks[ka]
-        const sb = stacks[kb]
-        const sc = stacks[kc]
-        const sd = stacks[kd]
-        if (!sa || !sb || !sc || !sd) continue
-        for (let ci = 0; ci < nc; ci++) {
-          const za = sa[ci]
-          const zb = sb[ci]
-          const zc = sc[ci]
-          const zd = sd[ci]
-          if (za == null || zb == null || zc == null || zd == null) continue
-          // Sólo la parte que queda bajo la topografía: lo de arriba ya está
-          // erosionado.
-          if (za > gz[ka] || zb > gz[kb] || zc > gz[kc] || zd > gz[kd]) continue
-          // Y sólo la que queda del lado de la falla que le toca a este bloque.
-          if (!mine(ka, za) || !mine(kb, zb) || !mine(kc, zc) || !mine(kd, zd)) continue
-          const key = `${ci}|${block}`
-          let verts = byKey.get(key)
-          if (!verts) byKey.set(key, (verts = { contactIndex: ci, verts: [] }))
-          const pa = P(gx[ka], gy[ka], Math.max(zMin, za))
-          const pb = P(gx[kb], gy[kb], Math.max(zMin, zb))
-          const pc = P(gx[kc], gy[kc], Math.max(zMin, zc))
-          const pd = P(gx[kd], gy[kd], Math.max(zMin, zd))
-          verts.verts.push(
-            ...pa.toArray(), ...pb.toArray(), ...pc.toArray(),
-            ...pa.toArray(), ...pc.toArray(), ...pd.toArray()
-          )
-        }
-      }
-    }
-  }
-  return [...byKey.values()].filter((v) => v.verts.length)
-}
-
-/** Cinta que representa el plano de falla desde la traza hacia la profundidad. */
-function faultRibbon(trace, att, dem, P, zBottom, inFrame) {
-  if (trace.length < 2) return null
-  const RAD = Math.PI / 180
-  const dip = att ? att.dip : 90
-  const dipDir = att ? att.dipDir : 0
-  const k = Math.tan(Math.min(89, dip) * RAD)
-  const dirX = Math.sin(dipDir * RAD)
-  const dirY = Math.cos(dipDir * RAD)
-  const verts = []
-  const step = Math.max(1, Math.floor(trace.length / 60))
-  const cols = []
-  for (let i = 0; i < trace.length; i += step) {
-    const p = trace[i]
-    const zTop = dem.elevationAt(p[0], p[1])
-    const drop = zTop - zBottom
-    let run = k > 1e-6 ? drop / k : 0
-    // Con marco definido el plano no puede asomar por el costado: se acorta la
-    // proyección buzamiento abajo hasta donde deja de estar dentro del área.
-    if (inFrame && run > 0) run = clipRun(p, dirX, dirY, run, inFrame)
-    const zEnd = k > 1e-6 ? zTop - run * k : zBottom
-    cols.push([P(p[0], p[1], zTop), P(p[0] + dirX * run, p[1] + dirY * run, zEnd)])
-  }
-  for (let i = 1; i < cols.length; i++) {
-    const [a0, a1] = cols[i - 1]
-    const [b0, b1] = cols[i]
-    verts.push(...a0.toArray(), ...b0.toArray(), ...b1.toArray(), ...a0.toArray(), ...b1.toArray(), ...a1.toArray())
-  }
-  if (!verts.length) return null
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3))
-  geo.computeVertexNormals()
-  return geo
+  return out
 }
 
 /** Tramo de un segmento que queda dentro del marco, o null si no cruza. */
@@ -614,19 +482,6 @@ function clipSegment(a, b, inFrame) {
   if (first < 0 || last <= first) return null
   const at = (t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
   return [at(first), at(last)]
-}
-
-/** Mayor avance buzamiento abajo que sigue dentro del marco de trabajo. */
-function clipRun(p, dirX, dirY, run, inFrame) {
-  if (inFrame(p[0] + dirX * run, p[1] + dirY * run)) return run
-  let lo = 0
-  let hi = run
-  for (let it = 0; it < 22; it++) {
-    const mid = (lo + hi) / 2
-    if (inFrame(p[0] + dirX * mid, p[1] + dirY * mid)) lo = mid
-    else hi = mid
-  }
-  return lo
 }
 
 function disposeGroup(group) {

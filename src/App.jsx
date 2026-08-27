@@ -25,7 +25,6 @@ import {
   Waves,
   Tag,
   PenLine,
-  Split,
   Contrast,
   Type,
   Compass,
@@ -43,6 +42,7 @@ import ResultsPanel from './components/ResultsPanel.jsx'
 import HelpPanel from './components/HelpPanel.jsx'
 import ModelPanel from './components/ModelPanel.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
+import { FaultIcon } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
 import { newProject, newSection, newWell, newStructureContour, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
@@ -63,10 +63,10 @@ const LAYER_TOGGLES = [
   { k: 'contours', label: 'Curvas de nivel', icon: Waves },
   { k: 'contourLabels', label: 'Cotas de las curvas', icon: Tag },
   { k: 'contacts', label: 'Contactos', icon: PenLine },
-  { k: 'faults', label: 'Fallas', icon: Split },
+  { k: 'faults', label: 'Fallas', icon: FaultIcon },
   { k: 'structureContours', label: 'Contornos estructurales', icon: Contrast },
   { k: 'structureLabels', label: 'Rótulos de los contornos', icon: Type },
-  { k: 'faultStructureContours', label: 'Contornos estructurales de las fallas', icon: Split },
+  { k: 'faultStructureContours', label: 'Contornos estructurales de las fallas', icon: FaultIcon },
   { k: 'attitudes', label: 'Rumbo y manteo', icon: Compass },
   { k: 'sections', label: 'Trazas de perfil', icon: Spline },
   { k: 'wells', label: 'Pozos', icon: Crosshair },
