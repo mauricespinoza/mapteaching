@@ -5,6 +5,10 @@ import { BUILD } from '../lib/version.js'
 export default function HelpPanel({ project, dispatch }) {
   return (
     <div className="h-full overflow-y-auto bg-white p-4 text-sm text-slate-700">
+      <div className="mb-3 rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-500">
+        Versión del <b className="font-semibold text-slate-700">{BUILD}</b>
+      </div>
+
       <h3 className="mb-2 text-sm font-semibold text-slate-800">Enunciado del ejercicio</h3>
       <textarea
         className={`${inputCls} min-h-[140px] font-normal`}
@@ -185,7 +189,9 @@ export default function HelpPanel({ project, dispatch }) {
       </ul>
 
       <p className="mt-3 text-[11px] text-slate-400">
-        Versión del {BUILD}. Si sale un aviso de versión nueva arriba, pulsa «Actualizar» para traerla.
+        Si sale un aviso de versión nueva arriba, pulsa «Actualizar» para traerla. Si sospechas que el
+        navegador se quedó con una versión vieja (típico en iPad), compara la fecha de arriba con la del
+        ordenador: si no coincide, cierra la pestaña del todo y vuelve a abrirla.
       </p>
     </div>
   )

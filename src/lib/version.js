@@ -8,13 +8,32 @@
 //
 // Importa porque la usan estudiantes con la pestaña abierta toda una clase: sin
 // esto, una corrección publicada por la mañana no les llega hasta que cierran el
-// navegador. Se comprueba cada cuarto de hora y al volver a la pestaña, nunca
-// mientras se trabaja sin parar, y no se recarga sola: recargar sin avisar en
-// mitad de un ejercicio sería peor que la versión vieja.
+// navegador. Se comprueba al arrancar, cada cuarto de hora y al volver a la
+// pestaña, nunca mientras se trabaja sin parar, y no se recarga sola: recargar
+// sin avisar en mitad de un ejercicio sería peor que la versión vieja.
+//
+// La comprobación de arranque es la que más se nota en iPad: Safari guarda el
+// `index.html` y al abrir la app puede devolver el de la visita anterior, que
+// apunta a un script viejo aunque el despliegue nuevo lleve horas publicado. Al
+// releerlo con `cache: 'no-store'` se ve la diferencia y se ofrece recargar.
 
 export const BUILD = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev'
 
 const CHECK_MS = 15 * 60 * 1000
+// Al arrancar se espera un poco para no competir con la carga de la app.
+const FIRST_MS = 4000
+
+/**
+ * Recarga saltándose la caché del navegador. Un `location.reload()` normal deja
+ * que Safari devuelva el `index.html` que ya tenía guardado, con lo que la
+ * versión nueva no llega nunca; con un parámetro distinto cada vez, la dirección
+ * no está en la caché y el servidor manda el HTML actual.
+ */
+export function reloadToLatest() {
+  const url = new URL(window.location.href)
+  url.searchParams.set('v', Date.now().toString(36))
+  window.location.replace(url.toString())
+}
 
 /** Nombre del script principal al que apunta un `index.html`. */
 const entryOf = (html) => (html.match(/<script[^>]+src="([^"]+\.js)"/i) || [])[1] || null
@@ -30,6 +49,7 @@ export function watchForUpdate(onUpdate) {
   if (!here) return () => {}
   let done = false
   let timer = null
+  let first = null
 
   const check = async () => {
     if (done || document.hidden) return
@@ -49,9 +69,11 @@ export function watchForUpdate(onUpdate) {
   const onVisible = () => {
     if (!document.hidden) check()
   }
+  first = setTimeout(check, FIRST_MS)
   timer = setInterval(check, CHECK_MS)
   document.addEventListener('visibilitychange', onVisible)
   return () => {
+    clearTimeout(first)
     clearInterval(timer)
     document.removeEventListener('visibilitychange', onVisible)
   }
