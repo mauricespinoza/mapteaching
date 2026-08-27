@@ -32,7 +32,7 @@ import {
   Palette,
   Frame,
 } from 'lucide-react'
-import { watchForUpdate } from './lib/version.js'
+import { watchForUpdate, reloadToLatest } from './lib/version.js'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
 import MapView from './components/MapView.jsx'
 import SectionView from './components/SectionView.jsx'
@@ -486,7 +486,7 @@ export default function App() {
           Hay una versión nueva de MapTeaching.
           <button
             className="rounded-md bg-white/20 px-2 py-0.5 font-semibold hover:bg-white/30"
-            onClick={() => window.location.reload()}
+            onClick={reloadToLatest}
           >
             Actualizar
           </button>
