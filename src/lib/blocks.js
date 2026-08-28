@@ -3,10 +3,16 @@
 // regiones conexas (flood fill). Cada contacto se resuelve por bloque, de modo que
 // el desplazamiento a través de una falla aparece automáticamente en mapa,
 // perfil y 3D.
+//
+// Lo que queda **fuera del área de trabajo también es muro**. La grilla cubre la
+// imagen entera, pero el ejercicio sólo llega hasta el marco; sin eso, los dos
+// lados de una falla que cruza el área se reencuentran rodeando por el margen
+// vacío y el mapa entero sale como un solo bloque — es decir, la falla no corta
+// nada. (Es el mismo criterio que ya usan el relieve y el mapa de unidades.)
 
 const BARRIER = -1
 
-export function buildBlocks(faultPolylines, bbox, cell) {
+export function buildBlocks(faultPolylines, bbox, cell, outside = null) {
   const pad = cell * 2
   const minX = bbox.minX - pad
   const minY = bbox.minY - pad
@@ -39,6 +45,15 @@ export function buildBlocks(faultPolylines, bbox, cell) {
         mark(ix - 1, iy)
         mark(ix, iy + 1)
         mark(ix, iy - 1)
+      }
+    }
+  }
+
+  // El exterior del área de trabajo es muro: cierra el paso alrededor del marco.
+  if (outside) {
+    for (let iy = 0; iy < ny; iy++) {
+      for (let ix = 0; ix < nx; ix++) {
+        if (outside(minX + ix * cell, minY + iy * cell)) ids[iy * nx + ix] = BARRIER
       }
     }
   }
@@ -76,8 +91,12 @@ export function buildBlocks(faultPolylines, bbox, cell) {
     iy = Math.max(0, Math.min(ny - 1, iy))
     const v = ids[iy * nx + ix]
     if (v > 0) return v
-    // Sobre la traza: se toma el bloque libre más cercano en anillos crecientes.
-    for (let r = 1; r <= 4; r++) {
+    // Sobre la traza —o fuera del área de trabajo— se toma el bloque libre más
+    // cercano en anillos crecientes. El radio llega lejos porque el margen que
+    // rodea al marco es ahora muro: un punto de ahí sigue teniendo que saber a
+    // qué bloque pertenecería.
+    const maxR = Math.min(64, Math.max(nx, ny))
+    for (let r = 1; r <= maxR; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue

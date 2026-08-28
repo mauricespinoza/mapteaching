@@ -55,19 +55,55 @@ function trimEnds(pts) {
 /** Prolonga una polilínea por sus dos extremos siguiendo la tangente. */
 export function extendPolyline(pts, amount) {
   if (pts.length < 2 || amount <= 0) return pts
-  const dirAt = (a, b) => {
-    const dx = b[0] - a[0]
-    const dy = b[1] - a[1]
-    const l = Math.hypot(dx, dy) || 1
-    return [dx / l, dy / l]
-  }
-  const d0 = dirAt(pts[1], pts[0])
-  const d1 = dirAt(pts[pts.length - 2], pts[pts.length - 1])
+  const d0 = tangentAt(pts[1], pts[0])
+  const d1 = tangentAt(pts[pts.length - 2], pts[pts.length - 1])
   return [
     [pts[0][0] + d0[0] * amount, pts[0][1] + d0[1] * amount],
     ...pts,
     [pts[pts.length - 1][0] + d1[0] * amount, pts[pts.length - 1][1] + d1[1] * amount],
   ]
+}
+
+function tangentAt(a, b) {
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  const l = Math.hypot(dx, dy) || 1
+  return [dx / l, dy / l]
+}
+
+/**
+ * Prolonga una traza de falla **hasta salir del área de trabajo**, por los dos
+ * extremos y siguiendo su tangente.
+ *
+ * Una falla se digitaliza a ojo y el trazo se queda a unos metros del borde;
+ * esos metros bastan para que el relleno por inundación se cuele por el hueco,
+ * rodee el trazo y devuelva un solo bloque: la falla deja de cortar nada. Con
+ * una prolongación fija —un 4 % del mapa— seguía fallando por 20 m en el
+ * ejercicio de prueba. Ahora se avanza hasta que el extremo queda fuera del
+ * área, que es donde la partición ya está sellada.
+ *
+ * El avance se corta a `limit`. No es un detalle de implementación: una falla
+ * que muere de verdad **dentro** del mapa no debe llegar al borde, porque
+ * partiría en dos un bloque que es uno solo. Si el extremo está lejos del borde
+ * se prolonga lo que se pueda y la inundación lo rodea, que es lo correcto.
+ */
+function extendToArea(pts, outside, limit, step) {
+  if (pts.length < 2) return pts
+  const reach = (from, dir) => {
+    let d = 0
+    while (d < limit) {
+      d += step
+      if (outside(from[0] + dir[0] * d, from[1] + dir[1] * d)) return d + step
+    }
+    return limit
+  }
+  const a = pts[0]
+  const b = pts[pts.length - 1]
+  const da = tangentAt(pts[1], a)
+  const db = tangentAt(pts[pts.length - 2], b)
+  const ra = reach(a, da)
+  const rb = reach(b, db)
+  return [[a[0] + da[0] * ra, a[1] + da[1] * ra], ...pts, [b[0] + db[0] * rb, b[1] + db[1] * rb]]
 }
 
 /** Equidistancia de las curvas: mediana de los saltos entre cotas distintas. */
@@ -199,11 +235,19 @@ export function buildScene(project) {
   const side = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) || 1000
   const tol = Math.max(mpp * 2.5, side * 0.0008)
 
-  // Para partir el mapa en bloques se prolongan un poco las trazas de falla:
-  // así un trazo que no llega exactamente al borde igual separa los bloques.
+  // Partición en bloques. El área de trabajo es la que manda: fuera de ella no
+  // hay ejercicio, así que su exterior es muro, y las trazas de falla se
+  // prolongan hasta salir de ella para que la partición quede sellada aunque el
+  // trazo se haya quedado a unos metros del borde.
   const cell = project.settings.blockCell || side / 220
-  const extended = faultPolys.map((pts) => extendPolyline(pts, Math.max(side * 0.04, cell * 3)))
-  const blocks = faultPolys.length ? buildBlocks(extended, bbox, cell) : singleBlock()
+  const inArea = demFrameTest(project, georef)
+  const outsideArea = inArea ? (x, y) => !inArea(x, y) : null
+  // Sin marco definido, el área es la extensión de todo lo digitalizado: el
+  // margen que la grilla añade alrededor hace de exterior.
+  const outsideBox = (x, y) => x < bbox.minX || x > bbox.maxX || y < bbox.minY || y > bbox.maxY
+  const outside = outsideArea || outsideBox
+  const extended = faultPolys.map((pts) => extendToArea(pts, outside, side * 0.25, cell))
+  const blocks = faultPolys.length ? buildBlocks(extended, bbox, cell, outside) : singleBlock()
 
   // Modelo de elevación a partir de las curvas. Se agrupan por cota y se pasan
   // como polilíneas: el motor las rasteriza él mismo para que cada curva quede
