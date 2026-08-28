@@ -194,6 +194,35 @@ notaciones habituales: cuadrante (`N45°E / 30° SE`) y dirección de manteo
 Si una superficie tiene pocas intersecciones (una sola cota resuelta, un punto
 por cota), la app lo advierte y permite **imponer la actitud a mano**.
 
+#### Rumbo y separación medios, y contornos inferidos
+
+Los contornos salen de los cruces de la traza con las curvas de nivel y llevan el
+ruido de la digitalización: dos contornos consecutivos de una superficie plana
+salen con unos grados de diferencia y con separaciones que bailan. Dos botones en
+**Datos → Contornos estructurales** lo arreglan con la misma cuenta:
+
+- **Rumbo y separación medios** sustituye cada tramo por contornos paralelos y
+  equiespaciados, con el rumbo medio y la separación media del tramo.
+- **Inferir en las demás cotas** prolonga ese mismo patrón a las cotas de curva
+  de nivel donde la traza no llegó a cortar.
+
+Lo que impide que esto se coma la geología es el **umbral**, ajustable: sólo se
+promedian contornos que ya se parecían. Donde el rumbo gira más de lo tolerado, o
+la separación cambia de golpe o de signo, la serie se corta y cada trozo se
+promedia por su cuenta — promediar por encima de ese salto fundiría en una sola
+geometría inventada dos que son distintas, que es justo lo que pasa entre
+unidades discordantes. Los limbos de un pliegue ya iban por separado y lo siguen
+haciendo. Un contorno suelto se queda como está.
+
+#### Estereograma
+
+En **Datos → Estereograma**: red de Schmidt equiareal, hemisferio inferior, con
+el plano (círculo máximo) y el **polo** de cada unidad en el color de su unidad,
+y las fallas punteadas. Los limbos de una superficie plegada van por separado.
+Es la forma de ver de un vistazo qué es concordante —polos agrupados— y qué no:
+un polo apartado del racimo es una discordancia, y polos repartidos a lo largo de
+un círculo máximo delatan un pliegue cuyo eje es el polo de ese círculo.
+
 #### Corregir y añadir contornos estructurales
 
 Los contornos que salen del ajuste son una **hipótesis**, no un dato: con tres
@@ -317,6 +346,15 @@ inundación sobre una grilla). Cada contacto se resuelve **por separado en cada
 bloque**, de modo que el desplazamiento a través de la falla aparece por sí solo
 en el mapa, en el perfil y en el 3D — no hay que indicar ningún salto a mano.
 
+Fuera del área de trabajo no hay ejercicio, así que su exterior es **muro** para
+ese relleno por inundación, y las trazas de falla se prolongan por sus extremos
+hasta salir de ella. Sin las dos cosas, los dos lados de una falla que cruza el
+mapa se reencuentran rodeando por el margen vacío y todo sale como un solo
+bloque: la falla no corta nada. Bastaba con que el trazo se quedara a 20 m del
+borde de la grilla. La prolongación se corta al 25 % del mapa, y eso no es un
+detalle: una falla que muere de verdad dentro del mapa no debe llegar al borde,
+porque partiría en dos un bloque que es uno solo.
+
 Esa partición vale en la superficie, porque la traza es justo donde el plano de
 falla corta el terreno; en profundidad, no. Por eso el corte entre bloques **no
 baja a plomo desde la traza sino que sigue el plano de la falla**: el criterio no
@@ -342,6 +380,33 @@ planta; como sólo depende de (x, y), se propaga buzamiento abajo igual que hace
 un plano. Con la corrección, el plano pasa por su traza con 0,2 m de desvío
 medio.
 
+#### Salto de falla: separación no es salto
+
+En **Datos → Salto de las fallas**. La *separación* es lo que el mapa mide —cuánto
+se ha corrido el mismo contacto a un lado y otro— y depende de la orientación de
+ese contacto, así que cada unidad da un número distinto y ninguno es «el salto».
+El *salto neto* es el vector que une dos puntos que antes estaban juntos: es uno
+solo para toda la falla, porque los bloques se mueven enteros.
+
+Se calcula con la construcción clásica de las **líneas de corte**: la
+intersección de cada contacto con el plano de falla es una línea dentro de ese
+plano, y hay una en cada bloque; el salto es el vector del plano que lleva una
+sobre la otra. Una sola línea no basta —el salto puede deslizarse a lo largo de
+ella sin que cambie nada de lo que se ve—, así que el sistema se resuelve con
+todas las unidades a la vez por mínimos cuadrados, y **se publica si está
+determinado o no** en vez de dar un número con falsa confianza. Con capas
+paralelas nunca lo está: sus líneas de corte también son paralelas, y lo que se
+da es la cota inferior. Para fijarlo hace falta un segundo rasgo con otra
+orientación —un contacto discordante, un dique, el eje de un pliegue cortado—.
+
+La tabla añade el **residuo** de cada unidad respecto a ese salto único. Un
+desplazamiento rígido tiene que explicarlas a todas; si dos unidades piden
+saltos que difieren en cientos de metros, eso no lo produce la falla y es que
+alguna superficie está mal resuelta junto a ella.
+
+Sobre el ejemplo incorporado, cuyo salto vertical real es 320 m, la componente
+vertical del salto neto sale 342 m.
+
 ### 6. Perfil estructural
 
 Para cada traza A–A′: topografía, relleno de las unidades entre sus contactos,
@@ -364,6 +429,12 @@ vecino** (§4)—: sin ninguno no se sabe dónde empieza ni dónde acaba, y rell
 «desde el fondo hasta la topografía» la extendía sobre bloques de falla en los
 que no hay dato suyo. Los polígonos toman el color asignado a cada unidad, igual
 que en planta.
+
+La **regla** (botón en la barra del perfil) mide sobre el corte: dos toques y
+publica la separación vertical, el corrimiento horizontal y la distancia real.
+Los toques se imantan a los contactos, las fallas y la topografía, y cuando los
+dos caen sobre el mismo contacto lo dice — ése es el gesto con el que se lee el
+salto de una falla en un perfil.
 
 ### 7. El relieve a partir de las curvas
 
@@ -447,6 +518,15 @@ textura si la hay), curvas y trazas sobre el terreno, superficies de contacto po
 bloque, planos de falla, pozos con sus intersecciones y los planos de los
 perfiles. Exageración vertical y capas conmutables.
 
+La casilla **«Sobre el terreno»**, con su control de opacidad, dibuja además la
+prolongación de cada superficie por encima del relieve: lo que ya se erosionó, y
+lo que enseña hacia dónde seguía el pliegue. Sale del mismo recorte exacto, con
+el criterio de la topografía invertido y con un techo para que no se dispare.
+
+**Tocar una superficie** dice qué rasgo es, en qué bloque, su cota en ese punto y
+su **actitud ahí mismo** — no la media del rasgo: en un pliegue cada flanco
+mantea distinto y la media no describe a ninguno de los dos.
+
 Cada superficie de contacto se recorta **en el punto exacto** en que la limita
 cada cosa, no en el borde de la celda de la malla: la topografía (por encima ya
 está erosionada, y el borde que queda es su traza en el mapa), el plano de cada
@@ -513,6 +593,8 @@ src/lib/
   dem.js         relieve desde las curvas (regiones, cúbica monótona, bóvedas)
   scene.js       ensamblaje de la escena geológica
   surfaces3d.js  mallas 3D de contactos y planos de falla, con sus recortes
+  slip.js        salto de falla por líneas de corte: separación y salto neto
+  scregular.js   contornos estructurales regularizados e inferidos
   section.js     construcción de perfiles
   wells.js       trayectoria y columna de pozos
   marching.js    isolíneas (usado por el generador de ejercicios)

@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Download, Compass, Move3d } from 'lucide-react'
+import { Download, Compass, Move3d, Ruler, Rows3 } from 'lucide-react'
 import { surfaceSummary } from '../lib/scene.js'
 import { fmtDistance } from '../lib/georef.js'
 import { kinematicsOf } from '../lib/model.js'
 import { faultSlip } from '../lib/slip.js'
+import { regularContours } from '../lib/scregular.js'
 import { frameTest } from '../lib/models.js'
 import { downloadText } from '../lib/exportFile.js'
 import { Btn } from './ui.jsx'
@@ -11,7 +12,7 @@ import ThicknessPanel from './ThicknessPanel.jsx'
 import Stereonet from './Stereonet.jsx'
 
 /** Rumbo y manteo por pares de contornos estructurales consecutivos. */
-export default function ResultsPanel({ scene, project }) {
+export default function ResultsPanel({ scene, project, dispatch }) {
   if (!scene?.ready) {
     return (
       <div className="h-full overflow-y-auto p-3">
@@ -145,6 +146,7 @@ export default function ResultsPanel({ scene, project }) {
         ))}
       </div>
 
+      <RegularSection scene={scene} dispatch={dispatch} />
       <StereonetSection scene={scene} />
       <SlipSection scene={scene} project={project} />
 
@@ -216,6 +218,118 @@ function unresolvedLimbs(surf) {
 /** Nombre corto de un limbo para las tablas. */
 function limbName(k) {
   return `Limbo ${k + 1}`
+}
+
+/**
+ * Regularizar y densificar los contornos estructurales.
+ *
+ * Dos botones sobre la misma cuenta: el rumbo medio y la separación media de
+ * cada tramo de contornos que ya se parecían entre sí. El umbral es lo que
+ * protege la geología — donde el rumbo gira o la separación cambia de golpe, la
+ * serie se corta y cada trozo se promedia por su cuenta, para no fundir en una
+ * sola geometría dos que son distintas.
+ */
+function RegularSection({ scene, dispatch }) {
+  const [strikeTol, setStrikeTol] = useState(15)
+  const [spacingTol, setSpacingTol] = useState(35)
+  const [report, setReport] = useState(null)
+  const inArea = useMemo(() => frameTest(scene), [scene])
+
+  const run = (mode) => {
+    const r = regularContours(scene, {
+      mode,
+      strikeTol,
+      spacingTol: spacingTol / 100,
+      inArea,
+    })
+    setReport({ mode, ...r })
+    if (r.groups.length) dispatch({ type: 'sc.bulk', groups: r.groups, replace: true })
+  }
+
+  const done = report?.report.filter((r) => !r.kept && !r.split) || []
+  const splits = report?.report.filter((r) => r.split) || []
+  return (
+    <div className="mt-4 border-t border-slate-200 pt-4">
+      <h3 className="mb-1.5 text-sm font-semibold text-slate-700">Contornos estructurales</h3>
+      <div className="mb-2 flex flex-wrap gap-2">
+        <Btn onClick={() => run('regularize')}>
+          <Ruler size={13} /> Rumbo y separación medios
+        </Btn>
+        <Btn onClick={() => run('densify')}>
+          <Rows3 size={13} /> Inferir en las demás cotas
+        </Btn>
+      </div>
+      <div className="mb-2 flex flex-wrap gap-3 text-[11px] text-slate-600">
+        <label className="flex items-center gap-1">
+          Umbral de rumbo
+          <input
+            type="number"
+            min="2"
+            max="60"
+            step="1"
+            value={strikeTol}
+            onChange={(e) => setStrikeTol(Number(e.target.value) || 1)}
+            className="w-14 rounded border border-slate-300 px-1.5 py-0.5"
+          />
+          °
+        </label>
+        <label className="flex items-center gap-1">
+          Umbral de separación
+          <input
+            type="number"
+            min="5"
+            max="100"
+            step="5"
+            value={spacingTol}
+            onChange={(e) => setSpacingTol(Number(e.target.value) || 5)}
+            className="w-14 rounded border border-slate-300 px-1.5 py-0.5"
+          />
+          %
+        </label>
+      </div>
+      {report && (
+        <div className="mb-2 rounded-lg bg-sky-50 px-2 py-1.5 text-[11px] leading-relaxed text-sky-900">
+          {done.length === 0 ? (
+            <b>No había ningún tramo con dos contornos consecutivos que promediar.</b>
+          ) : (
+            <>
+              <b>
+                {report.mode === 'densify' ? 'Contornos inferidos' : 'Contornos regularizados'} en{' '}
+                {done.length} tramo{done.length === 1 ? '' : 's'}.
+              </b>
+              <ul className="mt-1 space-y-0.5">
+                {done.map((d, i) => (
+                  <li key={i}>
+                    {d.name}
+                    {d.block != null && ` · bloque ${d.block}`} — rumbo medio {d.strike.toFixed(0)}°, manteo{' '}
+                    {d.dip.toFixed(0)}°, {d.from} contorno{d.from === 1 ? '' : 's'}
+                    {d.added > 0 && <> + {d.added} inferido{d.added === 1 ? '' : 's'}</>} · desajuste{' '}
+                    {d.rms.toFixed(0)} m
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {splits.length > 0 && (
+            <p className="mt-1 text-amber-700">
+              {splits.length} serie{splits.length === 1 ? '' : 's'} se partió en tramos: ahí el rumbo o la
+              separación cambian más de lo tolerado, y promediar por encima de ese salto fundiría dos geometrías
+              distintas en una inventada. Sube los umbrales si de verdad quieres unirlas.
+            </p>
+          )}
+          <p className="mt-1 text-sky-800">
+            Quedan como contornos puestos a mano, así que mandan sobre los calculados. «Restaurar los contornos
+            calculados» los deshace, y Ctrl+Z también.
+          </p>
+        </div>
+      )}
+      <p className="text-[11px] leading-relaxed text-slate-500">
+        Los contornos salen de los cruces de la traza con las curvas de nivel y llevan el ruido de la
+        digitalización. Estos botones los sustituyen por otros paralelos y equiespaciados con el rumbo y la
+        separación medios, y pueden además prolongar ese patrón a las cotas donde la traza no llegó a cortar.
+      </p>
+    </div>
+  )
 }
 
 /** Estereograma, detrás de un botón: ocupa sitio y no siempre hace falta. */

@@ -158,6 +158,27 @@ function apply(project, action) {
         })),
       }
     }
+    /**
+     * Varios rasgos a la vez, en un solo paso de historial: regularizar o
+     * densificar toca todos los contactos del ejercicio y deshacerlo tiene que
+     * ser un solo Ctrl+Z, no veinte.
+     */
+    case 'sc.bulk': {
+      let next = p
+      for (const g of action.groups) {
+        const key = g.kind === 'fault' ? 'faults' : 'contacts'
+        next = {
+          ...next,
+          [key]: replaceIn(next[key], g.id, (it) => ({
+            ...it,
+            structureContours: action.replace
+              ? g.items
+              : [...(it.structureContours || []), ...g.items],
+          })),
+        }
+      }
+      return next
+    }
     case 'sc.clear': {
       const key = action.kind === 'fault' ? 'faults' : 'contacts'
       return {

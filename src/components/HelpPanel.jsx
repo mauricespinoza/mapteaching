@@ -41,6 +41,21 @@ export default function HelpPanel({ project, dispatch }) {
           contornos estructurales de la falla, así que las unidades se cortan justo donde se ve la falla.
         </li>
         <li>
+          En <b>Datos</b> tienes tres herramientas más: el <b>estereograma</b> (red de Schmidt con el polo y el
+          plano de cada unidad, en su color: los polos agrupados son unidades concordantes), el <b>salto de las
+          fallas</b> —ojo, la <i>separación</i> que mide el mapa cambia con cada unidad y no es el salto; el
+          salto neto es uno solo para toda la falla— y dos botones para <b>promediar el rumbo y la separación</b>
+          de los contornos estructurales y para <b>inferirlos en las demás cotas</b>. Esos dos llevan un umbral:
+          donde el rumbo o la separación cambian de golpe la serie se corta, para no fundir en una sola geometría
+          inventada dos que son distintas.
+        </li>
+        <li>
+          En el <b>perfil</b>, la <b>regla</b> mide con dos toques: separación vertical, corrimiento horizontal y
+          distancia real, imantándose a los contactos, las fallas y la topografía. Es el gesto con el que se lee
+          el salto de una falla. En el <b>3D</b>, «Sobre el terreno» dibuja la prolongación ya erosionada de cada
+          superficie, y tocar una superficie dice qué es y con qué rumbo y manteo <i>en ese punto</i>.
+        </li>
+        <li>
           Cuando <b>dos superficies se cruzan</b> —lejos de sus datos cada una extrapola a su aire— manda la más
           joven: <b>pasa entera por encima</b> y las antiguas se limitan contra ella, que es lo que ocurre en una
           discordancia angular. Donde queda cortado, el contacto antiguo deja de dibujarse: el borde que se ve es

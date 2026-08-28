@@ -854,7 +854,7 @@ export default function App() {
                   />
                 </div>
               )}
-              {panel === 'resultados' && <ResultsPanel scene={scene} project={project} />}
+              {panel === 'resultados' && <ResultsPanel scene={scene} project={project} dispatch={dispatch} />}
               {panel === 'ayuda' && <HelpPanel project={project} dispatch={dispatch} />}
             </div>
           )}
