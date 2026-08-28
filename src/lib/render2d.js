@@ -107,6 +107,42 @@ function label(ctx, x, y, text, opts = {}) {
   ctx.fillText(text, x, y)
 }
 
+/**
+ * Rótulo de varios renglones centrados en una sola caja. El primero va
+ * destacado: en los contornos estructurales es la cota, que es lo que
+ * identifica a la curva; debajo van las dos unidades que separa.
+ */
+function labelBlock(ctx, x, y, lines, opts = {}) {
+  const { color = '#0f172a', bg = 'rgba(255,255,255,0.9)', size = 10 } = opts
+  const lh = size + 2
+  const h = lines.length * lh
+  let w = 0
+  for (let i = 0; i < lines.length; i++) {
+    ctx.font = `${i === 0 ? '700' : '500'} ${size}px ui-sans-serif, system-ui, sans-serif`
+    w = Math.max(w, ctx.measureText(lines[i]).width)
+  }
+  ctx.fillStyle = bg
+  ctx.fillRect(x - w / 2 - 4, y - h / 2 - 3, w + 8, h + 6)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  for (let i = 0; i < lines.length; i++) {
+    ctx.font = `${i === 0 ? '700' : '500'} ${size}px ui-sans-serif, system-ui, sans-serif`
+    ctx.fillStyle = i === 0 ? color : 'rgba(51,65,85,0.95)'
+    ctx.fillText(lines[i], x, y - h / 2 + lh * i + lh / 2)
+  }
+}
+
+/** Tamaño en pantalla que ocupará un rótulo de varios renglones. */
+function blockSize(ctx, lines, size = 10) {
+  const lh = size + 2
+  let w = 0
+  for (let i = 0; i < lines.length; i++) {
+    ctx.font = `${i === 0 ? '700' : '500'} ${size}px ui-sans-serif, system-ui, sans-serif`
+    w = Math.max(w, ctx.measureText(lines[i]).width)
+  }
+  return [w + 14, lines.length * lh + 10]
+}
+
 const overlaps = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
 
 /**
@@ -115,12 +151,12 @@ const overlaps = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a
  * hasta encontrar sitio, y si no lo hay se deja la curva sin rótulo antes que
  * apilar texto ilegible. Devuelve el punto elegido, o null.
  */
-function placeLabel(ctx, taken, candidates, text, size = 10, force = false) {
+function placeLabel(ctx, taken, candidates, text, size = 10, force = false, box = null) {
   ctx.font = `600 ${size}px ui-sans-serif, system-ui, sans-serif`
   // Un poco de aire alrededor: dos rótulos que se rozan se leen mal aunque no
   // lleguen a solaparse.
-  const w = ctx.measureText(text).width + 12
-  const h = size + 10
+  const w = box ? box[0] : ctx.measureText(text).width + 12
+  const h = box ? box[1] : size + 10
   for (const [x, y] of candidates) {
     const r = [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
     if (!taken.some((t) => overlaps(r, t))) {
@@ -724,13 +760,14 @@ function drawStructureContour(ctx, view, it, { selected = false, labels = true, 
   ctx.stroke()
   ctx.setLineDash([])
   if (labels) {
-    const text = `${shortName(it.name)} · ${it.elevation} m`
+    const lines = it.lines?.length ? it.lines : [`${it.elevation} m`, shortName(it.name)]
+    const box = blockSize(ctx, lines, 10)
     // Extremos primero y luego puntos a lo largo de la recta: el rótulo busca
     // sitio sin dejar de tocar su propia curva.
     const along = [0.5, 0.25, 0.75].map((t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
-    const spot = placeLabel(ctx, taken, [b, a, ...along], text, 10, selected || manual)
+    const spot = placeLabel(ctx, taken, [b, a, ...along], lines[0], 10, selected || manual, box)
     if (spot) {
-      label(ctx, spot[0], spot[1], text, {
+      labelBlock(ctx, spot[0], spot[1], lines, {
         color: it.color,
         size: 10,
         bg: manual ? 'rgba(224,242,254,0.95)' : 'rgba(255,255,255,0.9)',

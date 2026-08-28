@@ -1,5 +1,5 @@
-import { useMemo, useRef } from 'react'
-import { Download, Image as ImageIcon } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { Download, Image as ImageIcon, MoveHorizontal } from 'lucide-react'
 import { buildSectionModel } from '../lib/section.js'
 import { kinematicsOf } from '../lib/model.js'
 import { fmtDistance, octant } from '../lib/georef.js'
@@ -10,6 +10,8 @@ const M = { left: 62, right: 26, top: 34, bottom: 46 }
 /** Vista de perfil estructural (SVG exportable). */
 export default function SectionView({ project, scene, section, dispatch }) {
   const svgRef = useRef(null)
+  const [ruler, setRuler] = useState(false)
+  const [marks, setMarks] = useState([])
   const model = useMemo(
     () => (section && scene?.ready ? buildSectionModel(section, scene) : null),
     [section, scene]
@@ -32,6 +34,58 @@ export default function SectionView({ project, scene, section, dispatch }) {
   const X = (d) => M.left + d * xScale
   const Y = (z) => M.top + (zTop - z) * yScale
   const poly = (pts) => pts.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')
+
+  // --- Regla ---
+  //
+  // El salto de una falla se lee en el perfil poniendo el dedo en el mismo
+  // contacto a un lado y otro. La regla hace eso: dos toques, y publica el
+  // desnivel (la separación vertical), el corrimiento horizontal y la distancia
+  // real entre los dos puntos. Los toques se imantan a lo que hay dibujado
+  // —contactos, fallas y topografía— porque a mano nadie acierta el píxel.
+  const dToScreen = (d) => M.left + d * xScale
+  const zToScreen = (z) => M.top + (zTop - z) * yScale
+  const snapTargets = () => {
+    const out = []
+    for (const c of model.contacts) {
+      for (const l of c.lines) for (const p of l) out.push({ d: p[0], z: p[1], what: c.name, kind: 'contacto' })
+    }
+    for (const f of model.faults) {
+      for (const p of f.path || f.line) out.push({ d: p[0], z: p[1], what: f.name, kind: 'falla' })
+    }
+    for (const p of model.topoLine) out.push({ d: p[0], z: p[1], what: 'Topografía', kind: 'topo' })
+    return out
+  }
+  const onPlotClick = (e) => {
+    if (!ruler) return
+    const svg = svgRef.current
+    if (!svg) return
+    const r = svg.getBoundingClientRect()
+    const sx = ((e.clientX - r.left) / r.width) * W
+    const sy = ((e.clientY - r.top) / r.height) * H
+    let point = { d: (sx - M.left) / xScale, z: zTop - (sy - M.top) / yScale, what: null, kind: null }
+    // Imán: el punto dibujado más cercano dentro de 12 px de pantalla.
+    let best = null
+    let bd = 12
+    for (const t of snapTargets()) {
+      const dd = Math.hypot(dToScreen(t.d) - sx, zToScreen(t.z) - sy)
+      if (dd < bd) {
+        bd = dd
+        best = t
+      }
+    }
+    if (best) point = { ...best }
+    setMarks((m) => (m.length >= 2 ? [point] : [...m, point]))
+  }
+  const measure =
+    marks.length === 2
+      ? {
+          dh: marks[1].d - marks[0].d,
+          dz: marks[1].z - marks[0].z,
+          real: Math.hypot(marks[1].d - marks[0].d, marks[1].z - marks[0].z),
+          sameFeature:
+            marks[0].what && marks[0].what === marks[1].what && marks[0].kind === 'contacto' ? marks[0].what : null,
+        }
+      : null
 
   const [nameA, nameB] = (section.name || 'A–A′').split('–')
   const zTicks = niceTicks(zBot, zTop, 8)
@@ -73,6 +127,18 @@ export default function SectionView({ project, scene, section, dispatch }) {
         </label>
         <div className="ml-auto flex gap-2">
           <button
+            className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 ${
+              ruler ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-300 hover:bg-slate-50'
+            }`}
+            title="Medir sobre el perfil: dos toques y da el salto vertical, el horizontal y la distancia real"
+            onClick={() => {
+              setRuler((r) => !r)
+              setMarks([])
+            }}
+          >
+            <MoveHorizontal size={15} /> Regla
+          </button>
+          <button
             className="flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
             onClick={() => downloadSvg(svgRef.current, `${section.name}.svg`)}
           >
@@ -88,7 +154,13 @@ export default function SectionView({ project, scene, section, dispatch }) {
       </div>
 
       <div className="flex-1 overflow-auto bg-slate-50 p-4">
-        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: 1400 }}>
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          width="100%"
+          style={{ maxWidth: 1400, cursor: ruler ? 'crosshair' : 'default' }}
+          onClick={onPlotClick}
+        >
           <rect x="0" y="0" width={W} height={H} fill="#ffffff" />
           {/* Marco y ejes */}
           <g stroke="#cbd5e1" strokeWidth="1">
@@ -172,6 +244,48 @@ export default function SectionView({ project, scene, section, dispatch }) {
             {model.wells.map((w) => (
               <WellOnSection key={w.id} w={w} model={model} scene={scene} X={X} Y={Y} />
             ))}
+            {/* Medición */}
+            {marks.length === 2 && (
+              <g>
+                <line
+                  x1={X(marks[0].d)}
+                  y1={Y(marks[0].z)}
+                  x2={X(marks[1].d)}
+                  y2={Y(marks[0].z)}
+                  stroke="#059669"
+                  strokeWidth="1.4"
+                  strokeDasharray="5 4"
+                />
+                <line
+                  x1={X(marks[1].d)}
+                  y1={Y(marks[0].z)}
+                  x2={X(marks[1].d)}
+                  y2={Y(marks[1].z)}
+                  stroke="#059669"
+                  strokeWidth="1.4"
+                  strokeDasharray="5 4"
+                />
+                <line
+                  x1={X(marks[0].d)}
+                  y1={Y(marks[0].z)}
+                  x2={X(marks[1].d)}
+                  y2={Y(marks[1].z)}
+                  stroke="#065f46"
+                  strokeWidth="2.2"
+                />
+              </g>
+            )}
+            {marks.map((m, i) => (
+              <circle
+                key={i}
+                cx={X(m.d)}
+                cy={Y(m.z)}
+                r="5"
+                fill="#10b981"
+                stroke="#ffffff"
+                strokeWidth="1.8"
+              />
+            ))}
           </g>
 
           <rect x={M.left} y={M.top} width={plotW} height={plotH} fill="none" stroke="#0f172a" strokeWidth="1.2" />
@@ -185,6 +299,52 @@ export default function SectionView({ project, scene, section, dispatch }) {
             Exageración vertical ×{section.vExag || 1}
           </text>
         </svg>
+
+        {ruler && (
+          <div className="mt-3 rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-900">
+            {marks.length < 2 ? (
+              <>
+                <b>Regla activa.</b> Toca dos puntos del perfil. Para leer el salto de una falla, toca el mismo
+                contacto a un lado y al otro: el desnivel entre los dos es la separación vertical. Los toques se
+                imantan a los contactos, las fallas y la topografía.
+                {marks.length === 1 && (
+                  <span className="ml-1">
+                    Primer punto en {marks[0].d.toFixed(0)} m, cota {marks[0].z.toFixed(0)} m
+                    {marks[0].what ? ` (sobre «${marks[0].what}»)` : ''}. Falta el segundo.
+                  </span>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <span>
+                  <b>Separación vertical</b> {fmtDistance(Math.abs(measure.dz))}
+                </span>
+                <span>
+                  <b>Corrimiento horizontal</b> {fmtDistance(Math.abs(measure.dh))}
+                </span>
+                <span>
+                  <b>Distancia real</b> {fmtDistance(measure.real)}
+                </span>
+                <span className="text-emerald-700">
+                  {marks[0].what || 'punto libre'} → {marks[1].what || 'punto libre'}
+                </span>
+                {measure.sameFeature && (
+                  <span className="w-full text-emerald-800">
+                    Los dos puntos están sobre «{measure.sameFeature}»: ese desnivel es su separación vertical a
+                    través de lo que haya entre ellos. La separación no es el salto neto —depende de la
+                    orientación del contacto—; el salto está en «Datos → Salto de las fallas».
+                  </span>
+                )}
+                <button
+                  className="ml-auto rounded-lg border border-emerald-400 px-2 py-1 hover:bg-emerald-100"
+                  onClick={() => setMarks([])}
+                >
+                  Borrar medida
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-3">

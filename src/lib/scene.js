@@ -589,7 +589,16 @@ export function buildScene(project) {
 export function structureContourItems(scene) {
   if (!scene?.ready) return []
   const out = []
+  const unitName = (id) => scene.units.find((u) => u.id === id)?.name || null
   const collect = (kind, feature, color, block, surf) => {
+    // Rótulo en tres renglones: la cota arriba —que es lo que identifica al
+    // contorno— y debajo las dos unidades que el contacto separa, la de encima
+    // primero. Puesto así se lee como una columna estratigráfica en miniatura y
+    // se ve de un vistazo qué contacto es sin recordar su nombre.
+    const rows =
+      kind === 'contact'
+        ? [`${feature.name}`, unitName(feature.upperUnitId), unitName(feature.lowerUnitId)]
+        : [shortLabel(feature.name)]
     for (const sc of surf.structureContours || []) {
       if (!sc.fit) continue
       // El contorno calculado se prolonga un poco más allá de sus puntos, que es
@@ -608,6 +617,10 @@ export function structureContourItems(scene) {
         limb: sc.limb,
         manualId: sc.manualId || null,
         n: sc.n,
+        /** Renglones del rótulo: cota, unidad de encima, unidad de debajo. */
+        lines: [`${sc.elevation} m`, ...(kind === 'contact' ? rows.slice(1) : rows)].filter(Boolean),
+        upperUnit: kind === 'contact' ? unitName(feature.upperUnitId) : null,
+        lowerUnit: kind === 'contact' ? unitName(feature.lowerUnitId) : null,
         a: toImage(scene.georef, seg[0]),
         b: toImage(scene.georef, seg[1]),
         points: sc.points.map((p) => toImage(scene.georef, p)),
@@ -624,6 +637,12 @@ export function structureContourItems(scene) {
     if (surf) collect('fault', f, kinematicsOf(f.kinematics).color, null, surf)
   }
   return out
+}
+
+/** Nombre acortado para un rótulo del mapa. */
+function shortLabel(name) {
+  const t = String(name || '')
+  return t.length > 18 ? `${t.slice(0, 17)}…` : t
 }
 
 /** Resumen para el panel de resultados. */

@@ -1,10 +1,14 @@
-import { Download } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Download, Compass, Move3d } from 'lucide-react'
 import { surfaceSummary } from '../lib/scene.js'
 import { fmtDistance } from '../lib/georef.js'
 import { kinematicsOf } from '../lib/model.js'
+import { faultSlip } from '../lib/slip.js'
+import { frameTest } from '../lib/models.js'
 import { downloadText } from '../lib/exportFile.js'
 import { Btn } from './ui.jsx'
 import ThicknessPanel from './ThicknessPanel.jsx'
+import Stereonet from './Stereonet.jsx'
 
 /** Rumbo y manteo por pares de contornos estructurales consecutivos. */
 export default function ResultsPanel({ scene, project }) {
@@ -141,6 +145,9 @@ export default function ResultsPanel({ scene, project }) {
         ))}
       </div>
 
+      <StereonetSection scene={scene} />
+      <SlipSection scene={scene} project={project} />
+
       <h3 className="mb-2 mt-6 border-t border-slate-200 pt-4 text-sm font-semibold text-slate-700">
         Cómo se obtienen manteo y espesor
       </h3>
@@ -209,6 +216,178 @@ function unresolvedLimbs(surf) {
 /** Nombre corto de un limbo para las tablas. */
 function limbName(k) {
   return `Limbo ${k + 1}`
+}
+
+/** Estereograma, detrás de un botón: ocupa sitio y no siempre hace falta. */
+function StereonetSection({ scene }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-4 border-t border-slate-200 pt-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-700">Estereograma</h3>
+        <Btn onClick={() => setOpen((o) => !o)} variant={open ? 'dark' : 'default'}>
+          <Compass size={13} /> {open ? 'Ocultar' : 'Ver estereograma'}
+        </Btn>
+      </div>
+      {open ? (
+        <Stereonet scene={scene} />
+      ) : (
+        <p className="text-[11px] text-slate-500">
+          Polos y planos de cada unidad en una red de Schmidt, con el color de la unidad: enseña de un vistazo
+          qué es concordante y qué no.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Salto de cada falla.
+ *
+ * Se separan a propósito dos cosas que se confunden todo el rato: la
+ * **separación**, que es lo que el mapa mide y cambia con cada unidad, y el
+ * **salto neto**, que es el movimiento real y es uno solo para toda la falla.
+ */
+function SlipSection({ scene, project }) {
+  const [open, setOpen] = useState(false)
+  const inArea = useMemo(() => frameTest(scene), [scene])
+  const faults = useMemo(
+    () => (open && scene?.ready ? project.faults.map((f) => faultSlip(scene, f.id, { inArea })).filter(Boolean) : []),
+    [open, scene, project, inArea]
+  )
+  if (!project.faults.length) return null
+  return (
+    <div className="mt-4 border-t border-slate-200 pt-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-700">Salto de las fallas</h3>
+        <Btn onClick={() => setOpen((o) => !o)} variant={open ? 'dark' : 'default'}>
+          <Move3d size={13} /> {open ? 'Ocultar' : 'Calcular saltos'}
+        </Btn>
+      </div>
+      {!open && (
+        <p className="text-[11px] text-slate-500">
+          Separación de cada unidad a través de cada falla y el salto neto que las explica a todas.
+        </p>
+      )}
+      {open &&
+        faults.map((f) => (
+          <div key={f.faultId} className="mb-3 rounded-xl border border-slate-200 p-2.5">
+            <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
+              <span
+                className="inline-block h-3 w-3 rounded-full"
+                style={{ background: kinematicsOf(f.kinematics).color }}
+              />
+              <span className="text-sm font-semibold text-slate-800">{f.name}</span>
+              <span className="text-xs text-slate-500">{f.attitude.quadrant}</span>
+            </div>
+            {f.rows.some((r) => r.cutoff) ? (
+              <table className="w-full text-left text-[11px]">
+                <thead className="text-slate-500">
+                  <tr>
+                    <th className="py-0.5">Unidad</th>
+                    <th title="Separación medida perpendicular a la línea de corte, dentro del plano de falla">
+                      Sep. en el plano
+                    </th>
+                    <th title="Diferencia de cota del contacto a un lado y otro, en la falla">Sep. vertical</th>
+                    <th title="Salto que haría falta si la falla fuese de puro buzamiento">Si fuese buz. puro</th>
+                    <th title="Cuánto se aparta esta unidad del salto único que explica a todas">Residuo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {f.rows.map((r) => (
+                    <tr key={r.contactId} className="border-t border-slate-100">
+                      <td className="py-0.5">
+                        <span
+                          className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
+                          style={{ background: r.color || '#94a3b8' }}
+                        />
+                        {r.name}
+                      </td>
+                      {r.cutoff ? (
+                        <>
+                          <td>{fmtDistance(Math.abs(r.cutoff.h))}</td>
+                          <td>
+                            {Number.isFinite(r.verticalSeparation) ? fmtDistance(Math.abs(r.verticalSeparation)) : '—'}
+                          </td>
+                          <td>{r.dipSlipOnly == null ? '—' : fmtDistance(Math.abs(r.dipSlipOnly))}</td>
+                          <td className={Math.abs(r.residual ?? 0) > 40 ? 'font-semibold text-amber-700' : ''}>
+                            {Number.isFinite(r.residual) ? fmtDistance(Math.abs(r.residual)) : '—'}
+                          </td>
+                        </>
+                      ) : (
+                        <td colSpan="4" className="text-slate-400">
+                          {r.both ? r.note : 'sólo resuelta a un lado de la falla'}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-[11px] text-amber-600">
+                Ninguna unidad está resuelta a los dos lados de esta falla: sin el mismo contacto en los dos
+                bloques no hay separación que medir. Digitaliza su traza también al otro lado.
+              </p>
+            )}
+            {f.net && <NetSlip net={f.net} used={f.used} rows={f.rows} />}
+          </div>
+        ))}
+      {open && (
+        <div className="rounded-xl bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
+          <p className="mb-1 font-semibold text-slate-700">Separación no es salto</p>
+          La <b>separación</b> es lo que el mapa mide: cuánto se ha corrido el mismo contacto a un lado y otro.
+          Depende de la orientación de ese contacto, así que cada unidad da un número distinto y ninguno es «el
+          salto». El <b>salto neto</b> es el vector que une dos puntos que antes estaban juntos; es uno solo para
+          toda la falla, porque los bloques se mueven enteros.
+          <p className="mt-1.5">
+            Se calcula con la construcción de las <b>líneas de corte</b>: la intersección de cada contacto con el
+            plano de falla es una línea en ese plano, y hay una en cada bloque. El salto es el vector del plano que
+            lleva una sobre la otra. Una sola línea no basta —el salto puede deslizarse a lo largo de ella—, así
+            que hacen falta dos de orientación distinta.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function NetSlip({ net, used, rows }) {
+  const withCut = rows.filter((r) => r.cutoff)
+  const mismatch = Math.max(0, ...withCut.map((r) => r.cutoff.mismatch))
+  const spread = Math.max(0, ...withCut.map((r) => Math.abs(r.residual || 0)))
+  return (
+    <div className="mt-2 rounded-lg bg-sky-50 px-2 py-1.5 text-[11px] leading-relaxed text-sky-900">
+      <b>Salto neto {fmtDistance(net.magnitude)}</b> · cabeceo {net.rake.toFixed(0)}° en el plano ·{' '}
+      {fmtDistance(Math.abs(net.dipSlip))} de buzamiento y {fmtDistance(Math.abs(net.strikeSlip))} de rumbo.
+      <div className="text-sky-800">
+        Componente vertical {fmtDistance(net.throw)} · horizontal {fmtDistance(net.heave)} · resuelto con{' '}
+        {used} unidad{used === 1 ? '' : 'es'}.
+      </div>
+      {!net.determined && (
+        <p className="mt-0.5 text-amber-700">
+          ⚠ <b>No está determinado.</b> Todas las líneas de corte son casi paralelas —capas paralelas dan cortes
+          paralelos—, así que los datos sólo fijan la componente perpendicular a ellas: el salto puede deslizarse a
+          lo largo de la línea de corte sin cambiar nada de lo que se ve. Lo que se publica es el <b>menor</b>
+          {' '}salto compatible con el mapa, que es una cota inferior. Para fijarlo hace falta un segundo rasgo con
+          otra orientación: un contacto discordante, un dique o el eje de un pliegue cortado por la falla.
+        </p>
+      )}
+      {spread > 40 && (
+        <p className="mt-0.5 text-amber-700">
+          ⚠ Las unidades no se ponen de acuerdo: hasta {fmtDistance(spread)} de diferencia entre lo que cada una
+          pide y el salto único. Un bloque se mueve entero, así que eso no lo produce la falla — es que alguna
+          superficie está mal resuelta junto a ella, casi siempre por falta de traza a uno de los dos lados.
+        </p>
+      )}
+      {mismatch > 12 && (
+        <p className="mt-0.5 text-amber-700">
+          ⚠ Las líneas de corte de los dos bloques no son paralelas (hasta {mismatch.toFixed(0)}° de diferencia).
+          Un desplazamiento rígido no puede producir eso: o las superficies están mal resueltas cerca de la falla,
+          o hay rotación o arrastre. Toma estos números como orientativos.
+        </p>
+      )}
+    </div>
+  )
 }
 
 function toCsv(rows) {

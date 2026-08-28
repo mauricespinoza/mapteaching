@@ -52,9 +52,18 @@ const mixVertex = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t)
  *  3. **la superficie joven que lo trunca**, donde la haya: ahí el contacto
  *     antiguo ya no existe y el borde es la línea de subafloramiento.
  *
+ * Con `eroded` se pide justo lo contrario del primer recorte: el trozo que queda
+ * **por encima** del terreno, es decir la parte de la superficie que ya se ha
+ * erosionado. No es geología observable sino su prolongación, y por eso se
+ * dibuja aparte y translúcida; es lo que deja ver hacia dónde seguía el pliegue
+ * antes de que el relieve lo cortara. Se limita por arriba con `zMax`.
+ *
  * Devuelve, por contacto y bloque, los triángulos en coordenadas de terreno.
  */
-export function contactMeshes(scene, { zMin = -Infinity, inFrame = null, resolution = 110 } = {}) {
+export function contactMeshes(
+  scene,
+  { zMin = -Infinity, zMax = Infinity, inFrame = null, resolution = 110, eroded = false } = {}
+) {
   const { bbox, dem } = scene
   const N = resolution
   const dx = (bbox.maxX - bbox.minX) / N
@@ -94,6 +103,7 @@ export function contactMeshes(scene, { zMin = -Infinity, inFrame = null, resolut
   // que es lo prudente.
   const LOOSE = Math.max(1, dem.zmax - dem.zmin) * 100
   const loose = (v) => (Number.isFinite(v) ? Math.min(v, LOOSE) : LOOSE)
+  const capped = Number.isFinite(zMax)
 
   const byKey = new Map()
   for (const block of blockIds) {
@@ -127,11 +137,12 @@ export function contactMeshes(scene, { zMin = -Infinity, inFrame = null, resolut
           // Un vértice por esquina: posición y el valor de cada criterio.
           let poly = corners.map((k) => {
             const z = stacks[k][ci]
-            const v = [gx[k], gy[k], z, gz[k] - z, loose(rooms[k][ci])]
+            const v = [gx[k], gy[k], z, eroded ? z - gz[k] : gz[k] - z, loose(rooms[k][ci])]
             for (const c of active) v.push(loose(want[c] * (z - zf[c][k])))
+            if (capped) v.push(zMax - z)
             return v
           })
-          const nCrit = 2 + active.length
+          const nCrit = 2 + active.length + (capped ? 1 : 0)
           for (let c = 0; c < nCrit && poly.length >= 3; c++) poly = clipBy(poly, c)
           if (poly.length < 3) continue
           const key = `${ci}|${block}`

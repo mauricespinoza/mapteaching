@@ -15,11 +15,14 @@ export default function ThreeView({ project, scene, image }) {
   const mountRef = useRef(null)
   const stateRef = useRef(null)
   const [vExag, setVExag] = useState(1)
+  const [aerialOpacity, setAerialOpacity] = useState(0.28)
+  const [picked, setPicked] = useState(null)
   const [show, setShow] = useState({
     topo: true,
     contours: true,
     traces: true,
     surfaces: true,
+    aerial: false,
     faults: true,
     wells: true,
     sections: true,
@@ -84,6 +87,55 @@ export default function ThreeView({ project, scene, image }) {
       stateRef.current = null
     }
   }, [])
+
+  // --- Identificación al tocar una superficie ---
+  //
+  // Un modelo con seis superficies translúcidas superpuestas no se lee solo: hay
+  // que poder señalar una y que diga quién es. Se lanza un rayo desde el punto
+  // tocado, se queda con la superficie más cercana y se le pregunta su actitud
+  // *en ese punto*, no la media — en un pliegue cada flanco mantea distinto y la
+  // media no describe ninguno de los dos.
+  useEffect(() => {
+    const st = stateRef.current
+    if (!st) return
+    const el = st.renderer.domElement
+    let down = null
+    const onDown = (e) => (down = [e.clientX, e.clientY])
+    const onUp = (e) => {
+      const from = down
+      down = null
+      // Si el dedo se movió, era una rotación y no una consulta.
+      if (!from || Math.hypot(e.clientX - from[0], e.clientY - from[1]) > 5) return
+      if (!scene?.ready || !st.toWorld) return
+      const r = el.getBoundingClientRect()
+      const ndc = new THREE.Vector2(
+        ((e.clientX - r.left) / r.width) * 2 - 1,
+        -((e.clientY - r.top) / r.height) * 2 + 1
+      )
+      const ray = new THREE.Raycaster()
+      ray.setFromCamera(ndc, st.camera)
+      const hits = ray.intersectObjects(st.content.children, false)
+      const hit = hits.find((h) => h.object.userData?.kind)
+      if (!hit) {
+        setPicked(null)
+        return
+      }
+      const { kind, id, name, block, eroded } = hit.object.userData
+      const [wx, wy, wz] = st.toWorld(hit.point)
+      const surf =
+        kind === 'fault'
+          ? scene.faultSurfaces.get(id)
+          : scene.contactSurfaces.get(id)?.get(block)
+      const att = surf?.attitudeAt ? surf.attitudeAt(wx, wy) : surf?.mean
+      setPicked({ kind, name, block, eroded, z: wz, att: att || null })
+    }
+    el.addEventListener('pointerdown', onDown)
+    el.addEventListener('pointerup', onUp)
+    return () => {
+      el.removeEventListener('pointerdown', onDown)
+      el.removeEventListener('pointerup', onUp)
+    }
+  }, [scene])
 
   // --- Contenido ---
   useEffect(() => {
@@ -208,28 +260,41 @@ export default function ThreeView({ project, scene, image }) {
       }
     }
 
-    // Superficies de contacto por bloque
-    if (show.surfaces) {
-      for (const { contactIndex: ci, tris } of contactMeshes(scene, { zMin: zBottom, inFrame })) {
+    // Superficies de contacto por bloque. Se pueden pedir dos mitades: la que
+    // queda bajo el terreno —la geología que aún existe— y, aparte, la que ya
+    // se ha erosionado, que enseña hacia dónde seguía el pliegue en el aire.
+    const addSurfaces = (opts, opacity, eroded) => {
+      for (const { contactIndex: ci, block, tris } of contactMeshes(scene, opts)) {
         const c = scene.contacts[ci]
         const unit = scene.units.find((u) => u.id === c.upperUnitId)
         const color = new THREE.Color(unit?.color || c.color || '#38bdf8')
         const geo = new THREE.BufferGeometry()
         geo.setAttribute('position', new THREE.Float32BufferAttribute(toScene(tris, P), 3))
         geo.computeVertexNormals()
-        content.add(
-          new THREE.Mesh(
-            geo,
-            new THREE.MeshStandardMaterial({
-              color,
-              transparent: true,
-              opacity: 0.62,
-              side: THREE.DoubleSide,
-              roughness: 0.8,
-            })
-          )
+        const mesh = new THREE.Mesh(
+          geo,
+          new THREE.MeshStandardMaterial({
+            color,
+            transparent: true,
+            opacity,
+            side: THREE.DoubleSide,
+            roughness: 0.8,
+            depthWrite: !eroded,
+          })
         )
+        // Lo que hace falta para contestar al toque: qué rasgo es y en qué
+        // bloque, para poder pedirle su actitud en el punto tocado.
+        mesh.userData = { kind: 'contact', id: c.id, name: c.name, block, eroded }
+        content.add(mesh)
       }
+    }
+    if (show.surfaces) addSurfaces({ zMin: zBottom, inFrame }, 0.62, false)
+    if (show.aerial) {
+      addSurfaces(
+        { zMax: dem.zmax + zRange * 0.6, inFrame, eroded: true },
+        Math.max(0.04, aerialOpacity),
+        true
+      )
     }
 
     // Planos de falla
@@ -244,18 +309,18 @@ export default function ThreeView({ project, scene, image }) {
             const geo = new THREE.BufferGeometry()
             geo.setAttribute('position', new THREE.Float32BufferAttribute(toScene(tris, P), 3))
             geo.computeVertexNormals()
-            content.add(
-              new THREE.Mesh(
-                geo,
-                new THREE.MeshStandardMaterial({
-                  color,
-                  transparent: true,
-                  opacity: 0.5,
-                  side: THREE.DoubleSide,
-                  roughness: 0.6,
-                })
-              )
+            const mesh = new THREE.Mesh(
+              geo,
+              new THREE.MeshStandardMaterial({
+                color,
+                transparent: true,
+                opacity: 0.5,
+                side: THREE.DoubleSide,
+                roughness: 0.6,
+              })
             )
+            mesh.userData = { kind: 'fault', id: fw.id, name: fw.fault.name, block: null, eroded: false }
+            content.add(mesh)
           }
         }
       }
@@ -336,6 +401,9 @@ export default function ThreeView({ project, scene, image }) {
     camera.near = Math.max(1, radius / 2000)
     camera.far = radius * 60
     camera.updateProjectionMatrix()
+    // La inversa de P, que hace falta para saber en qué punto del terreno cae un
+    // toque sobre una superficie.
+    st.toWorld = (v) => [v.x + cx, v.y + cy, v.z / (vExag || 1) + cz]
     if (!st.framed) {
       const d = (radius / Math.tan((camera.fov * Math.PI) / 360)) * 1.15
       camera.position.set(d * 0.12, -d * 0.72, centerZ + d * 0.62)
@@ -343,7 +411,7 @@ export default function ThreeView({ project, scene, image }) {
       controls.update()
       st.framed = true
     }
-  }, [project, scene, image, vExag, show])
+  }, [project, scene, image, vExag, show, aerialOpacity])
 
   return (
     <div className="relative h-full w-full">
@@ -372,6 +440,7 @@ export default function ThreeView({ project, scene, image }) {
             ['faults', 'Fallas'],
             ['wells', 'Pozos'],
             ['sections', 'Perfiles'],
+            ['aerial', 'Sobre el terreno'],
           ].map(([k, lab]) => (
             <label key={k} className="flex items-center gap-1.5">
               <input
@@ -383,10 +452,65 @@ export default function ThreeView({ project, scene, image }) {
             </label>
           ))}
         </div>
+        {show.aerial && (
+          <label className="mt-2 block">
+            Opacidad sobre el terreno {Math.round(aerialOpacity * 100)} %
+            <input
+              type="range"
+              min="0.04"
+              max="1"
+              step="0.02"
+              value={aerialOpacity}
+              onChange={(e) => setAerialOpacity(Number(e.target.value))}
+              className="w-full"
+            />
+            <span className="block text-[10px] leading-snug text-slate-400">
+              La prolongación de cada superficie por encima del relieve: lo que ya se erosionó.
+            </span>
+          </label>
+        )}
         <p className="mt-2 text-[11px] text-slate-400">
-          Arrastra para rotar · dos dedos o rueda para acercar · clic derecho para desplazar.
+          Arrastra para rotar · dos dedos o rueda para acercar · clic derecho para desplazar. Toca una
+          superficie para ver qué es.
         </p>
       </div>
+      {picked && (
+        <div className="absolute bottom-3 left-3 max-w-[260px] rounded-xl bg-slate-900/90 p-3 text-xs text-slate-100 shadow-lg">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="font-semibold">{picked.name}</div>
+              <div className="text-[11px] text-slate-400">
+                {picked.kind === 'falla' || picked.kind === 'fault' ? 'Falla' : 'Contacto'}
+                {picked.block != null && ` · bloque ${picked.block}`}
+                {picked.eroded && ' · tramo ya erosionado'}
+              </div>
+            </div>
+            <button
+              onClick={() => setPicked(null)}
+              className="rounded px-1 text-slate-400 hover:bg-white/10 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="mt-1.5 border-t border-white/10 pt-1.5">
+            {picked.att ? (
+              <>
+                <div className="font-mono text-[13px]">{picked.att.quadrant}</div>
+                <div className="font-mono text-[11px] text-slate-400">{picked.att.dipDirNotation}</div>
+              </>
+            ) : (
+              <div className="text-slate-400">Sin actitud resuelta aquí.</div>
+            )}
+            <div className="mt-1 text-[11px] text-slate-400">
+              Cota en el punto tocado: {picked.z.toFixed(0)} m
+            </div>
+          </div>
+          <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+            La actitud es la del punto tocado, no la media del rasgo: en un pliegue cada flanco mantea
+            distinto.
+          </p>
+        </div>
+      )}
       {!scene?.ready && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/70 text-sm text-slate-200">
           Define la escala del mapa para construir el modelo 3D.
