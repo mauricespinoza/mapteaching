@@ -13,7 +13,7 @@ import {
   RotateCcw,
 } from 'lucide-react'
 import { Collapsible, Field, inputCls, Btn } from './ui.jsx'
-import { CONTACT_TYPES, KINEMATICS, newFault, sortedUnits, sortedContacts } from '../lib/model.js'
+import { CONTACT_TYPES, KINEMATICS, newFault, reassignContact, sortedUnits, sortedContacts } from '../lib/model.js'
 import { fmtDistance } from '../lib/georef.js'
 
 /** Panel lateral con todas las entidades del proyecto. */
@@ -198,14 +198,41 @@ export default function LayersPanel({
         </ul>
       </Collapsible>
 
-      <Collapsible title="Contactos" badge={project.contacts.length}>
+      <Collapsible
+        title="Contactos"
+        badge={project.contacts.length}
+        action={
+          <Btn
+            variant="dark"
+            disabled={units.length < 2}
+            title={units.length < 2 ? 'Hacen falta al menos dos unidades' : 'Nuevo contacto entre las unidades que elijas'}
+            onClick={() => {
+              // Por defecto se propone el par más antiguo y el más joven —el
+              // caso que no sale solo, una discordancia que salta unidades—;
+              // las selects de cada tarjeta aceptan después cualquier otro par.
+              // `units` aquí está invertido (techo arriba) para la columna, así
+              // que la base y el techo son sus dos extremos en orden contrario.
+              const base = units[units.length - 1]?.id || null
+              const techo = units[0]?.id || null
+              dispatch({ type: 'contact.add', lowerUnitId: base, upperUnitId: techo })
+            }}
+          >
+            <Plus size={13} /> Contacto
+          </Btn>
+        }
+      >
         {contacts.length === 0 && (
-          <p className="text-xs text-slate-500">Se crean automáticamente al añadir unidades.</p>
+          <p className="text-xs text-slate-500">
+            Se crean automáticamente al añadir unidades, o con «+ Contacto» eligiendo tú el par —incluidas dos
+            unidades no consecutivas, como en una discordancia que salta varias—.
+          </p>
         )}
         <ul className="space-y-2">
           {contacts.map((c) => {
             const byBlock = scene?.contactSurfaces?.get(c.id)
             const nTraces = c.traces.length
+            const setPair = (lowerUnitId, upperUnitId) =>
+              dispatch({ type: 'contact.update', id: c.id, patch: reassignContact(project, c, lowerUnitId, upperUnitId) })
             return (
               <li
                 key={c.id}
@@ -231,6 +258,36 @@ export default function LayersPanel({
                   <Btn variant="ghost" title="Borrar el contacto" onClick={() => dispatch({ type: 'contact.delete', id: c.id })}>
                     <Trash2 size={13} />
                   </Btn>
+                </div>
+                <div className="mt-1.5 grid grid-cols-2 gap-2">
+                  <Field label="Abajo">
+                    <select
+                      className={inputCls}
+                      value={c.lowerUnitId || ''}
+                      onChange={(e) => setPair(e.target.value || null, c.upperUnitId)}
+                    >
+                      <option value="">—</option>
+                      {units.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Arriba">
+                    <select
+                      className={inputCls}
+                      value={c.upperUnitId || ''}
+                      onChange={(e) => setPair(c.lowerUnitId, e.target.value || null)}
+                    >
+                      <option value="">—</option>
+                      {units.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
                 </div>
                 <div className="mt-1.5 grid grid-cols-2 gap-2">
                   <select

@@ -170,11 +170,15 @@ export function contactMeshes(
  *
  * Desde cada punto de la traza se desciende siguiendo la línea de máxima
  * pendiente del plano —el buzamiento local— hasta el fondo del modelo o hasta
- * salir del área de trabajo. No se reajusta nada al arrancar: la superficie ya
- * viene anclada a la traza (ver `anchorToTrace`), y retocarla aquí volvería a
- * separar el plano que se ve del que corta.
+ * salir del área de trabajo. Con `zTop` se hace además el camino inverso hacia
+ * arriba, hasta esa cota o hasta salir del área: es lo que deja ver la falla
+ * como una hoja completa, de piso a techo, en vez de cortada justo donde asoma
+ * en la traza —que es la cota del terreno ahí, y varía de un punto a otro de
+ * la traza—. No se reajusta nada al arrancar: la superficie ya viene anclada a
+ * la traza (ver `anchorToTrace`), y retocarla aquí volvería a separar el plano
+ * que se ve del que corta.
  */
-export function faultSheetMesh(trace, surf, dem, { zBottom, inFrame = null, side, rows = 14 } = {}) {
+export function faultSheetMesh(trace, surf, dem, { zBottom, zTop = null, inFrame = null, side, rows = 14 } = {}) {
   if (!trace || trace.length < 2 || !surf?.defined) return null
   const step = Math.max(side * 0.0015, 0.5)
   const eps = step * 0.5
@@ -183,34 +187,52 @@ export function faultSheetMesh(trace, surf, dem, { zBottom, inFrame = null, side
     return Number.isFinite(v) ? v : NaN
   }
 
-  const descend = (p) => {
-    const zTop = zAt(p[0], p[1])
-    if (!Number.isFinite(zTop)) return null
-    const path = [[p[0], p[1], zTop]]
+  // Camino sobre la línea de máxima pendiente desde `p`: `dir > 0` desciende
+  // (como antes), `dir < 0` asciende hacia `limit` en el sentido contrario.
+  const walk = (p, dir, limit) => {
+    const z0 = zAt(p[0], p[1])
+    if (!Number.isFinite(z0)) return null
+    const path = [[p[0], p[1], z0]]
     let x = p[0]
     let y = p[1]
-    let z = zTop
-    for (let n = 0; n < 600 && z > zBottom; n++) {
+    let z = z0
+    for (let n = 0; n < 600; n++) {
+      if (dir > 0 ? z <= limit : z >= limit) break
       const gxg = (zAt(x + eps, y) - zAt(x - eps, y)) / (2 * eps)
       const gyg = (zAt(x, y + eps) - zAt(x, y - eps)) / (2 * eps)
       const g = Math.hypot(gxg, gyg)
       if (!(g > 1e-9)) break
-      const nx = x - (gxg / g) * step
-      const ny = y - (gyg / g) * step
+      const nx = x - dir * (gxg / g) * step
+      const ny = y - dir * (gyg / g) * step
       if (inFrame && !inFrame(nx, ny)) break
       const nz = zAt(nx, ny)
-      if (!Number.isFinite(nz) || nz >= z) break
+      if (!Number.isFinite(nz)) break
+      if (dir > 0 ? nz >= z : nz <= z) break
       x = nx
       y = ny
       z = nz
       path.push([x, y, z])
     }
+    return path
+  }
+
+  const column = (p) => {
+    const down = walk(p, 1, zBottom)
+    if (!down) return null
+    let path = down
+    if (zTop != null) {
+      const up = walk(p, -1, zTop)
+      // El primer punto de `up` es el mismo `p` que ya encabeza `down`: se
+      // quita antes de invertirlo y anteponerlo, para no repetirlo.
+      if (up && up.length > 1) path = [...up.slice(1).reverse(), ...down]
+    }
     if (path.length < 2) return null
     // Se remuestrea a cotas equiespaciadas para que dos columnas vecinas casen.
-    const zEnd = Math.max(zBottom, path[path.length - 1][2])
+    const zHigh = path[0][2]
+    const zLow = Math.max(zBottom, path[path.length - 1][2])
     const col = []
     for (let r = 0; r < rows; r++) {
-      const zt = zTop + ((zEnd - zTop) * r) / (rows - 1)
+      const zt = zHigh + ((zLow - zHigh) * r) / (rows - 1)
       let k = 0
       while (k + 2 < path.length && path[k + 1][2] > zt) k++
       const a = path[k]
@@ -225,7 +247,7 @@ export function faultSheetMesh(trace, surf, dem, { zBottom, inFrame = null, side
   const every = Math.max(1, Math.floor(trace.length / 70))
   const cols = []
   for (let i = 0; i < trace.length; i += every) {
-    const col = descend(trace[i])
+    const col = column(trace[i])
     if (col) cols.push(col)
   }
   if (cols.length < 2) return null

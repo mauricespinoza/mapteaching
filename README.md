@@ -34,7 +34,7 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | Elemento | Cómo |
 | --- | --- |
 | **Curvas de nivel** | Se traza la curva y se indica su cota. La equidistancia se autocompleta y la siguiente curva propone la cota siguiente. |
-| **Contactos geológicos** | Se definen primero las **unidades** de base a techo; entre unidades consecutivas se crea un contacto (concordante, discordante, intrusivo o inferido) cuya traza se digitaliza, en tantos tramos como haga falta. |
+| **Contactos geológicos** | Se definen primero las **unidades** de base a techo; entre unidades consecutivas se crea un contacto (concordante, discordante, intrusivo o inferido) cuya traza se digitaliza, en tantos tramos como haga falta. Con **«+ Contacto»** se crea además uno entre **cualquier par de unidades**, no sólo consecutivas —el par se elige a mano con las selects «Abajo»/«Arriba» de su tarjeta—, que es como se digitaliza una discordancia que salta varias unidades de una vez. |
 | **Fallas** | Traza + **cinemática** (normal, inversa, dextral, sinestral y sus combinaciones oblicuas). Se dibujan con su simbología (garrapatas en el bloque colgante, triángulos en las inversas, medias flechas en las de rumbo). |
 | **Contornos estructurales** | Se trazan a mano cuando hace falta corregir o completar lo que calcula la app: una recta de cota constante sobre una superficie. También se editan arrastrando los que la app dibuja. |
 | **Trazas de perfil** | Línea A–A′ que abre la vista de perfil. |
@@ -546,6 +546,15 @@ La casilla **«Sobre el terreno»**, con su control de opacidad, dibuja además 
 prolongación de cada superficie por encima del relieve: lo que ya se erosionó, y
 lo que enseña hacia dónde seguía el pliegue. Sale del mismo recorte exacto, con
 el criterio de la topografía invertido y con un techo para que no se dispare.
+
+La casilla **«Falla hasta el techo»** hace lo propio con el plano de cada falla:
+por defecto sube desde la traza sólo hasta la cota del terreno en ese punto —que
+varía de un extremo a otro de la traza según el relieve—, así que la hoja queda
+recortada de forma irregular por arriba. Con esta opción, además de descender
+hacia el fondo del modelo como siempre, el plano **asciende** desde la traza
+siguiendo su propia línea de máxima pendiente hasta el mismo borde superior que
+usan los planos de perfil: la falla se ve entonces como una hoja completa, de
+piso a techo, en vez de cortada por la silueta del terreno.
 
 **Tocar una superficie** dice qué rasgo es, en qué bloque, su cota en ese punto y
 su **actitud ahí mismo** — no la media del rasgo: en un pliegue cada flanco

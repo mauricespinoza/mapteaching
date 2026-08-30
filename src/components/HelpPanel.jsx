@@ -30,7 +30,9 @@ export default function HelpPanel({ project, dispatch }) {
         </li>
         <li>
           <b>Define las unidades</b> de base a techo. Entre unidades consecutivas se crea un contacto; digitaliza
-          su traza (puedes dibujar varios tramos y a ambos lados de una falla).
+          su traza (puedes dibujar varios tramos y a ambos lados de una falla). Con «+ Contacto» creas además
+          contactos <b>entre unidades cualesquiera</b>, no sólo consecutivas —el par se elige con las selects
+          «Abajo»/«Arriba» de su tarjeta—, que es como se digitaliza una discordancia que salta varias unidades.
         </li>
         <li>
           <b>Digitaliza las fallas</b> e indica su cinemática. Las fallas parten el mapa en bloques: cada contacto
@@ -53,7 +55,9 @@ export default function HelpPanel({ project, dispatch }) {
           En el <b>perfil</b>, la <b>regla</b> mide con dos toques: separación vertical, corrimiento horizontal y
           distancia real, imantándose a los contactos, las fallas y la topografía. Es el gesto con el que se lee
           el salto de una falla. En el <b>3D</b>, «Sobre el terreno» dibuja la prolongación ya erosionada de cada
-          superficie, y tocar una superficie dice qué es y con qué rumbo y manteo <i>en ese punto</i>.
+          superficie, «Falla hasta el techo» prolonga el plano de cada falla hasta el borde superior del modelo
+          en vez de cortarlo justo en la traza, y tocar una superficie dice qué es y con qué rumbo y manteo
+          <i>en ese punto</i>.
         </li>
         <li>
           Cuando <b>dos superficies se cruzan</b> —lejos de sus datos cada una extrapola a su aire— manda la más

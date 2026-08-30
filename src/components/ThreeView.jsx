@@ -24,6 +24,7 @@ export default function ThreeView({ project, scene, image }) {
     surfaces: true,
     aerial: false,
     faults: true,
+    faultTop: false,
     wells: true,
     sections: true,
     texture: true,
@@ -156,6 +157,10 @@ export default function ThreeView({ project, scene, image }) {
 
     const depth = Math.min(project.settings.sectionDepth || 2000, Math.max(400, zRange * 1.4))
     const zBottom = dem.zmin - depth
+    // Techo del modelo: el mismo margen por encima del punto más alto que usan
+    // los planos de perfil, para que "hasta el techo" sea un borde reconocible
+    // y no un número arbitrario.
+    const modelTop = dem.zmax + zRange * 0.05
 
     // Topografía
     if (show.topo && dem.valid) {
@@ -304,7 +309,13 @@ export default function ThreeView({ project, scene, image }) {
         const color = new THREE.Color(kinematicsOf(fw.fault.kinematics).color)
         for (const tr of fw.traces) {
           for (const run of clipRuns(tr, inFrame)) {
-            const tris = faultSheetMesh(run, surf, dem, { zBottom, inFrame, side: scene.side })
+            const tris = faultSheetMesh(run, surf, dem, {
+              zBottom,
+              zTop: show.faultTop ? modelTop : null,
+              inFrame,
+              side: scene.side,
+              rows: show.faultTop ? 22 : 14,
+            })
             if (!tris) continue
             const geo = new THREE.BufferGeometry()
             geo.setAttribute('position', new THREE.Float32BufferAttribute(toScene(tris, P), 3))
@@ -441,6 +452,7 @@ export default function ThreeView({ project, scene, image }) {
             ['wells', 'Pozos'],
             ['sections', 'Perfiles'],
             ['aerial', 'Sobre el terreno'],
+            ['faultTop', 'Falla hasta el techo'],
           ].map(([k, lab]) => (
             <label key={k} className="flex items-center gap-1.5">
               <input
