@@ -181,10 +181,17 @@ tras otro, los conjuntos máximos de puntos compatibles con un mismo plano
 
 Los puntos que sobran se agregan al dominio que mejor los explica si queda cerca;
 si ninguno lo hace, forman dominio propio (una cota suelta sigue siendo un
-contorno estructural válido, aunque no dé manteo). La superficie en profundidad
-se reconstruye después apoyándose en el plano del dominio de cada zona, no en un
-plano global, así que cada limbo conserva su manteo y sólo la charnela queda
-redondeada.
+contorno estructural válido, aunque no dé manteo). Un dominio así no resuelve su
+propia pendiente, y para reconstruir la superficie toma prestada la del dominio
+resuelto más cercano, desplazada hasta pasar por sus propios puntos: es la
+hipótesis de pliegue cilíndrico, y evita que el único dato que hay en esa zona se
+quede fuera de la reconstrucción.
+
+La superficie en profundidad se reconstruye después apoyándose en el plano del
+dominio de cada zona, no en un plano global, así que cada limbo conserva su
+manteo y sólo la charnela queda redondeada, en aproximadamente un intervalo de
+contornos —más fino que eso no está medido: entre dos contornos consecutivos no
+hay ningún dato—.
 
 Los resultados salen en el mapa (contornos punteados con su cota y símbolos de
 rumbo/manteo) y en la tabla del panel **Resultados**, exportable a CSV en las dos
@@ -415,13 +422,30 @@ falla con su **manteo aparente** y flechas de movimiento, y los pozos del
 corredor proyectados sobre el perfil. Exageración vertical y profundidad
 ajustables; exportación a **SVG** y **PNG**.
 
-La geometría en profundidad sale de un **ajuste local móvil** (moving least
-squares) sobre los puntos observados: la superficie interpola exactamente los
-datos, sigue los pliegues en vez de promediarlos a través de la charnela y da la
-orientación local en cualquier punto. Donde faltan datos degrada suavemente
-hacia el plano del dominio estructural correspondiente, y con datos planos lo
-reproduce de forma exacta. Los contornos estructurales se agrupan además **por
-limbo** (ver §4), de modo que las rectas de un mismo flanco se ajustan juntas.
+La geometría en profundidad se construye en dos piezas: la **forma del pliegue**
+y lo que los datos corrigen sobre ella. La forma es la mezcla de los planos de
+los dominios estructurales (§4) —limbos planos que se funden en las charnelas—,
+y encima se añaden dos pasadas de ajuste local con los residuos, cada vez más
+estrechas, hasta que la superficie pasa por los datos. Da la orientación local
+en cualquier punto, con datos planos reproduce el plano de forma exacta y donde
+faltan datos degrada suavemente hacia el plano del dominio más próximo. Los
+contornos estructurales se agrupan además **por limbo** (ver §4), de modo que
+las rectas de un mismo flanco se ajustan juntas.
+
+Se hace en dos piezas y no de una vez porque un ajuste local que tenga que
+reproducir él solo toda la amplitud del pliegue oscila entre dato y dato: la
+superficie sale ondulada dentro de limbos que son planos, y esas ondas se ven
+como **bollos en las charnelas**. Con la geometría del pliegue ya puesta, los
+residuos son pequeños y su corrección no puede rizar nada. Sobre un pliegue de
+limbos exactamente planos, el error dentro de los limbos baja de ±6,7 m a ±0,7 m.
+
+Un dato que se aparta de la tendencia más que un intervalo de curvas de nivel
+—dos observaciones de la misma superficie separadas 200 m en cota y 40 m en el
+mapa, por ejemplo— no puede ser cierto a la vez que sus vecinos. En vez de
+forzar la superficie a pasar por los dos y pegar un pico, se le baja el peso y
+la superficie llega a un compromiso suave. Es la única situación en la que el
+modelo se aparta apreciablemente de un dato, y quiere decir que el ejercicio
+tiene contornos estructurales que no casan con la traza del mapa.
 
 Una unidad sólo se rellena donde al menos uno de sus dos contactos está resuelto
 en ese bloque —contando los que resuelven **heredando la geometría del contacto

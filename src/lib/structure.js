@@ -13,7 +13,7 @@
 
 import { fitLine, fitPlane, polylineIntersections, dot, sub, norm, perp, clipLineToRect } from './geom.js'
 import { azimuthWorld, formatAttitude, norm360 } from './georef.js'
-import { structuralDomains, domainPlaneField } from './domains.js'
+import { structuralDomains, domainPlaneField, completeDomainPlanes } from './domains.js'
 
 const RAD = Math.PI / 180
 const DEG = 180 / Math.PI
@@ -173,100 +173,74 @@ function attitudeFromPlane(plane) {
 }
 
 /**
- * Ajuste local móvil (moving least squares): en cada punto se ajusta un plano
- * ponderando los datos por su distancia. El resultado es una superficie
- * continua y derivable que sigue los pliegues en vez de promediarlos, y que da
- * la orientación local en cualquier punto. Con datos planos degenera
- * exactamente en el plano global, así que sustituye al ajuste plano sin
- * cambiar los casos sencillos.
+ * Escala del problema: la separación típica entre contornos estructurales,
+ * medida como la distancia al punto de *otra* cota más cercano. Es la anchura
+ * mínima que puede tener una charnela sin inventar detalle: entre dos contornos
+ * consecutivos no hay ningún dato, así que nada más fino que eso está medido.
  */
-export function buildMls(points3D, basePlane) {
-  const n = points3D.length
-  if (n < 4) return null
-  // Ancho de banda: suficiente para que cada ajuste vea varios puntos, pero
-  // menor que la longitud de onda de un pliegue.
-  let sx = 0
-  let sy = 0
-  for (const p of points3D) {
-    sx += p[0]
-    sy += p[1]
+function contourSpacing(points3D) {
+  const d = []
+  for (let i = 0; i < points3D.length; i++) {
+    let best = Infinity
+    for (let j = 0; j < points3D.length; j++) {
+      if (points3D[j][2] === points3D[i][2]) continue
+      const v = Math.hypot(points3D[j][0] - points3D[i][0], points3D[j][1] - points3D[i][1])
+      if (v < best) best = v
+    }
+    if (Number.isFinite(best)) d.push(best)
   }
-  const cx = sx / n
-  const cy = sy / n
-  let spread = 0
-  for (const p of points3D) spread += Math.hypot(p[0] - cx, p[1] - cy)
-  spread /= n
-  // El ancho de banda se adapta en cada consulta a la distancia del k-ésimo
-  // punto más cercano: estrecho donde hay datos densos (sigue el pliegue) y
-  // ancho donde son escasos (se mantiene estable).
-  const K = Math.min(n, 8)
-  const hFloor = Math.max(spread * 0.06, 1e-6)
-  const hCeil = Math.max(spread * 1.5, hFloor * 4)
-  const eps2 = Math.pow(Math.max(spread * 1e-4, 1e-6), 2)
-  const d2s = new Float64Array(n)
-  const kbuf = new Float64Array(Math.max(1, Math.min(n, 8)))
-  // Regularización hacia un plano de referencia: evita que un grupo de puntos
-  // casi alineados (lo habitual en una traza) produzca un ajuste inestable. Ese
-  // plano es el del dominio estructural que corresponde a cada zona, no el plano
-  // global: si fuese el global, la superficie tendería al promedio de los dos
-  // limbos y el pliegue se aplanaría justo donde importa.
-  const zMean = points3D.reduce((s2, p) => s2 + p[2], 0) / n
-  const flat = { a: 0, b: 0, c: zMean }
-  const planeOf = typeof basePlane === 'function' ? basePlane : () => basePlane
-  const lambda = 1e-9
-  const MU = 0.15
+  if (!d.length) return null
+  d.sort((a, b) => a - b)
+  return d[d.length >> 1] || null
+}
 
-  function fit(x, y) {
-    const g = planeOf(x, y) || flat
-    for (let i = 0; i < n; i++) {
-      const dx = points3D[i][0] - x
-      const dy = points3D[i][1] - y
-      d2s[i] = dx * dx + dy * dy
+/**
+ * Corrección local sobre una tendencia: ajuste local móvil de los residuos,
+ * con peso gaussiano y ancho `h` fijo. Sin singularidad en el dato a propósito
+ * —un peso que tiende a infinito hace que el ajuste salte de un punto al
+ * siguiente y es justo lo que arruga la superficie—, y con ancho constante,
+ * porque un ancho que cambie de un sitio a otro traslada sus propios quiebros
+ * a la superficie.
+ *
+ * `rel` marca qué datos son fiables: un punto que contradice a todos sus vecinos
+ * pesa casi nada y deja de arrastrar la superficie hacia sí.
+ */
+const ZERO = { z: 0, a: 0, b: 0 }
+
+function residualField(points3D, residuals, rel, h, mu = 0.25) {
+  let any = false
+  for (const r of residuals) {
+    if (Math.abs(r) > 1e-9) {
+      any = true
+      break
     }
-    // k-ésima distancia por inserción en un búfer de tamaño K: ordenar las N
-    // distancias en cada consulta hacía inviable rellenar una grilla entera.
-    let filled = 0
-    for (let i = 0; i < n; i++) {
-      const v = d2s[i]
-      if (filled < K) {
-        let j = filled++
-        while (j > 0 && kbuf[j - 1] > v) {
-          kbuf[j] = kbuf[j - 1]
-          j--
-        }
-        kbuf[j] = v
-      } else if (v < kbuf[K - 1]) {
-        let j = K - 1
-        while (j > 0 && kbuf[j - 1] > v) {
-          kbuf[j] = kbuf[j - 1]
-          j--
-        }
-        kbuf[j] = v
-      }
-    }
-    const h = Math.min(hCeil, Math.max(hFloor, Math.sqrt(kbuf[filled - 1]) * 1.1))
-    const h2 = h * h
-    // Sistema normal 3x3 de z = a·(x−x0) + b·(y−y0) + c, centrado en la consulta.
+  }
+  // Datos que ya están sobre la tendencia: no hay nada que corregir y la
+  // superficie se queda exactamente en ella.
+  if (!any) return () => ZERO
+  const h2 = h * h
+  const lambda = 1e-9
+  return (x, y) => {
     let m00 = lambda
     let m01 = 0
     let m02 = 0
     let m11 = lambda
     let m12 = 0
     let m22 = lambda
-    let r0 = lambda * g.a
-    let r1 = lambda * g.b
-    let r2 = lambda * (g.a * x + g.b * y + g.c)
+    let r0 = 0
+    let r1 = 0
+    let r2 = 0
     let wsum = 0
-    for (let i = 0; i < n; i++) {
-      const p = points3D[i]
-      const dx = p[0] - x
-      const dy = p[1] - y
-      const rr = dx * dx + dy * dy
-      // Peso singular (Shepard): tiende a infinito en el dato, de modo que la
-      // superficie interpola los puntos observados en vez de sólo aproximarlos.
-      const w = Math.exp(-rr / h2) / (rr + eps2)
-      if (!Number.isFinite(w)) return { z: points3D[i][2], a: g.a, b: g.b }
-      if (w < 1e-12) continue
+    let raw = 0
+    for (let i = 0; i < points3D.length; i++) {
+      const dx = points3D[i][0] - x
+      const dy = points3D[i][1] - y
+      const q = (dx * dx + dy * dy) / h2
+      if (q > 30) continue
+      const g = Math.exp(-q)
+      raw += g
+      const w = g * rel[i]
+      if (w < 1e-14) continue
       wsum += w
       m00 += w * dx * dx
       m01 += w * dx * dy
@@ -274,33 +248,135 @@ export function buildMls(points3D, basePlane) {
       m11 += w * dy * dy
       m12 += w * dy
       m22 += w
-      r0 += w * dx * p[2]
-      r1 += w * dy * p[2]
-      r2 += w * p[2]
+      r0 += w * dx * residuals[i]
+      r1 += w * dy * residuals[i]
+      r2 += w * residuals[i]
     }
-    // Regularización proporcional a la masa de datos: tira del *gradiente*
-    // hacia el plano global sin tocar la cota local, así la superficie sigue
-    // interpolando los puntos pero no inventa pendientes donde los datos están
-    // alineados sobre una traza y no determinan la dirección transversal.
-    const tau = MU * m22 * h2
+    if (wsum < 1e-9 || raw < 1e-12) return ZERO
+    // Sin esto, unos pocos puntos alineados sobre una traza dictarían una
+    // pendiente transversal que no está medida.
+    const tau = mu * m22 * h2
     m00 += tau
     m11 += tau
-    r0 += tau * g.a
-    r1 += tau * g.b
-    if (wsum < 1e-9) return { z: g.a * x + g.b * y + g.c, a: g.a, b: g.b }
-    // Resolución directa del sistema simétrico 3x3.
-    const A = [
-      [m00, m01, m02],
-      [m01, m11, m12],
-      [m02, m12, m22],
-    ]
-    const r = [r0, r1, r2]
-    const sol = solve3(A, r)
-    if (!sol) return { z: g.a * x + g.b * y + g.c, a: g.a, b: g.b }
-    return { z: sol[2], a: sol[0], b: sol[1] }
+    const sol = solve3(
+      [
+        [m00, m01, m02],
+        [m01, m11, m12],
+        [m02, m12, m22],
+      ],
+      [r0, r1, r2]
+    )
+    if (!sol) return ZERO
+    // Fiabilidad media de lo que se ve desde aquí. Donde los únicos datos al
+    // alcance son los que se contradicen, la corrección se apaga y la
+    // superficie se queda en la tendencia en vez de ir a buscarlos: si no, en
+    // las pasadas finas —tan estrechas que no alcanzan ningún otro dato— un
+    // dato imposible acabaría mandando él solo.
+    const trust = wsum / raw
+    return { z: sol[2] * trust, a: sol[0] * trust, b: sol[1] * trust }
   }
+}
 
-  return { evaluate: fit, n }
+/** Mediana de valores absolutos: escala típica de un residuo, sin que un dato disparatado la infle. */
+function mad(values) {
+  const a = values.map(Math.abs).sort((p, q) => p - q)
+  return a[a.length >> 1] || 0
+}
+
+/**
+ * Salto típico entre cotas de los datos —en la práctica, el intervalo entre
+ * curvas de nivel—. Es la resolución vertical del ejercicio: por debajo de eso
+ * no hay forma de saber si dos observaciones se contradicen o simplemente caen
+ * entre dos curvas.
+ */
+function elevationStep(points3D) {
+  const zs = [...new Set(points3D.map((p) => p[2]))].sort((a, b) => a - b)
+  if (zs.length < 2) return 0
+  const gaps = []
+  for (let i = 1; i < zs.length; i++) gaps.push(zs[i] - zs[i - 1])
+  gaps.sort((a, b) => a - b)
+  return gaps[gaps.length >> 1] || 0
+}
+
+// Anchura de la charnela y de las pasadas de corrección, en unidades de la
+// separación entre contornos. La charnela se redondea en aproximadamente un
+// intervalo de contornos, que es lo más fino que los datos resuelven; las dos
+// pasadas —primero ancha, luego estrecha— recuperan lo que la tendencia no
+// explica sin volver a rizar la superficie.
+const HINGE = 1.0
+const PASSES = [1.2, 0.6]
+// A partir de cuántas desviaciones un dato se considera en contradicción con
+// sus vecinos. Generoso: se trata de no dejar que un dato imposible pegue un
+// tirón a toda su vecindad, no de descartar datos buenos.
+const OUTLIER = 4
+
+/**
+ * Modelo de una superficie plegada: la forma del pliegue más lo que los datos
+ * corrigen sobre ella.
+ *
+ * La *tendencia* es la mezcla de los planos de los dominios estructurales
+ * (domains.js): limbos planos que se funden en las charnelas. Sobre ella se
+ * añaden dos pasadas de corrección local con los residuos, cada vez más
+ * estrechas, de modo que la superficie acaba pasando por los datos.
+ *
+ * Se hace en dos piezas y no de una vez porque un ajuste local que tenga que
+ * reproducir él solo toda la amplitud del pliegue oscila entre dato y dato: la
+ * superficie sale ondulada dentro de limbos que son planos, y esas ondas se ven
+ * como bollos en las charnelas. Con la geometría del pliegue ya puesta por la
+ * tendencia, los residuos son pequeños y su corrección no puede rizar nada.
+ *
+ * Devuelve `{ z, a, b }`: cota y gradiente local, con `z = a·x + b·y + c` cerca
+ * del punto consultado.
+ */
+export function buildFoldModel(points3D, trend, spacing) {
+  const n = points3D.length
+  if (n < 4 || !trend) return null
+  const s = spacing || 1
+  const trendAt = (x, y) => {
+    const g = trend(x, y)
+    return g ? g.a * x + g.b * y + g.c : NaN
+  }
+  let res = points3D.map((p) => {
+    const z = trendAt(p[0], p[1])
+    return Number.isFinite(z) ? p[2] - z : 0
+  })
+  // Un dato que se aparta muchísimo de la tendencia no puede ser cierto a la vez
+  // que sus vecinos: dos observaciones de la misma superficie separadas 200 m en
+  // cota y 40 m en el mapa se contradicen, y hacer pasar la superficie por las
+  // dos obliga a un pico. El umbral se mide contra la dispersión típica de los
+  // propios residuos, de modo que sólo marca lo que se sale del conjunto, y es
+  // deliberadamente generoso: se trata de no dejar que un dato imposible arrastre
+  // a toda su vecindad, no de descartar datos buenos.
+  //
+  // Es un peso por dato, constante: no interviene en la suavidad de la
+  // superficie, sólo en cuánto tira cada observación.
+  // Nunca por debajo de un intervalo de curvas de nivel: separaciones menores
+  // que eso no son contradicciones, es la resolución del ejercicio.
+  const limit = Math.max(OUTLIER * mad(res) * 1.4826, elevationStep(points3D), 1e-6)
+  const rel = res.map((r) => (Math.abs(r) > limit ? 0.02 : 1))
+  const layers = []
+  for (const k of PASSES) {
+    const layer = residualField(points3D, res, rel, s * k)
+    layers.push(layer)
+    res = points3D.map((p, i) => res[i] - layer(p[0], p[1]).z)
+  }
+  return {
+    n,
+    evaluate: (x, y) => {
+      const g = trend(x, y)
+      if (!g) return { z: NaN, a: 0, b: 0 }
+      let z = g.a * x + g.b * y + g.c
+      let a = g.a
+      let b = g.b
+      for (const layer of layers) {
+        const r = layer(x, y)
+        z += r.z
+        a += r.a
+        b += r.b
+      }
+      return { z, a, b }
+    },
+  }
 }
 
 /** Eliminación gaussiana con pivoteo para un sistema 3x3. */
@@ -404,11 +480,13 @@ export function buildSurface({
   )
   const folded = domainAttitudes.filter((d) => d.dip != null).length > 1
 
-  // Ajuste local móvil: da la orientación en cualquier punto y permite que la
-  // superficie se pliegue manteniendo la continuidad. Se apoya en el plano del
-  // dominio de cada zona, no en el plano global.
-  const basePlaneAt = domainPlaneField(dom.groups, dom.planes, plane)
-  const mls = points3D.length >= 6 ? buildMls(points3D, basePlaneAt) : null
+  // Modelo de la superficie: la forma del pliegue que dan los dominios, afinada
+  // con los datos. Da la orientación en cualquier punto y deja que la superficie
+  // se pliegue manteniendo la continuidad.
+  const spacing = contourSpacing(points3D)
+  const domPlanes = completeDomainPlanes(dom.groups, dom.planes, plane)
+  const basePlaneAt = domainPlaneField(dom.groups, domPlanes, plane, (spacing || 1) * HINGE)
+  const model = points3D.length >= 6 ? buildFoldModel(points3D, basePlaneAt, spacing) : null
 
   const scs = structureContours(points3D, tol, limbOf, keyOf)
   const usable = scs.filter((s) => s.fit)
@@ -503,9 +581,9 @@ export function buildSurface({
   const tanDip = mean ? Math.tan(mean.dip * RAD) : 0
 
   function elevationAt(x, y) {
-    // El ajuste local móvil es el modelo preferente: es continuo, sigue los
-    // pliegues y con datos planos reproduce exactamente el plano.
-    if (mls && !manual) return mls.evaluate(x, y).z
+    // El modelo del pliegue es el preferente: es continuo, sigue los pliegues y
+    // con datos planos reproduce exactamente el plano.
+    if (model && !manual) return model.evaluate(x, y).z
     if (nodes.length >= 2) {
       const s = dot([x, y], axis)
       if (s <= nodes[0].s) {
@@ -555,20 +633,20 @@ export function buildSurface({
     return (B.elevation - A.elevation) / ds
   }
 
-  // Paso de las diferencias finitas cuando la superficie no tiene ajuste local
-  // móvil: lo bastante ancho para que el gradiente no lea el ruido del ajuste.
+  // Paso de las diferencias finitas cuando la superficie no tiene modelo de
+  // pliegue: lo bastante ancho para que el gradiente no lea el ruido del ajuste.
   const gradStep = Math.max(tol * 4, 1e-6)
 
   /**
    * Cota y gradiente local de la superficie en un punto, `{ z, a, b }` con
-   * `z = a·x + b·y + c` localmente. El ajuste local móvil da las dos cosas de
+   * `z = a·x + b·y + c` localmente. El modelo del pliegue da las dos cosas de
    * una sola pasada; sin él, el gradiente sale por diferencias finitas. Es lo
    * que necesita una superficie paralela para desplazarse un espesor
    * perpendicular constante (parallel.js).
    */
   function sampleAt(x, y) {
-    if (mls && !manual) {
-      const m = mls.evaluate(x, y)
+    if (model && !manual) {
+      const m = model.evaluate(x, y)
       return { z: m.z, a: m.a, b: m.b }
     }
     const z = elevationAt(x, y)
@@ -594,9 +672,9 @@ export function buildSurface({
           ? 'una-cota'
           : 'insuficiente'
 
-  const attitudeAt = mls
+  const attitudeAt = model
     ? (x, y) => {
-        const m = mls.evaluate(x, y)
+        const m = model.evaluate(x, y)
         return attitudeFromGradient(m.a, m.b)
       }
     : () => mean
@@ -607,7 +685,7 @@ export function buildSurface({
     traces,
     manualContours,
     points3D,
-    mls,
+    model,
     gradStep,
     sampleAt,
     limbCount,

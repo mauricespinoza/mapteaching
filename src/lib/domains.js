@@ -413,17 +413,86 @@ function finish(points3D, labels) {
 }
 
 /**
- * Campo de planos de referencia: en cada punto del mapa devuelve el plano del
- * dominio que le corresponde, mezclado suavemente con los vecinos para que la
- * superficie reconstruida pase de un limbo a otro sin salto.
+ * Un plano para cada dominio. Los que no resuelven manteo por sí solos —una
+ * traza suelta de la que sólo se conoce una cota— heredan la actitud del
+ * dominio resuelto más cercano y se desplazan hasta pasar por sus propios
+ * puntos. Es la hipótesis de pliegue cilíndrico —el manteo se mantiene a lo
+ * largo del pliegue—, y evita que un contorno aislado se quede fuera de la
+ * reconstrucción: sin plano no entra en la mezcla, y la superficie pasaría de
+ * largo por encima del único dato que hay allí.
  */
-export function domainPlaneField(groups, planes, fallback) {
+export function completeDomainPlanes(groups, planes, fallback = null) {
+  const out = planes.slice()
+  const centroid = groups.map((g) =>
+    g.length ? [g.reduce((s, p) => s + p[0], 0) / g.length, g.reduce((s, p) => s + p[1], 0) / g.length] : null
+  )
+  for (let k = 0; k < groups.length; k++) {
+    if (out[k] || !groups[k].length || !centroid[k]) continue
+    let src = null
+    let best = Infinity
+    for (let m = 0; m < groups.length; m++) {
+      if (!planes[m] || !centroid[m]) continue
+      const d = Math.hypot(centroid[m][0] - centroid[k][0], centroid[m][1] - centroid[k][1])
+      if (d < best) {
+        best = d
+        src = planes[m]
+      }
+    }
+    if (!src) src = fallback
+    if (!src) continue
+    let c = 0
+    for (const p of groups[k]) c += p[2] - (src.a * p[0] + src.b * p[1])
+    out[k] = { a: src.a, b: src.b, c: c / groups[k].length, rms: null, n: groups[k].length, inherited: true }
+  }
+  return out
+}
+
+/**
+ * Campo de planos de referencia: en cada punto del mapa, la mezcla de los
+ * planos de dominio que le corresponden. Es la forma del pliegue —limbos
+ * planos y charnelas redondeadas— antes de afinar con los datos.
+ *
+ * El peso de cada dominio es una masa gaussiana sobre *sus* puntos, así que el
+ * campo es derivable en todas partes. Importa que lo sea: un peso construido
+ * sobre la distancia al punto más cercano tiene un pliegue en cada mediatriz, y
+ * esos pliegues se copian a la superficie en forma de bollos.
+ *
+ * El núcleo es alargado a lo largo del rumbo *del propio dominio* —fijo, no
+ * interpolado— porque un contorno estructural es una línea de cota constante:
+ * promediar a lo largo de ella no cuesta nada, mientras que promediar a través
+ * del manteo aplana el pliegue. Con el rumbo fijo por dominio el núcleo no gira
+ * al movernos, que es lo que estropearía la suavidad.
+ *
+ * `sigma` es la anchura de la charnela medida a través del manteo. Se pasa desde
+ * fuera porque la escala del problema es la separación entre contornos
+ * estructurales, que sólo se conoce con los datos delante.
+ */
+export function domainPlaneField(groups, planes, fallback, sigma, aniso = 6) {
   const usable = []
-  for (let k = 0; k < groups.length; k++) if (planes[k]) usable.push({ pts: groups[k], plane: planes[k] })
+  for (let k = 0; k < groups.length; k++) {
+    const pl = planes[k]
+    if (!pl || !groups[k].length) continue
+    const g = Math.hypot(pl.a, pl.b)
+    // Un dominio horizontal no tiene rumbo: se pondera de forma isótropa.
+    const flat = g < 1e-12
+    usable.push({ pts: groups[k], plane: pl, ux: flat ? 1 : pl.a / g, uy: flat ? 0 : pl.b / g, flat })
+  }
   if (!usable.length) return fallback ? () => fallback : null
   if (usable.length === 1) {
     const only = usable[0].plane
     return () => only
+  }
+  const sd2 = Math.max(sigma * sigma, 1e-9)
+  const ss2 = sd2 * aniso * aniso
+  // Distancia al cuadrado en unidades del núcleo: 1 es un `sigma` a través del
+  // manteo y `aniso` sigmas a lo largo del rumbo.
+  const reach = (u, p, x, y) => {
+    const dx = p[0] - x
+    const dy = p[1] - y
+    if (u.flat) return (dx * dx + dy * dy) / sd2
+    const dd = dx * u.ux + dy * u.uy
+    const ds = -dx * u.uy + dy * u.ux
+    return (dd * dd) / sd2 + (ds * ds) / ss2
   }
   return (x, y) => {
     let wa = 0
@@ -431,15 +500,18 @@ export function domainPlaneField(groups, planes, fallback) {
     let wz = 0
     let ws = 0
     for (const u of usable) {
-      let d2 = Infinity
+      let w = 0
+      // Peso racional y no gaussiano. Cerca de los datos se comporta como una
+      // campana de anchura `sigma` y da la charnela redondeada; lejos decae como
+      // 1/d⁶, es decir según la *proporción* entre distancias y no según una
+      // anchura fija. Esto último importa fuera del alcance de los datos: con una
+      // campana de anchura fija el reparto entre dominios se vuelve un salto
+      // brusco, y como los planos extrapolados a esa distancia difieren en
+      // kilómetros, el salto se ve como un escalón en la superficie.
       for (const p of u.pts) {
-        const v = (p[0] - x) * (p[0] - x) + (p[1] - y) * (p[1] - y)
-        if (v < d2) d2 = v
+        const q = 1 + reach(u, p, x, y)
+        w += 1 / (q * q * q)
       }
-      // Peso muy contrastado (1/d⁶): el dominio más cercano manda, de modo que
-      // cada limbo conserva su manteo y sólo la charnela queda redondeada.
-      const w = 1 / (d2 * d2 * d2 + 1e-9)
-      if (!Number.isFinite(w)) return u.plane
       ws += w
       wa += w * u.plane.a
       wb += w * u.plane.b
