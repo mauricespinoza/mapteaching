@@ -188,6 +188,7 @@ export function render(ctx, opts) {
     edit,
     scItems,
     unitRaster,
+    projected,
     width,
     height,
     dpr = 1,
@@ -451,6 +452,89 @@ export function render(ctx, opts) {
         ctx.setLineDash([])
       }
       label(ctx, p[0], p[1] - 16, w.name, { color: '#78350f', size: 11 })
+    }
+  }
+
+  // --- Contactos proyectados a través de la falla ---
+  // Van punteados y en el color del contacto, pero más claros: no son un dato
+  // observado sino dónde estaría el contacto si el bloque se movió en bloque.
+  if (show.projected && projected?.length) {
+    ctx.save()
+    ctx.setLineDash([2, 5])
+    ctx.lineWidth = 2.4
+    ctx.lineCap = 'round'
+    for (const pr of projected) {
+      if (!pr.lines?.length) continue
+      ctx.strokeStyle = pr.color
+      ctx.globalAlpha = 0.85
+      for (const line of pr.lines) {
+        const pts = line.map((w) => toScreen(view, toImage(scene.georef, w)))
+        if (pts.length < 2) continue
+        ctx.beginPath()
+        ctx.moveTo(pts[0][0], pts[0][1])
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1])
+        ctx.stroke()
+      }
+    }
+    ctx.restore()
+  }
+
+  // --- Puntos de perforación ---
+  if (show.piercings && (project.piercings || []).length) {
+    for (const pp of project.piercings) {
+      const selected = selection?.kind === 'piercing' && selection.id === pp.id
+      const sides = [
+        ['a', pp.a],
+        ['b', pp.b],
+      ].filter(([, s]) => s?.at)
+      const screens = sides.map(([, s]) => toScreen(view, s.at))
+      // El segmento que une los dos lados: es la separación que se ve en el
+      // mapa, no el salto —el salto se mide entre los puntos ya perforados—.
+      if (screens.length === 2) {
+        ctx.save()
+        ctx.strokeStyle = selected ? '#be123c' : '#9f1239'
+        ctx.setLineDash([6, 4])
+        ctx.lineWidth = selected ? 2.5 : 1.6
+        ctx.beginPath()
+        ctx.moveTo(screens[0][0], screens[0][1])
+        ctx.lineTo(screens[1][0], screens[1][1])
+        ctx.stroke()
+        ctx.restore()
+      }
+      sides.forEach(([key, s], i) => {
+        const p = screens[i]
+        // Flecha con la dirección de inmersión del rasgo lineal.
+        if (scene?.ready && Number.isFinite(s.trend)) {
+          const { e, n } = basis(scene.georef)
+          const t = s.trend * RAD
+          const dirWorld = [Math.sin(t), Math.cos(t)]
+          const d = norm([
+            dirWorld[0] * e[0] + dirWorld[1] * n[0],
+            dirWorld[0] * e[1] + dirWorld[1] * n[1],
+          ])
+          ctx.strokeStyle = '#be123c'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.moveTo(p[0], p[1])
+          ctx.lineTo(p[0] + d[0] * 24, p[1] + d[1] * 24)
+          ctx.stroke()
+          ctx.beginPath()
+          ctx.moveTo(p[0] + d[0] * 24, p[1] + d[1] * 24)
+          ctx.lineTo(p[0] + d[0] * 17 - d[1] * 5, p[1] + d[1] * 17 + d[0] * 5)
+          ctx.lineTo(p[0] + d[0] * 17 + d[1] * 5, p[1] + d[1] * 17 - d[0] * 5)
+          ctx.closePath()
+          ctx.fillStyle = '#be123c'
+          ctx.fill()
+        }
+        ctx.fillStyle = selected ? '#be123c' : '#fecdd3'
+        ctx.strokeStyle = '#881337'
+        ctx.lineWidth = 2
+        ctx.beginPath()
+        ctx.arc(p[0], p[1], 6, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+        label(ctx, p[0], p[1] - 14, `${pp.name} ${key.toUpperCase()}`, { color: '#881337', size: 10 })
+      })
     }
   }
 

@@ -30,6 +30,7 @@ import {
   Compass,
   Palette,
   Frame,
+  Target,
 } from 'lucide-react'
 import { watchForUpdate, reloadToLatest } from './lib/version.js'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
@@ -44,10 +45,11 @@ import ModelPanel from './components/ModelPanel.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
 import { FaultIcon } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
-import { newProject, newSection, newWell, newStructureContour, uid, countVertices } from './lib/model.js'
+import { newProject, newSection, newWell, newPiercingPair, newStructureContour, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
 import { buildSampleProject } from './lib/sample.js'
-import { buildModelViews, newStructuralModel } from './lib/models.js'
+import { buildModelViews, newStructuralModel, frameTest } from './lib/models.js'
+import { buildProjections } from './lib/piercing.js'
 import { buildUnitRaster } from './lib/geomap.js'
 import { dist, norm, sub } from './lib/geom.js'
 import * as db from './lib/db.js'
@@ -70,6 +72,8 @@ const LAYER_TOGGLES = [
   { k: 'attitudes', label: 'Rumbo y manteo', icon: Compass },
   { k: 'sections', label: 'Trazas de perfil', icon: Spline },
   { k: 'wells', label: 'Pozos', icon: Crosshair },
+  { k: 'piercings', label: 'Puntos de perforación', icon: Target },
+  { k: 'projected', label: 'Contactos proyectados', icon: Target },
   { k: 'hillshade', label: 'Relieve sombreado', icon: Mountain },
   { k: 'unitFill', label: 'Relleno de unidades', icon: Palette },
   { k: 'models', label: 'Modelos sintéticos', icon: Layers3 },
@@ -94,6 +98,8 @@ const DEFAULT_SHOW = {
   attitudes: true,
   sections: true,
   wells: true,
+  piercings: true,
+  projected: true,
   hillshade: true,
   models: true,
   unitFill: true,
@@ -118,6 +124,16 @@ export default function App() {
   const unitRaster = useMemo(
     () => (show.unitFill ? buildUnitRaster(scene) : null),
     [scene, show.unitFill]
+  )
+  // Contactos llevados al otro bloque por el salto de la falla: sólo se
+  // calculan si hay algún par de puntos de perforación resuelto y la capa está
+  // encendida, porque cada uno recorre una grilla buscando su traza.
+  const projected = useMemo(
+    () =>
+      show.projected && (deferredProject.piercings || []).some((p) => p.b)
+        ? buildProjections(scene, deferredProject, { inArea: frameTest(scene) })
+        : [],
+    [scene, deferredProject, show.projected]
   )
 
   const [tab, setTab] = useState('mapa')
@@ -391,6 +407,29 @@ export default function App() {
         setWellId(w.id)
         setSelection({ kind: 'well', id: w.id })
         setTool('select')
+        return
+      }
+      if (tool === 'piercing') {
+        // Dos toques hacen un par: el primero abre uno nuevo a un lado de la
+        // falla, el segundo cierra el rasgo homólogo al otro lado. Se hereda la
+        // orientación del primer lado, que es lo normal salvo que la falla haya
+        // rotado el bloque.
+        const abierto = (project.piercings || []).find((x) => !x.b)
+        if (abierto) {
+          dispatch({
+            type: 'piercing.update',
+            id: abierto.id,
+            patch: { b: { at: p, trend: abierto.a.trend, plunge: abierto.a.plunge } },
+          })
+          setSelection({ kind: 'piercing', id: abierto.id })
+          setPanel('resultados')
+          setTool('select')
+          return
+        }
+        const pair = newPiercingPair(project, project.faults[0]?.id || null, p)
+        dispatch({ type: 'piercing.add', pair })
+        setSelection({ kind: 'piercing', id: pair.id })
+        setPanel('resultados')
       }
     },
     [tool, project, lastModelKind]
@@ -748,6 +787,7 @@ export default function App() {
                   mapRect={mapRect}
                   modelViews={modelViews}
                   unitRaster={unitRaster}
+                  projected={projected}
                   canvasRef={mapCanvasRef}
                 />
               </div>

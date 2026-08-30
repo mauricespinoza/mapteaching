@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
-import { Download, Compass, Move3d, Ruler, Rows3 } from 'lucide-react'
+import { Download, Compass, Move3d, Ruler, Rows3, Target, Trash2 } from 'lucide-react'
 import { surfaceSummary } from '../lib/scene.js'
 import { fmtDistance } from '../lib/georef.js'
 import { kinematicsOf } from '../lib/model.js'
 import { faultSlip } from '../lib/slip.js'
 import { regularContours } from '../lib/scregular.js'
 import { frameTest } from '../lib/models.js'
+import { piercingSlip, projectableContacts, buildProjections } from '../lib/piercing.js'
 import { downloadText } from '../lib/exportFile.js'
-import { Btn } from './ui.jsx'
+import { Btn, inputCls } from './ui.jsx'
 import ThicknessPanel from './ThicknessPanel.jsx'
 import Stereonet from './Stereonet.jsx'
 
@@ -148,6 +149,7 @@ export default function ResultsPanel({ scene, project, dispatch }) {
 
       <RegularSection scene={scene} dispatch={dispatch} />
       <StereonetSection scene={scene} />
+      <PiercingSection scene={scene} project={project} dispatch={dispatch} />
       <SlipSection scene={scene} project={project} />
 
       <h3 className="mb-2 mt-6 border-t border-slate-200 pt-4 text-sm font-semibold text-slate-700">
@@ -362,6 +364,214 @@ function StereonetSection({ scene }) {
  * **separación**, que es lo que el mapa mide y cambia con cada unidad, y el
  * **salto neto**, que es el movimiento real y es uno solo para toda la falla.
  */
+/**
+ * Puntos de perforación: el salto real de una falla.
+ *
+ * Un contacto desplazado sólo da su **separación**, y cada unidad da una
+ * distinta. Un rasgo *lineal* reconocido a los dos lados —la charnela de un
+ * pliegue, un dique cortando un contacto, el eje de un paleocanal— corta el
+ * plano de falla en un punto y no en una línea, así que el vector entre los dos
+ * puntos es el salto neto, entero y sin hipótesis.
+ */
+function PiercingSection({ scene, project, dispatch }) {
+  const inArea = useMemo(() => frameTest(scene), [scene])
+  const pairs = project.piercings || []
+  const solved = useMemo(
+    () =>
+      scene?.ready
+        ? pairs.map((p) => ({ pair: p, slip: p.b && p.faultId ? piercingSlip(scene, p, { inArea }) : null }))
+        : [],
+    [scene, pairs, inArea]
+  )
+  const upd = (id, patch) => dispatch({ type: 'piercing.update', id, patch })
+  const side = (pair, key, s) => (
+    <div className="rounded-lg border border-slate-200 p-1.5">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        Lado {key.toUpperCase()}
+        {!s && ' · sin marcar'}
+      </p>
+      {s ? (
+        <div className="grid grid-cols-2 gap-1.5">
+          <label className="block">
+            <span className="mb-0.5 block text-[10px] text-slate-500">Dirección (°)</span>
+            <input
+              className={inputCls}
+              type="number"
+              value={Math.round(s.trend)}
+              onChange={(e) => upd(pair.id, { [key]: { ...s, trend: Number(e.target.value) } })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[10px] text-slate-500">Inmersión (°)</span>
+            <input
+              className={inputCls}
+              type="number"
+              value={Math.round(s.plunge)}
+              onChange={(e) => upd(pair.id, { [key]: { ...s, plunge: Number(e.target.value) } })}
+            />
+          </label>
+        </div>
+      ) : (
+        <p className="text-[11px] text-slate-500">
+          Vuelve a la herramienta «Punto perf.» y toca el rasgo al otro lado de la falla.
+        </p>
+      )}
+    </div>
+  )
+
+  return (
+    <div className="mt-4 border-t border-slate-200 pt-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-700">Puntos de perforación</h3>
+        <span className="text-[11px] text-slate-400">{pairs.length} par{pairs.length === 1 ? '' : 'es'}</span>
+      </div>
+      {!pairs.length && (
+        <p className="rounded-lg bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-600">
+          Con la herramienta <b>«Punto perf.»</b> marca el mismo rasgo <b>lineal</b> a los dos lados de la falla
+          —la charnela de un pliegue, la intersección de un dique con un contacto, el eje de un paleocanal— y
+          escribe su dirección e inmersión. Cada recta corta el plano de falla en <b>un punto</b>, y el vector
+          entre los dos puntos es el <b>salto neto</b>: magnitud, dirección e inmersión, sin ajuste. Es lo único
+          que rompe la indeterminación de una serie concordante, donde todas las líneas de corte son paralelas y
+          el salto no queda fijado por muchos contactos que se midan.
+        </p>
+      )}
+      <ul className="space-y-2">
+        {solved.map(({ pair, slip }) => (
+          <li key={pair.id} className="rounded-lg border border-slate-200 p-2">
+            <div className="flex items-center gap-2">
+              <Target size={13} className="shrink-0 text-rose-600" />
+              <input
+                className="flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300"
+                value={pair.name}
+                onChange={(e) => upd(pair.id, { name: e.target.value })}
+              />
+              <Btn variant="ghost" title="Borrar el par" onClick={() => dispatch({ type: 'piercing.delete', id: pair.id })}>
+                <Trash2 size={13} />
+              </Btn>
+            </div>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="mb-0.5 block text-[10px] text-slate-500">Falla</span>
+                <select className={inputCls} value={pair.faultId || ''} onChange={(e) => upd(pair.id, { faultId: e.target.value || null })}>
+                  <option value="">—</option>
+                  {project.faults.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-0.5 block text-[10px] text-slate-500">Qué rasgo es</span>
+                <input
+                  className={inputCls}
+                  placeholder="charnela, dique…"
+                  value={pair.feature || ''}
+                  onChange={(e) => upd(pair.id, { feature: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              {side(pair, 'a', pair.a)}
+              {side(pair, 'b', pair.b)}
+            </div>
+            {slip ? <SlipResult scene={scene} slip={slip} pair={pair} project={project} inArea={inArea} /> : (
+              pair.b && pair.faultId && (
+                <p className="mt-1.5 rounded-lg bg-amber-50 p-2 text-[11px] leading-relaxed text-amber-800">
+                  Alguna de las dos rectas no llega a cortar el plano de la falla. Suele pasar cuando la
+                  inmersión es casi paralela al plano: revisa la orientación, o marca el rasgo más cerca de
+                  la traza.
+                </p>
+              )
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** Resultado de un par resuelto: los dos puntos y el salto que los une. */
+function SlipResult({ scene, slip, pair, project, inArea }) {
+  const proj = useMemo(() => (pair.faultId ? projectableContacts(scene, pair.faultId) : { rows: [] }), [scene, pair.faultId])
+  // Qué pasa con cada contacto llevado al otro bloque: unos afloran y otros se
+  // quedan enterrados, que es justo lo que se quiere saber.
+  const llevados = useMemo(
+    () => buildProjections(scene, { piercings: [pair] }, { inArea }).filter((x) => x.pairId === pair.id),
+    [scene, pair, inArea]
+  )
+  const fuera = slip.a.outside || slip.b.outside
+  // El salto tiene que estar contenido en el plano de falla: si se sale, los dos
+  // rasgos no son homólogos o alguna orientación está mal medida.
+  const desviado = Math.abs(slip.offPlane) > 0.06 * slip.magnitude && slip.magnitude > 1
+  return (
+    <div className="mt-1.5 rounded-lg bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-700">
+      <p className="font-semibold text-slate-800">
+        Salto neto {fmtDistance(slip.magnitude)} · {slip.trend.toFixed(0)}° / {slip.plunge.toFixed(0)}°
+      </p>
+      <table className="mt-1 w-full">
+        <tbody>
+          <tr>
+            <td className="text-slate-500">Componente de rumbo</td>
+            <td className="text-right font-mono">{fmtDistance(Math.abs(slip.strikeSlip))} {slip.strikeSlip >= 0 ? 'dextral' : 'sinestral'}</td>
+          </tr>
+          <tr>
+            <td className="text-slate-500">Componente de buzamiento</td>
+            <td className="text-right font-mono">{fmtDistance(Math.abs(slip.dipSlip))} {slip.dipSlip >= 0 ? 'normal' : 'inversa'}</td>
+          </tr>
+          <tr>
+            <td className="text-slate-500">Cabeceo sobre el plano</td>
+            <td className="text-right font-mono">{slip.rake.toFixed(0)}°</td>
+          </tr>
+          <tr>
+            <td className="text-slate-500">Salto vertical / horizontal</td>
+            <td className="text-right font-mono">{fmtDistance(slip.throw)} / {fmtDistance(slip.heave)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="mt-1 text-[10px] text-slate-500">
+        Puntos de perforación a {fmtDistance(slip.a.distance)} y {fmtDistance(slip.b.distance)} de los puntos
+        marcados, a {Math.round(slip.a.point[2])} y {Math.round(slip.b.point[2])} m de cota.
+        {fuera && ' Alguno cae fuera del área de trabajo: es una construcción, no un afloramiento, así que vale igual.'}
+      </p>
+      {desviado && (
+        <p className="mt-1 rounded bg-amber-100 p-1.5 text-[10px] text-amber-900">
+          El salto se sale {fmtDistance(Math.abs(slip.offPlane))} del plano de falla, que debería ser cero. Los dos
+          rasgos no parecen homólogos, o una de las orientaciones no es la que se midió.
+        </p>
+      )}
+      {llevados.length > 0 && (
+        <div className="mt-1.5 border-t border-slate-200 pt-1.5">
+          <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            Contactos llevados al otro bloque
+          </p>
+          <ul className="space-y-0.5">
+            {llevados.map((L) => (
+              <li key={L.contactId} className="flex items-baseline gap-1.5 text-[10px]">
+                <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: L.color }} />
+                <span className="text-slate-700">{L.name}</span>
+                <span className="ml-auto text-right text-slate-500">
+                  {L.lines.length
+                    ? `aflora · ${L.lines.length} tramo${L.lines.length === 1 ? '' : 's'}`
+                    : L.depth
+                      ? L.depth.above
+                        ? `ya erosionado (${fmtDistance(Math.abs(L.depth.min))} por encima)`
+                        : `enterrado · ${fmtDistance(L.depth.min)} bajo el terreno en lo más somero`
+                      : 'fuera del bloque'}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[10px] text-slate-500">
+            Los que afloran se dibujan punteados en el mapa (capa «Contactos proyectados»); los enterrados dicen
+            cuánto habría que perforar donde menos profundos quedan.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SlipSection({ scene, project }) {
   const [open, setOpen] = useState(false)
   const inArea = useMemo(() => frameTest(scene), [scene])

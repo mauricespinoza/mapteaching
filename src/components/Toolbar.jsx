@@ -12,6 +12,7 @@ import {
   Frame,
   MoveHorizontal,
   Contrast,
+  Target,
 } from 'lucide-react'
 import { FaultIcon } from './icons.jsx'
 
@@ -28,6 +29,7 @@ export const TOOLS = [
   { id: 'frame', label: 'Área de trabajo', icon: Frame, key: 'B' },
   { id: 'section', label: 'Traza de perfil', icon: Spline, key: 'S' },
   { id: 'well', label: 'Pozo', icon: Crosshair, key: 'W' },
+  { id: 'piercing', label: 'Punto perf.', icon: Target, key: 'P' },
   { id: 'model', label: 'Modelo', icon: Layers3, key: 'M' },
   { id: 'erase', label: 'Borrar rasgo', icon: Eraser, key: 'E' },
 ]

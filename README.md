@@ -411,6 +411,65 @@ desplazamiento rígido tiene que explicarlas a todas; si dos unidades piden
 saltos que difieren en cientos de metros, eso no lo produce la falla y es que
 alguna superficie está mal resuelta junto a ella.
 
+#### Puntos de perforación: el salto que sí queda determinado
+
+En **Datos → Puntos de perforación**, con la herramienta **«Punto perf.»** (tecla
+P) del mapa. Es la construcción de Allmendinger (*Modern Structural Practice*,
+GMDE §6.5.2), y es la salida al callejón del apartado anterior.
+
+El problema de las líneas de corte es que una línea sólo fija la componente
+perpendicular a ella: el bloque puede deslizarse a lo largo de la línea sin que
+el mapa cambie. Con una serie concordante todas las líneas de corte son
+paralelas y el salto no queda determinado por muchos contactos que se midan.
+
+Un rasgo **lineal** rompe esa indeterminación de golpe, porque una recta corta un
+plano en **un punto** y no en una línea. Sirve cualquier cosa reconocible a los
+dos lados: la charnela de un pliegue, la intersección de un dique con un
+contacto, el eje de un paleocanal, el filo de un canal erosivo. Se marca el rasgo
+a cada lado de la falla y se escribe su dirección de inmersión e inmersión; la
+app calcula dónde perfora cada recta el plano de falla —el plano real que
+resuelven sus contornos estructurales, no una rampa media, así que una falla
+lístrica sale bien— y el **vector entre los dos puntos es el salto neto**:
+magnitud, dirección, inmersión, cabeceo, componentes de rumbo y de buzamiento,
+salto vertical y horizontal. Sin ajuste, sin mínimos cuadrados y sin suponer
+nada sobre la cinemática.
+
+La orientación se guarda por separado en cada lado, porque una falla puede haber
+rotado un bloque respecto del otro; si no lo hizo, el segundo lado hereda la del
+primero.
+
+Dos avisos que salen del propio cálculo:
+
+- El punto de perforación **puede caer fuera del mapa o bajo tierra**. No es un
+  afloramiento sino una construcción, así que eso no lo invalida; se informa de
+  la distancia recorrida y de la cota a la que quedó.
+- El salto **tiene que estar contenido en el plano de falla**. Si se sale, los
+  dos rasgos no son homólogos o alguna orientación no es la que se midió, y el
+  panel lo dice con cuánto se desvía.
+
+#### Contactos enterrados: llevar una superficie al otro bloque
+
+Lo anterior sirve para lo que casi nunca se puede hacer en un mapa: **situar un
+contacto que a un lado de la falla no aflora**. Si el contacto no corta la
+topografía en ese bloque no hay intersecciones con las curvas de nivel, no hay
+contornos estructurales y el motor no puede resolverlo por sí solo — pero si la
+falla movió el bloque entero, ese contacto está donde dice el salto.
+
+Con un par resuelto, cada contacto que esté medido a un lado y no al otro se
+traslada por el vector de salto y se publica lo que resulte:
+
+- si la superficie trasladada **corta la topografía**, su traza se dibuja
+  punteada sobre el mapa en el color del contacto (capa «Contactos
+  proyectados»): ahí es donde habría que ir a buscarlo;
+- si **no la corta**, sigue enterrado, y el panel dice a cuánta profundidad queda
+  en el punto donde menos hay que perforar — o que ya se erosionó, si quedó por
+  encima del terreno.
+
+Es una **superposición calculada, no un dato**: se recalcula sola cuando cambian
+el par, las superficies o el relieve, y no entra en la columna de contactos ni se
+puede editar, para que no se confunda nunca lo predicho con lo observado.
+
+
 Sobre el ejemplo incorporado, cuyo salto vertical real es 320 m, la componente
 vertical del salto neto sale 342 m.
 

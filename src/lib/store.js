@@ -240,6 +240,13 @@ function apply(project, action) {
     case 'well.delete':
       return { ...p, wells: p.wells.filter((w) => w.id !== action.id) }
 
+    case 'piercing.add':
+      return { ...p, piercings: [...(p.piercings || []), action.pair] }
+    case 'piercing.update':
+      return { ...p, piercings: replaceIn(p.piercings || [], action.id, (x) => ({ ...x, ...action.patch })) }
+    case 'piercing.delete':
+      return { ...p, piercings: (p.piercings || []).filter((x) => x.id !== action.id) }
+
     case 'clear.all':
       return {
         ...p,
@@ -249,6 +256,7 @@ function apply(project, action) {
         faults: [],
         sections: [],
         wells: [],
+        piercings: [],
         models: [],
       }
     case 'clear.drawing':

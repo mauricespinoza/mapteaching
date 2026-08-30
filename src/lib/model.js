@@ -78,6 +78,9 @@ export function newProject(name = 'Ejercicio sin título') {
     faults: [], // { id, name, kinematics, dipManual, traces }
     sections: [], // { id, name, a, b, vExag, depth }
     wells: [], // { id, name, at, depth, trend, plunge }
+    // Pares de puntos de perforación: el mismo rasgo lineal reconocido a los
+    // dos lados de una falla, que da su salto real (ver piercing.js).
+    piercings: [], // { id, faultId, name, a: { at, trend, plunge }, b: {...} }
     models: [], // modelos sintéticos: plano, serie de capas o pliegues
     settings: {
       contourInterval: 100,
@@ -211,6 +214,27 @@ export function newWell(project, at) {
     depth: 1500,
     trend: 0,
     plunge: 90, // 90° = vertical
+  }
+}
+
+/**
+ * Par de puntos de perforación: el mismo rasgo lineal —una charnela de pliegue,
+ * la intersección de un dique con un contacto, el eje de un paleocanal— visto a
+ * los dos lados de una falla. Cada lado guarda un punto sobre el rasgo, en
+ * píxeles de imagen, y su dirección de inmersión e inmersión.
+ *
+ * La orientación se guarda por separado en cada lado porque una falla puede
+ * haber rotado un bloque respecto del otro; si no lo hizo, basta con copiarla.
+ */
+export function newPiercingPair(project, faultId, at) {
+  const n = (project.piercings || []).length + 1
+  return {
+    id: uid('pp'),
+    faultId: faultId || null,
+    name: `Par ${n}`,
+    feature: '', // qué rasgo es: charnela, dique, paleocanal…
+    a: { at, trend: 0, plunge: 0 },
+    b: null, // se completa con el segundo toque
   }
 }
 

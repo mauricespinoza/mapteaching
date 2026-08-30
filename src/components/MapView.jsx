@@ -43,6 +43,7 @@ export default function MapView({
   status,
   modelViews,
   unitRaster,
+  projected,
   canvasRef: externalCanvasRef,
 }) {
   const innerRef = useRef(null)
@@ -286,13 +287,14 @@ export default function MapView({
       hover: cursor,
       modelViews,
       unitRaster,
+      projected,
       edit: edit ? { ...edit, preview: editPreview } : null,
       scItems: scDrawn,
       width: size.width,
       height: size.height,
       dpr,
     })
-  }, [view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, edit, editPreview, scDrawn])
+  }, [view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, projected, edit, editPreview, scDrawn])
 
   const toImg = useCallback((ev) => {
     const rect = canvasRef.current.getBoundingClientRect()
@@ -616,7 +618,7 @@ export default function MapView({
       return
     }
 
-    if (tool === 'well' || tool === 'model') {
+    if (tool === 'well' || tool === 'model' || tool === 'piercing') {
       onTapPoint(p)
       return
     }
