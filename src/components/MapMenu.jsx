@@ -12,8 +12,15 @@ import { CONTACT_TYPES, KINEMATICS, reassignContact, sortedUnits } from '../lib/
 export default function MapMenu({ at, hit, project, dispatch, size, onClose, onAddSc, onSelect }) {
   if (!hit) return null
   const W = 268
+  const H = size?.height || 600
+  // Se ancla en la parte alta-media de la pantalla, no junto al punto tocado:
+  // así nunca queda a medio abrir contra el borde inferior, sea cual sea la
+  // altura del contenido (algunos menús —contactos, contornos— traen varias
+  // filas). El alto máximo con scroll interno es la última red de seguridad
+  // si aun así no cupiera entero.
   const left = Math.max(8, Math.min((size?.width || 800) - W - 8, at[0] - W / 2))
-  const top = Math.max(8, Math.min((size?.height || 600) - 190, at[1] + 12))
+  const top = Math.max(8, Math.round(H * 0.12))
+  const maxHeight = Math.max(160, H - top - 8)
 
   const close = () => onClose?.()
   const done = (fn) => () => {
@@ -25,8 +32,8 @@ export default function MapMenu({ at, hit, project, dispatch, size, onClose, onA
     <>
       <div className="absolute inset-0 z-20" onPointerDown={close} />
       <div
-        className="absolute z-30 w-[268px] rounded-2xl border border-slate-200 bg-white/97 p-2.5 shadow-2xl backdrop-blur"
-        style={{ left, top }}
+        className="absolute z-30 w-[268px] overflow-y-auto rounded-2xl border border-slate-200 bg-white/97 p-2.5 shadow-2xl backdrop-blur"
+        style={{ left, top, maxHeight }}
         onPointerDown={(e) => e.stopPropagation()}
       >
         <Body hit={hit} project={project} dispatch={dispatch} done={done} onAddSc={onAddSc} onSelect={onSelect} />

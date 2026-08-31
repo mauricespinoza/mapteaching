@@ -189,6 +189,7 @@ export function render(ctx, opts) {
     scItems,
     unitRaster,
     projected,
+    foldAxes,
     width,
     height,
     dpr = 1,
@@ -278,27 +279,25 @@ export function render(ctx, opts) {
   }
 
   // --- Contornos estructurales ---
+  // Las líneas van aquí, en su lugar habitual del orden de capas; sus rótulos
+  // se difieren al final del dibujo (ver más abajo) para que ninguna otra
+  // capa los tape.
+  let scOrder = null
   if (show.structureContours && scene?.ready) {
-    // Los rótulos se reparten sin pisarse: se lleva la cuenta de lo escrito.
-    const taken = []
     const visible = (scItems || []).filter(
       (it) =>
         (it.kind !== 'fault' || show.faultStructureContours) &&
         !(show.onlySelectedSC && selection?.kind === 'contact' && selection.id !== it.featureId)
     )
     // El seleccionado se rotula primero: es el que se está trabajando.
-    const order = [...visible].sort(
+    scOrder = [...visible].sort(
       (a, b) =>
         Number(selection?.kind === 'sc' && selection.key === b.key) -
           Number(selection?.kind === 'sc' && selection.key === a.key) ||
         Number(Boolean(b.manualId)) - Number(Boolean(a.manualId))
     )
-    for (const it of order) {
-      drawStructureContour(ctx, view, it, {
-        selected: selection?.kind === 'sc' && selection.key === it.key,
-        labels: show.structureLabels !== false,
-        taken,
-      })
+    for (const it of scOrder) {
+      drawStructureContour(ctx, view, it, { selected: selection?.kind === 'sc' && selection.key === it.key })
     }
   }
 
@@ -362,6 +361,11 @@ export function render(ctx, opts) {
         }
       }
     }
+  }
+
+  // --- Ejes de pliegue (antiformes y sinformes) ---
+  if (show.foldAxes && foldAxes?.length) {
+    for (const ax of foldAxes) drawFoldAxis(ctx, view, ax)
   }
 
   // --- Marco del área de trabajo ---
@@ -597,6 +601,17 @@ export function render(ctx, opts) {
 
   if (edit?.nodes?.length) drawEditNodes(ctx, view, edit)
 
+  // --- Rótulos de los contornos estructurales ---
+  // Se dibujan al final, encima de contactos, fallas, pozos y todo lo demás:
+  // son la referencia de cota que se está leyendo mientras se trabaja, y
+  // enterrada bajo una falla o un contacto deja de servir para eso.
+  if (scOrder && show.structureLabels !== false) {
+    const taken = []
+    for (const it of scOrder) {
+      drawStructureContourLabel(ctx, view, it, { selected: selection?.kind === 'sc' && selection.key === it.key, taken })
+    }
+  }
+
   drawOverlays(ctx, opts)
 }
 
@@ -822,7 +837,7 @@ function drawVertices(ctx, view, pts, color) {
  * rótulo lleva el rasgo al que pertenece y la cota que representa, que es lo
  * que distingue un contorno de otro cuando se cruzan varios en el mapa.
  */
-function drawStructureContour(ctx, view, it, { selected = false, labels = true, taken = [] } = {}) {
+function drawStructureContour(ctx, view, it, { selected = false } = {}) {
   const a = toScreen(view, it.a)
   const b = toScreen(view, it.b)
   const manual = Boolean(it.manualId)
@@ -843,21 +858,6 @@ function drawStructureContour(ctx, view, it, { selected = false, labels = true, 
   ctx.lineTo(b[0], b[1])
   ctx.stroke()
   ctx.setLineDash([])
-  if (labels) {
-    const lines = it.lines?.length ? it.lines : [`${it.elevation} m`, shortName(it.name)]
-    const box = blockSize(ctx, lines, 10)
-    // Extremos primero y luego puntos a lo largo de la recta: el rótulo busca
-    // sitio sin dejar de tocar su propia curva.
-    const along = [0.5, 0.25, 0.75].map((t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
-    const spot = placeLabel(ctx, taken, [b, a, ...along], lines[0], 10, selected || manual, box)
-    if (spot) {
-      labelBlock(ctx, spot[0], spot[1], lines, {
-        color: it.color,
-        size: 10,
-        bg: manual ? 'rgba(224,242,254,0.95)' : 'rgba(255,255,255,0.9)',
-      })
-    }
-  }
   ctx.fillStyle = it.color
   if (manual || selected) {
     // Manijas de los extremos: son las que se arrastran para corregir la curva.
@@ -878,6 +878,105 @@ function drawStructureContour(ctx, view, it, { selected = false, labels = true, 
       ctx.fill()
     }
   }
+}
+
+/**
+ * Rótulo de un contorno estructural, dibujado aparte de su línea: se difiere
+ * a un pase final para quedar siempre por encima de las demás capas (ver
+ * `render`).
+ */
+function drawStructureContourLabel(ctx, view, it, { selected = false, taken = [] } = {}) {
+  const a = toScreen(view, it.a)
+  const b = toScreen(view, it.b)
+  const manual = Boolean(it.manualId)
+  const lines = it.lines?.length ? it.lines : [`${it.elevation} m`, shortName(it.name)]
+  const box = blockSize(ctx, lines, 10)
+  // Extremos primero y luego puntos a lo largo de la recta: el rótulo busca
+  // sitio sin dejar de tocar su propia curva.
+  const along = [0.5, 0.25, 0.75].map((t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
+  const spot = placeLabel(ctx, taken, [b, a, ...along], lines[0], 10, selected || manual, box)
+  if (spot) {
+    labelBlock(ctx, spot[0], spot[1], lines, {
+      color: it.color,
+      size: 10,
+      bg: manual ? 'rgba(224,242,254,0.95)' : 'rgba(255,255,255,0.9)',
+    })
+  }
+}
+
+/**
+ * Eje de un pliegue, con su simbología clásica: espigas en los extremos que
+ * se abren hacia fuera del trazo en un antiforme —los limbos bajan
+ * alejándose del eje— y se cierran hacia dentro en un sinforme —los limbos
+ * bajan hacia el eje—, más una flecha de inmersión en el extremo hundido
+ * cuando el pliegue no es prácticamente horizontal.
+ */
+function drawFoldAxis(ctx, view, ax) {
+  const a = toScreen(view, ax.aImg)
+  const b = toScreen(view, ax.bImg)
+  const color = '#1e293b'
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2.2
+  ctx.setLineDash([])
+  ctx.beginPath()
+  ctx.moveTo(a[0], a[1])
+  ctx.lineTo(b[0], b[1])
+  ctx.stroke()
+
+  const dx = b[0] - a[0]
+  const dy = b[1] - a[1]
+  const len = Math.hypot(dx, dy) || 1
+  const u = [dx / len, dy / len]
+
+  const barb = 12
+  const spread = 32 * RAD
+  const wings = (p, out) => {
+    ctx.lineWidth = 1.8
+    for (const s of [1, -1]) {
+      const ang = s * spread
+      const wx = out[0] * Math.cos(ang) - out[1] * Math.sin(ang)
+      const wy = out[0] * Math.sin(ang) + out[1] * Math.cos(ang)
+      ctx.beginPath()
+      ctx.moveTo(p[0], p[1])
+      ctx.lineTo(p[0] + wx * barb, p[1] + wy * barb)
+      ctx.stroke()
+    }
+  }
+  const outward = ax.type === 'antiform'
+  wings(a, outward ? [-u[0], -u[1]] : [u[0], u[1]])
+  wings(b, outward ? [u[0], u[1]] : [-u[0], -u[1]])
+
+  // Flecha de inmersión en `b` —el extremo hundido, por convención de cómo se
+  // construyó el eje—: sólo si el pliegue realmente se hunde.
+  if (ax.plunge > 3) {
+    const L = 20
+    const tip = [b[0] + u[0] * L, b[1] + u[1] * L]
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(b[0], b[1])
+    ctx.lineTo(tip[0], tip[1])
+    ctx.stroke()
+    const headAng = 22 * RAD
+    const back = (ang) => [
+      tip[0] - (u[0] * Math.cos(ang) - u[1] * Math.sin(ang)) * 9,
+      tip[1] - (u[0] * Math.sin(ang) + u[1] * Math.cos(ang)) * 9,
+    ]
+    const p1 = back(headAng)
+    const p2 = back(-headAng)
+    ctx.beginPath()
+    ctx.moveTo(tip[0], tip[1])
+    ctx.lineTo(p1[0], p1[1])
+    ctx.lineTo(p2[0], p2[1])
+    ctx.closePath()
+    ctx.fillStyle = color
+    ctx.fill()
+    label(ctx, tip[0], tip[1] + 14, `${ax.plunge.toFixed(0)}°`, { color, size: 10 })
+  }
+
+  const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+  label(ctx, mid[0], mid[1] - 14, ax.type === 'antiform' ? 'Antiforme' : 'Sinforme', { color, size: 10.5 })
+  ctx.restore()
 }
 
 /** Nombre abreviado para que el rótulo no tape el mapa. */

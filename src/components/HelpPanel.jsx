@@ -69,6 +69,13 @@ export default function HelpPanel({ project, dispatch }) {
           no, el panel dice a qué profundidad quedó <b>enterrado</b>.
         </li>
         <li>
+          La capa <b>Ejes de pliegues</b> dibuja el eje de cada antiforme y sinforme con su simbología clásica
+          —espigas que se abren hacia fuera del trazo si los limbos bajan alejándose del eje, y se cierran hacia
+          dentro si bajan hacia él, más una flecha de inmersión cuando el pliegue se hunde—, calculado
+          directamente de los dominios de manteo: uno por paquete de capas concordantes, aunque lo aporten varias.
+          Es un buen candidato para el rasgo lineal que piden los puntos de perforación.
+        </li>
+        <li>
           Cuando <b>dos superficies se cruzan</b> —lejos de sus datos cada una extrapola a su aire— manda la más
           joven: <b>pasa entera por encima</b> y las antiguas se limitan contra ella, que es lo que ocurre en una
           discordancia angular. Donde queda cortado, el contacto antiguo deja de dibujarse: el borde que se ve es

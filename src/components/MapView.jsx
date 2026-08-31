@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { render, toImagePt, renderHillshade } from '../lib/render2d.js'
 import { structureContourItems } from '../lib/scene.js'
+import { foldAxes as computeFoldAxes } from '../lib/folds.js'
 import { newStructureContour } from '../lib/model.js'
 import MapMenu from './MapMenu.jsx'
 import { thin, simplify, pointPolyline, dist, chaikin } from '../lib/geom.js'
@@ -73,6 +74,12 @@ export default function MapView({
   const drag = useRef(null)
   const flashTimer = useRef(null)
   const holdTimer = useRef(null)
+  // `openMenuFor` pasa la herramienta a «Seleccionar» (vía `onEditRequest`) al
+  // abrir el menú de un rasgo. Sin esta bandera, el efecto de abajo —que
+  // cierra el menú en cuanto cambia la herramienta— se disparaba con ese mismo
+  // cambio y lo cerraba en el acto, así que el menú nunca llegaba a verse
+  // salvo que ya se estuviera en «Seleccionar» de antes.
+  const openingMenu = useRef(false)
   const taps = useRef({ startedAt: 0, maxFingers: 0, moved: false, origins: new Map(), lastAt: 0, lastFingers: 0 })
 
   // Encuadre inicial automático: se calcula al conocer el tamaño del lienzo.
@@ -136,6 +143,13 @@ export default function MapView({
   const scVisible = useMemo(
     () => scItems.filter((it) => it.kind !== 'fault' || show.faultStructureContours),
     [scItems, show.faultStructureContours]
+  )
+
+  // Ejes de pliegue: un cálculo aparte sobre los mismos dominios estructurales
+  // que ya resuelve la escena, así que sólo se recalculan si cambia ésta.
+  const foldAxes = useMemo(
+    () => (show.foldAxes && scene?.ready ? computeFoldAxes(scene) : []),
+    [scene, show.foldAxes]
   )
 
   const scDrawn = useMemo(
@@ -229,6 +243,10 @@ export default function MapView({
   // Al cambiar de herramienta la medida deja de tener sentido en pantalla.
   useEffect(() => {
     if (tool !== 'measure') setMeasure(null)
+    if (openingMenu.current) {
+      openingMenu.current = false
+      return
+    }
     setMenu(null)
   }, [tool])
 
@@ -288,13 +306,14 @@ export default function MapView({
       modelViews,
       unitRaster,
       projected,
+      foldAxes,
       edit: edit ? { ...edit, preview: editPreview } : null,
       scItems: scDrawn,
       width: size.width,
       height: size.height,
       dpr,
     })
-  }, [view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, projected, edit, editPreview, scDrawn])
+  }, [view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, projected, foldAxes, edit, editPreview, scDrawn])
 
   const toImg = useCallback((ev) => {
     const rect = canvasRef.current.getBoundingClientRect()
@@ -466,6 +485,7 @@ export default function MapView({
 
   const openMenuFor = useCallback(
     (target, at) => {
+      openingMenu.current = true
       if (target.kind === 'sc') onEditRequest?.(scSelection(target.it))
       else if (['contact', 'fault', 'contour'].includes(target.kind)) onEditRequest?.(target)
       setMenu({ at, hit: target })

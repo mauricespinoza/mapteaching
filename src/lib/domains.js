@@ -91,7 +91,7 @@ function planeThrough(p, q, r) {
  * una traza los cruces se apiñan, y con ese radio dos contornos consecutivos
  * quedarían desconectados y ningún panel llegaría a tener dos cotas.
  */
-function medianStep(pts) {
+export function medianStep(pts) {
   const d = []
   for (let i = 0; i < pts.length; i++) {
     let best = Infinity

@@ -201,6 +201,34 @@ notaciones habituales: cuadrante (`N45°E / 30° SE`) y dirección de manteo
 Si una superficie tiene pocas intersecciones (una sola cota resuelta, un punto
 por cota), la app lo advierte y permite **imponer la actitud a mano**.
 
+#### Ejes de pliegue: antiformes y sinformes
+
+Dos dominios vecinos con manteos distintos ya delimitan una charnela: es la
+recta donde coinciden sus dos planos, y ahí termina uno de reconstruir el
+pliegue y empieza el de **ubicar su eje**, con la simbología clásica —espigas
+que se abren hacia fuera del trazo en un antiforme (los limbos bajan
+alejándose del eje) y se cierran hacia dentro en un sinforme (los limbos bajan
+hacia el eje), más una flecha de inmersión cuando el eje no es prácticamente
+horizontal—.
+
+La capa **Ejes de pliegues** (Capas del mapa) calcula esa recta directamente
+de los planos de dominio, sin ajustar nada nuevo: dos dominios cuentan como
+charnela real sólo si su manteo difiere más de 8° y si la recta que sale de
+sus dos planos cae cerca de los datos de los dos —así una coincidencia de
+manteo entre dos limbos de ondas distintas del mismo tren, que no son en
+realidad los dos flancos de una charnela, no se confunde con una—.
+
+Cuando varias capas concordantes se pliegan juntas —un paquete—, cada contacto
+aporta su propia charnela, casi coincidentes entre sí. La app las funde en un
+único eje por paquete: los candidatos con la misma orientación y la misma
+posición en el mapa se agrupan, y el eje final hereda el alcance de todos
+ellos, no sólo el del contacto más largo.
+
+Esto es, además, la fuente natural de rasgos lineales para las
+**herramientas de puntos de perforación** (más abajo): la charnela de un
+pliegue reconocida a los dos lados de una falla es exactamente el tipo de
+línea que ese método necesita.
+
 #### Rumbo y separación medios, y contornos inferidos
 
 Los contornos salen de los cruces de la traza con las curvas de nivel y llevan el
