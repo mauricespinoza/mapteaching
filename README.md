@@ -670,10 +670,21 @@ del contacto.
 Autoguardado en el navegador, varios proyectos, **exportar/importar** el ejercicio
 completo (`.mapteaching.json`, con la imagen embebida) para repartirlo a los
 estudiantes, y un campo de **enunciado** para escribir las instrucciones del
-ejercicio. El botón **Ejemplo** genera un ejercicio sintético completo —
-tres unidades con manteo 25° al ESE cortadas por una falla normal de 70°W con
-320 m de salto— útil para practicar y para comprobar que el método recupera la
-geometría original.
+ejercicio. El botón **Ejemplos** abre el catálogo de ejercicios listos para
+usar, que se abren siempre como copia nueva:
+
+- **Ejercicio demo — falla normal y serie inclinada**: ejercicio sintético
+  generado por la app —tres unidades con manteo 25° al ESE cortadas por una
+  falla normal de 70°W con 320 m de salto—, útil para practicar y para
+  comprobar que el método recupera la geometría original.
+- **Modelo de prueba — Falla normal y serie inclinada**: proyecto real
+  digitalizado sobre una imagen de mapa (curvas de nivel, siete unidades, seis
+  contactos, una falla normal, dos perfiles, tres pozos y un par de puntos de
+  perforación), con la escala ya calibrada.
+
+Los modelos de prueba son proyectos exportados de la propia app que viven en
+`public/examples/` y se descargan sólo al elegirlos; para añadir otro basta con
+dejar ahí su `.mapteaching.json` y sumarlo al catálogo de `src/lib/examples.js`.
 
 ---
 
@@ -719,6 +730,7 @@ src/lib/
   wells.js       trayectoria y columna de pozos
   marching.js    isolíneas (usado por el generador de ejercicios)
   sample.js      ejercicio sintético de demostración
+  examples.js    catálogo de ejemplos (sintéticos y modelos de prueba en public/examples/)
   models.js      modelos sintéticos: plano, serie de capas y tren de pliegues
   terrain.js     curvas de nivel de topografías típicas y de un DEM importado
   render2d.js    dibujo del mapa en canvas
