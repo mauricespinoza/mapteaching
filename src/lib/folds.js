@@ -25,15 +25,27 @@ const DEG = 180 / Math.PI
 // charnela real entre ellos, y no dos trozos del mismo limbo separados por el
 // RANSAC de `structuralDomains` por casualidad.
 const MIN_HINGE_ANGLE = 8
+// Puntos mínimos por limbo. Un plano lo fijan tres puntos: con tres, o con
+// cuatro, el ajuste pasa por los datos haga la superficie lo que haga y su
+// manteo no está confirmado por nada. Dibujar un eje de pliegue en el mapa es
+// una afirmación fuerte —dice dónde está la charnela y hacia dónde se sumerge—,
+// así que se exige que cada limbo tenga puntos de sobra: seis, tres más de los
+// que consume el propio plano. Con menos, un trozo suelto de una serie que en
+// realidad es plana sale con un manteo cualquiera, y dos trozos así siempre
+// «se cruzan» en alguna parte: es el pliegue que no existe.
+const MIN_LIMB_POINTS = 6
 // La charnela calculada tiene que caer cerca de datos reales de los dos
 // limbos, en unidades de la separación típica entre contornos estructurales.
 const REACH_FACTOR = 6
 // Dos candidatos de charnela se funden en un mismo eje si sus direcciones no
 // difieren más que esto…
 const MERGE_ANGLE = 20
-// …y si además la charnela de uno pasa cerca de la recta del otro, en el
-// mismo tipo de unidades que REACH_FACTOR.
-const MERGE_REACH = 10
+// …y si además el trazo axial de uno pasa cerca del otro **en planta**, en el
+// mismo tipo de unidades que REACH_FACTOR. Es una tolerancia estrecha a
+// propósito: en un tren de pliegues las charnelas del mismo tipo se repiten
+// cada longitud de onda, y fundirlas promediaría ondas distintas en un eje
+// que no está en ninguna de ellas.
+const MERGE_REACH = 2.5
 
 function centroid(pts) {
   let x = 0
@@ -60,12 +72,18 @@ function planeAngle(p, q) {
 
 /**
  * Candidato de charnela entre dos dominios (limbos) de una misma superficie.
- * Devuelve null si no hay manteo suficientemente distinto entre ellos, o si
- * la charnela que sale de sus planos cae lejos de los datos de alguno: eso
- * pasa cuando dos limbos de ondas distintas del mismo tren comparten manteo
- * por coincidencia, sin ser en realidad los dos flancos de una charnela.
+ * Dos planos distintos siempre se cortan en alguna recta, así que la mayor
+ * parte del trabajo es descartar los cruces que no son charnelas. Devuelve
+ * null si los limbos no tienen datos suficientes para sostener un eje, si su
+ * manteo no difiere lo bastante, si el cruce cae lejos de los datos de alguno
+ * de los dos, o si entre ellos hay un tercer limbo por el camino: en un tren
+ * de pliegues los limbos homólogos también se cruzan, y su cruce cae justo
+ * encima de la charnela que hay entre medio, sin ser ellos sus flancos.
+ *
+ * `others` son los demás limbos con manteo resuelto de la misma superficie.
  */
-function hingeBetween(planeA, planeB, groupA, groupB) {
+function hingeBetween(planeA, planeB, groupA, groupB, others = []) {
+  if (groupA.length < MIN_LIMB_POINTS || groupB.length < MIN_LIMB_POINTS) return null
   if (planeAngle(planeA, planeB) < MIN_HINGE_ANGLE) return null
 
   // Recta, en planta, donde coinciden los dos planos: A·x + B·y + C = 0.
@@ -105,7 +123,21 @@ function hingeBetween(planeA, planeB, groupA, groupB) {
     }
     return best
   }
-  if (nearest([x0, y0], groupA) > reach || nearest([x0, y0], groupB) > reach) return null
+  const dA = nearest([x0, y0], groupA)
+  const dB = nearest([x0, y0], groupB)
+  if (dA > reach || dB > reach) return null
+
+  // En un tren de pliegues los limbos alternan manteo, así que dos limbos
+  // *homólogos* —el primero y el tercero, el segundo y el cuarto— también
+  // «se cruzan», y su cruce cae encima de la charnela que hay entre medio.
+  // Geométricamente es un cruce, pero no es una charnela: entre esos dos
+  // limbos hay otro limbo por el camino. Se reconoce en que el cruce queda
+  // más cerca de los datos de ese tercer limbo que de los dos que supuestamente
+  // se juntan ahí. Sólo cuentan como competidores los limbos con manteo
+  // resuelto: un contorno suelto de una sola cota no es un panel.
+  for (const g of others) {
+    if (nearest([x0, y0], g) < Math.max(dA, dB)) return null
+  }
 
   // Clasificación geométrica: si los dos limbos mantean alejándose de la
   // charnela (como una carpa) es un antiforme; si mantean hacia ella (como un
@@ -130,13 +162,19 @@ function hingeBetween(planeA, planeB, groupA, groupB) {
   }
 }
 
-function pointLineDistance(p, p0, dir) {
-  const w = [p[0] - p0[0], p[1] - p0[1], p[2] - p0[2]]
-  const t = w[0] * dir[0] + w[1] * dir[1] + w[2] * dir[2]
-  const dx = p[0] - (p0[0] + dir[0] * t)
-  const dy = p[1] - (p0[1] + dir[1] * t)
-  const dz = p[2] - (p0[2] + dir[2] * t)
-  return Math.hypot(dx, dy, dz)
+/**
+ * Distancia **en planta** de un punto al eje: es la separación entre los dos
+ * trazos axiales sobre el mapa. Se mide así, y no en 3D, porque los contactos
+ * de un mismo paquete cortan la misma charnela a cotas distintas —cada uno a
+ * su nivel estratigráfico—: en 3D esa diferencia de cota los separa cientos de
+ * metros y el paquete nunca llegaría a fundirse en un solo eje.
+ */
+function axialTraceDistance(p, p0, dir) {
+  const dx = p[0] - p0[0]
+  const dy = p[1] - p0[1]
+  const len = Math.hypot(dir[0], dir[1])
+  if (len < 1e-9) return Math.hypot(dx, dy)
+  return Math.abs(dx * dir[1] - dy * dir[0]) / len
 }
 
 /**
@@ -155,7 +193,15 @@ function clusterAxes(raw) {
       if (cl.type !== cand.type) continue
       const cosA = Math.abs(cl.dir[0] * cand.dir[0] + cl.dir[1] * cand.dir[1] + cl.dir[2] * cand.dir[2])
       if (Math.acos(Math.min(1, cosA)) * DEG > MERGE_ANGLE) continue
-      if (pointLineDistance(cand.at, cl.at, cl.dir) > cl.reach) continue
+      if (axialTraceDistance(cand.at, cl.at, cl.dir) > cl.reach) continue
+      // Dos charnelas de la *misma* superficie que no comparten limbo son dos
+      // ondas distintas del tren, por paralelas que salgan: no son el mismo
+      // eje. Sí se funden las que comparten limbo, que son una sola charnela
+      // vista a través de un limbo que el RANSAC partió en dos trozos.
+      const differentWave = cl.members.some(
+        (m) => m.key === cand.key && !m.pair.some((d) => cand.pair.includes(d))
+      )
+      if (differentWave) continue
       target = cl
       break
     }
@@ -264,8 +310,21 @@ export function foldAxes(scene) {
         for (let j = i + 1; j < dom.count; j++) {
           const pj = dom.planes[j]
           if (!pj) continue
-          const hit = hingeBetween(pi, pj, dom.groups[i], dom.groups[j])
-          if (hit) raw.push({ ...hit, contactId: c.id, name: c.name, color: c.color, block })
+          const others = []
+          for (let k = 0; k < dom.count; k++) {
+            if (k !== i && k !== j && dom.planes[k]) others.push(dom.groups[k])
+          }
+          const hit = hingeBetween(pi, pj, dom.groups[i], dom.groups[j], others)
+          if (hit)
+            raw.push({
+              ...hit,
+              contactId: c.id,
+              name: c.name,
+              color: c.color,
+              block,
+              key: `${c.id}|${block}`,
+              pair: [i, j],
+            })
         }
       }
     }
