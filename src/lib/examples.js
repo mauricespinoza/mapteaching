@@ -1,32 +1,20 @@
 // Catálogo de ejercicios de ejemplo que la app ofrece «listos para abrir».
 //
-// Hay dos clases de ejemplo:
-//   - los sintéticos, que se generan con código (sample.js) y por eso no pesan
-//     nada en el bundle;
-//   - los modelos de prueba, proyectos reales exportados desde la propia app
-//     (.mapteaching.json, imagen base incluida) que viven en public/examples/ y
-//     se descargan sólo cuando el usuario los elige.
+// Cada ejemplo es un modelo de prueba: un proyecto real exportado desde la
+// propia app (.mapteaching.json, imagen base incluida) que vive en
+// public/examples/ y se descarga sólo cuando el usuario lo elige.
 
 import * as db from './db.js'
 import { uid } from './model.js'
-import { buildSampleProject } from './sample.js'
 
 const asset = (file) => `${import.meta.env.BASE_URL}examples/${file}`
 
 export const EXAMPLES = [
   {
-    id: 'demo-sintetico',
-    name: 'Ejercicio demo — falla normal y serie inclinada',
-    summary: 'Mapa sintético generado por la app: topografía, tres unidades con manteo 25° ESE y una falla normal de ~320 m de salto.',
-    detail: 'Sin imagen base. Sirve para practicar el flujo completo y comprobar que el motor recupera la actitud original.',
-    kind: 'builder',
-  },
-  {
     id: 'falla-normal-serie-inclinada',
     name: 'Modelo de prueba — Falla normal y serie inclinada',
     summary: 'Proyecto de prueba digitalizado sobre una imagen de mapa: curvas de nivel, siete unidades, seis contactos, una falla normal, dos perfiles y tres pozos.',
     detail: 'Trae la imagen base, la escala calibrada, el marco de trabajo y un par de puntos de perforación para el salto de falla.',
-    kind: 'file',
     url: asset('falla-normal-serie-inclinada.mapteaching.json'),
   },
 ]
@@ -58,14 +46,9 @@ export async function adoptProject(data, name) {
 /** Carga un ejemplo del catálogo y lo deja guardado y listo para abrir. */
 export async function loadExample(id) {
   const example = findExample(id)
-  let project
-  if (example.kind === 'file') {
-    const res = await fetch(example.url)
-    if (!res.ok) throw new Error(`No se pudo descargar el ejemplo (${res.status})`)
-    project = await adoptProject(await res.json(), example.name)
-  } else {
-    project = buildSampleProject().project
-  }
+  const res = await fetch(example.url)
+  if (!res.ok) throw new Error(`No se pudo descargar el ejemplo (${res.status})`)
+  const project = await adoptProject(await res.json(), example.name)
   await db.saveProject(project)
   return project
 }

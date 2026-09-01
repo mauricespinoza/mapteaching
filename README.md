@@ -670,13 +670,9 @@ del contacto.
 Autoguardado en el navegador, varios proyectos, **exportar/importar** el ejercicio
 completo (`.mapteaching.json`, con la imagen embebida) para repartirlo a los
 estudiantes, y un campo de **enunciado** para escribir las instrucciones del
-ejercicio. El botón **Ejemplos** abre el catálogo de ejercicios listos para
-usar, que se abren siempre como copia nueva:
+ejercicio. El botón **Ejemplos** abre el catálogo de modelos de prueba listos
+para usar, que se abren siempre como copia nueva:
 
-- **Ejercicio demo — falla normal y serie inclinada**: ejercicio sintético
-  generado por la app —tres unidades con manteo 25° al ESE cortadas por una
-  falla normal de 70°W con 320 m de salto—, útil para practicar y para
-  comprobar que el método recupera la geometría original.
 - **Modelo de prueba — Falla normal y serie inclinada**: proyecto real
   digitalizado sobre una imagen de mapa (curvas de nivel, siete unidades, seis
   contactos, una falla normal, dos perfiles, tres pozos y un par de puntos de
@@ -685,6 +681,11 @@ usar, que se abren siempre como copia nueva:
 Los modelos de prueba son proyectos exportados de la propia app que viven en
 `public/examples/` y se descargan sólo al elegirlos; para añadir otro basta con
 dejar ahí su `.mapteaching.json` y sumarlo al catálogo de `src/lib/examples.js`.
+
+Aparte, la primera vez que se abre la app sin proyectos guardados se siembra un
+ejercicio sintético generado por código (`sample.js`) —tres unidades con manteo
+25° al ESE cortadas por una falla normal de 70°W con 320 m de salto—, útil para
+comprobar que el método recupera la geometría original.
 
 ---
 
