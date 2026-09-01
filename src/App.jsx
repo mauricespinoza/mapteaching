@@ -48,6 +48,7 @@ import { reducer, initialState } from './lib/store.js'
 import { newProject, newSection, newWell, newPiercingPair, newStructureContour, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
 import { buildSampleProject } from './lib/sample.js'
+import { EXAMPLES, loadExample } from './lib/examples.js'
 import { buildModelViews, newStructuralModel, frameTest } from './lib/models.js'
 import { buildProjections } from './lib/piercing.js'
 import { buildUnitRaster } from './lib/geomap.js'
@@ -501,12 +502,19 @@ export default function App() {
     setDialog({ kind: 'projects' })
   }
 
-  const loadSample = async () => {
-    const { project: sample } = buildSampleProject()
-    await db.saveProject(sample)
-    dispatch({ type: 'project.load', project: sample })
-    setView(null)
-    setSectionId(sample.sections[0]?.id || null)
+  const openExample = async (id) => {
+    setDialog({ kind: 'examples', busy: id })
+    try {
+      const sample = await loadExample(id)
+      dispatch({ type: 'project.load', project: sample })
+      setView(null)
+      setSelection(null)
+      setSectionId(sample.sections?.[0]?.id || null)
+      setWellId(null)
+      setDialog(null)
+    } catch (err) {
+      setDialog({ kind: 'examples', error: String(err?.message || err) })
+    }
   }
 
   const startNew = async () => {
@@ -601,8 +609,8 @@ export default function App() {
             </>
           )}
         </div>
-        <Btn variant="primary" onClick={loadSample}>
-          <Sparkles size={14} /> Ejemplo
+        <Btn variant="primary" onClick={() => setDialog({ kind: 'examples' })}>
+          <Sparkles size={14} /> Ejemplos
         </Btn>
         <input
           ref={fileRef}
@@ -1042,6 +1050,30 @@ export default function App() {
               Aplicar escala
             </Btn>
           </div>
+        </Modal>
+      )}
+
+      {dialog?.kind === 'examples' && (
+        <Modal title="Ejercicios de ejemplo" onClose={() => setDialog(null)} wide>
+          <p className="mb-3 text-sm text-slate-600">
+            Se abre una copia nueva: lo que hagas encima no toca el ejemplo original ni los proyectos que ya
+            tengas guardados.
+          </p>
+          <ul className="space-y-2">
+            {EXAMPLES.map((ex) => (
+              <li key={ex.id} className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                <div className="flex-1">
+                  <div className="text-sm font-medium">{ex.name}</div>
+                  <div className="mt-0.5 text-xs text-slate-600">{ex.summary}</div>
+                  {ex.detail && <div className="mt-0.5 text-[11px] text-slate-400">{ex.detail}</div>}
+                </div>
+                <Btn variant="primary" disabled={!!dialog.busy} onClick={() => openExample(ex.id)}>
+                  {dialog.busy === ex.id ? 'Abriendo…' : 'Abrir'}
+                </Btn>
+              </li>
+            ))}
+          </ul>
+          {dialog.error && <p className="mt-3 text-sm text-rose-700">{dialog.error}</p>}
         </Modal>
       )}
 
