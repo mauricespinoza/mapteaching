@@ -25,14 +25,15 @@ import {
   Waves,
   Tag,
   PenLine,
-  Contrast,
   Type,
   Compass,
   Palette,
   Frame,
   Target,
+  Globe,
 } from 'lucide-react'
 import { watchForUpdate, reloadToLatest } from './lib/version.js'
+import { useLang } from './lib/i18n.jsx'
 import Toolbar, { TOOLS } from './components/Toolbar.jsx'
 import MapView from './components/MapView.jsx'
 import SectionView from './components/SectionView.jsx'
@@ -43,7 +44,7 @@ import ResultsPanel from './components/ResultsPanel.jsx'
 import HelpPanel from './components/HelpPanel.jsx'
 import ModelPanel from './components/ModelPanel.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
-import { FaultIcon } from './components/icons.jsx'
+import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
 import { newProject, newSection, newWell, newPiercingPair, newStructureContour, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
@@ -63,18 +64,18 @@ import { fmtDistance } from './lib/georef.js'
  * queda en el `title` y en el rótulo accesible.
  */
 const LAYER_TOGGLES = [
-  { k: 'contours', label: 'Curvas de nivel', icon: Waves },
+  { k: 'contours', label: 'Curvas de nivel', icon: ContourIcon },
   { k: 'contourLabels', label: 'Cotas de las curvas', icon: Tag },
   { k: 'contacts', label: 'Contactos', icon: PenLine },
   { k: 'faults', label: 'Fallas', icon: FaultIcon },
-  { k: 'structureContours', label: 'Contornos estructurales', icon: Contrast },
+  { k: 'structureContours', label: 'Contornos estructurales', icon: StructureContourIcon },
   { k: 'structureLabels', label: 'Rótulos de los contornos', icon: Type },
   { k: 'faultStructureContours', label: 'Contornos estructurales de las fallas', icon: FaultIcon },
   { k: 'attitudes', label: 'Rumbo y manteo', icon: Compass },
   { k: 'foldAxes', label: 'Ejes de pliegues', icon: Waves },
   { k: 'sections', label: 'Trazas de perfil', icon: Spline },
   { k: 'wells', label: 'Pozos', icon: Crosshair },
-  { k: 'piercings', label: 'Puntos de perforación', icon: Target },
+  { k: 'piercings', label: 'Piercing Points', icon: PiercingIcon },
   { k: 'projected', label: 'Contactos proyectados', icon: Target },
   { k: 'hillshade', label: 'Relieve sombreado', icon: Mountain },
   { k: 'unitFill', label: 'Relleno de unidades', icon: Palette },
@@ -110,6 +111,7 @@ const DEFAULT_SHOW = {
 }
 
 export default function App() {
+  const { t, lang, setLang } = useLang()
   const [state, dispatch] = useReducer(reducer, undefined, () => initialState(newProject()))
   const project = state.present
   const deferredProject = useDeferredValue(project)
@@ -526,18 +528,18 @@ export default function App() {
   }
 
   const section = project.sections.find((s) => s.id === sectionId) || project.sections[0] || null
-  const status = statusText(tool, project, activeIds, scene, scTarget)
+  const status = statusText(t, tool, project, activeIds, scene, scTarget)
 
   return (
     <div className="flex h-full w-full flex-col bg-slate-100 text-slate-900">
       {updateReady && (
         <div className="flex items-center justify-center gap-2 bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white">
-          Hay una versión nueva de MapTeaching.
+          {t('Hay una versión nueva de MapTeaching.')}
           <button
             className="rounded-md bg-white/20 px-2 py-0.5 font-semibold hover:bg-white/30"
             onClick={reloadToLatest}
           >
-            Actualizar
+            {t('Actualizar')}
           </button>
         </div>
       )}
@@ -556,22 +558,22 @@ export default function App() {
         <input
           className="w-40 rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-sm font-medium text-white placeholder-slate-400 outline-none transition focus:border-sky-400/60 focus:bg-white/15 md:w-64"
           value={project.name}
-          placeholder="Nombre del ejercicio"
+          placeholder={t('Nombre del ejercicio')}
           onChange={(e) => dispatch({ type: 'patch', patch: { name: e.target.value } })}
         />
         <div className="flex items-center gap-1">
-          <Btn variant="onDark" onClick={() => dispatch({ type: 'history.undo' })} title="Deshacer (Ctrl+Z)" disabled={!state.past.length}>
+          <Btn variant="onDark" onClick={() => dispatch({ type: 'history.undo' })} title={t('Deshacer (Ctrl+Z)')} disabled={!state.past.length}>
             <Undo2 size={14} />
           </Btn>
-          <Btn variant="onDark" onClick={() => dispatch({ type: 'history.redo' })} title="Rehacer" disabled={!state.future.length}>
+          <Btn variant="onDark" onClick={() => dispatch({ type: 'history.redo' })} title={t('Rehacer')} disabled={!state.future.length}>
             <Redo2 size={14} />
           </Btn>
         </div>
         {/* Las acciones de archivo van en un menú: la fila superior queda para
             lo que se usa a cada momento (nombre, deshacer, pestañas). */}
         <div className="relative">
-          <Btn variant="onDark" onClick={() => setMenuOpen((o) => !o)} title="Archivo">
-            <Menu size={14} /> Archivo
+          <Btn variant="onDark" onClick={() => setMenuOpen((o) => !o)} title={t('Archivo')}>
+            <Menu size={14} /> {t('Archivo')}
           </Btn>
           {menuOpen && (
             <>
@@ -592,7 +594,7 @@ export default function App() {
                       fn()
                     }}
                   >
-                    <Icon size={15} className="text-slate-500" /> {label}
+                    <Icon size={15} className="text-slate-500" /> {t(label)}
                   </button>
                 ))}
                 <div className="my-1 border-t border-slate-200" />
@@ -603,14 +605,17 @@ export default function App() {
                     setDialog({ kind: 'clear' })
                   }}
                 >
-                  <Trash2 size={15} /> Borrar todo
+                  <Trash2 size={15} /> {t('Borrar todo')}
                 </button>
               </div>
             </>
           )}
         </div>
         <Btn variant="primary" onClick={() => setDialog({ kind: 'examples' })}>
-          <Sparkles size={14} /> Ejemplos
+          <Sparkles size={14} /> {t('Ejemplos')}
+        </Btn>
+        <Btn variant="onDark" onClick={() => setDialog({ kind: 'lang' })} title={t('Idioma / Language')}>
+          <Globe size={14} /> {lang === 'en' ? 'EN' : 'ES'}
         </Btn>
         <input
           ref={fileRef}
@@ -637,7 +642,7 @@ export default function App() {
         <Btn
           variant="onDark"
           onClick={toggleFullscreen}
-          title={fullscreen ? 'Salir de pantalla completa (F11 o Esc)' : 'Pantalla completa (F11)'}
+          title={fullscreen ? t('Salir de pantalla completa (F11 o Esc)') : t('Pantalla completa (F11)')}
         >
           {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </Btn>
@@ -656,7 +661,7 @@ export default function App() {
                 tab === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <Icon size={15} /> {label}
+              <Icon size={15} /> {t(label)}
             </button>
           ))}
         </nav>
@@ -665,8 +670,7 @@ export default function App() {
       {/* Aviso de calibración */}
       {!project.georef.metersPerPx && project.image && (
         <div className="flex items-center gap-2 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
-          <b>Falta la escala.</b> Usa la herramienta «Escala gráfica» (R): traza una línea de largo conocido sobre
-          el mapa e indica cuántos metros mide.
+          <b>{t('Falta la escala.')}</b> {t('Usa la herramienta «Escala gráfica» (R): traza una línea de largo conocido sobre el mapa e indica cuántos metros mide.')}
         </div>
       )}
 
@@ -683,9 +687,9 @@ export default function App() {
                   <button
                     key={k}
                     onClick={() => setShow((s) => ({ ...s, [k]: !s[k] }))}
-                    title={`${label}: ${show[k] ? 'visible' : 'oculta'}`}
+                    title={`${t(label)}: ${show[k] ? t('visible') : t('oculta')}`}
                     aria-pressed={show[k]}
-                    aria-label={label}
+                    aria-label={t(label)}
                     className={`grid h-9 w-9 place-items-center rounded-lg transition ${
                       show[k] ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-400 hover:text-slate-600'
                     }`}
@@ -698,25 +702,25 @@ export default function App() {
                     que no empuje los interruptores a otra fila. */}
                 <button
                   onClick={() => setRecalcNonce((n) => n + 1)}
-                  title="Recalcular contornos estructurales, perfiles, 3D y pozos"
+                  title={t('Recalcular contornos estructurales, perfiles, 3D y pozos')}
                   className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 font-medium text-slate-700 hover:bg-slate-200"
                 >
                   <RefreshCw size={15} />
-                  <span className="hidden xl:inline">Recalcular</span>
+                  <span className="hidden xl:inline">{t('Recalcular')}</span>
                 </button>
                 <button
                   onClick={() => setView(null)}
-                  title="Encuadrar el mapa en la ventana"
+                  title={t('Encuadrar el mapa en la ventana')}
                   className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 font-medium text-slate-700 hover:bg-slate-200"
                 >
                   <Frame size={15} />
-                  <span className="hidden xl:inline">Encuadrar</span>
+                  <span className="hidden xl:inline">{t('Encuadrar')}</span>
                 </button>
                 <button
                   onClick={() =>
                     mapCanvasRef.current && downloadCanvasPng(mapCanvasRef.current, `${project.name}-mapa.png`)
                   }
-                  title="Exportar el mapa como PNG"
+                  title={t('Exportar el mapa como PNG')}
                   className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 font-medium text-slate-700 hover:bg-slate-200"
                 >
                   <Download size={15} />
@@ -725,14 +729,14 @@ export default function App() {
                 <span className="ml-auto hidden text-slate-500 lg:inline">
                   {project.georef.metersPerPx
                     ? `1 px ≈ ${project.georef.metersPerPx.toFixed(2)} m · ${countVertices(project)} vértices`
-                    : 'sin escala'}
+                    : t('sin escala')}
                 </span>
               </div>
               {selection?.kind === 'image' && project.image && (
                 <div className="pointer-events-auto absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-slate-900/90 px-3 py-2 text-xs text-white shadow-2xl">
                   <ImageIcon size={15} className="text-sky-300" />
                   <span className="max-w-[220px] truncate font-medium">
-                    {project.image.name || 'Imagen base'}
+                    {project.image.name || t('Imagen base')}
                   </span>
                   <span className="text-slate-400">
                     {project.image.width}×{project.image.height}
@@ -741,13 +745,13 @@ export default function App() {
                     className="rounded-lg bg-white/15 px-2.5 py-1.5 font-medium hover:bg-white/25"
                     onClick={() => fileRef.current?.click()}
                   >
-                    Reemplazar
+                    {t('Reemplazar')}
                   </button>
                   <button
                     className="flex items-center gap-1 rounded-lg bg-rose-500/90 px-2.5 py-1.5 font-medium hover:bg-rose-500"
                     onClick={() => setDialog({ kind: 'delete-image' })}
                   >
-                    <Trash2 size={13} /> Borrar imagen
+                    <Trash2 size={13} /> {t('Borrar imagen')}
                   </button>
                   <button
                     className="rounded-lg px-2 py-1.5 text-slate-300 hover:text-white"
@@ -847,7 +851,7 @@ export default function App() {
             <button
               className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
               onClick={() => setPanelOpen((o) => !o)}
-              title={panelOpen ? 'Ocultar panel' : 'Mostrar panel'}
+              title={panelOpen ? t('Ocultar panel') : t('Mostrar panel')}
             >
               <Layers size={16} />
             </button>
@@ -865,7 +869,7 @@ export default function App() {
                     panel === id ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'
                   }`}
                 >
-                  <Icon size={14} /> {label}
+                  <Icon size={14} /> {t(label)}
                 </button>
               ))}
           </div>
@@ -915,16 +919,16 @@ export default function App() {
         <button
           className="fixed right-3 top-3 z-40 flex items-center gap-1.5 rounded-full bg-slate-900/85 px-3 py-2 text-xs font-semibold text-white shadow-lg hover:bg-slate-900"
           onClick={toggleFullscreen}
-          title="Salir del modo enfoque (Esc)"
+          title={t('Salir del modo enfoque (Esc)')}
         >
-          <Minimize2 size={14} /> Salir
+          <Minimize2 size={14} /> {t('Salir')}
         </button>
       )}
 
       {/* Diálogos */}
       {dialog?.kind === 'contour' && (
-        <Modal title="Cota de la curva" onClose={() => setDialog(null)}>
-          <Field label="Elevación (m s.n.m.)">
+        <Modal title={t('Cota de la curva')} onClose={() => setDialog(null)}>
+          <Field label={t('Elevación (m s.n.m.)')}>
             <input
               autoFocus
               type="number"
@@ -952,20 +956,18 @@ export default function App() {
               +{project.settings.contourInterval}
             </Btn>
             <Btn variant="primary" className="flex-1" onClick={saveContour}>
-              Guardar curva
+              {t('Guardar curva')}
             </Btn>
           </div>
         </Modal>
       )}
 
       {dialog?.kind === 'scontour' && (
-        <Modal title="Contorno estructural" onClose={() => setDialog(null)}>
+        <Modal title={t('Contorno estructural')} onClose={() => setDialog(null)}>
           <p className="mb-2 text-xs leading-relaxed text-slate-600">
-            Un contorno estructural es la recta de <b>cota constante</b> sobre la superficie: donde el contacto
-            pasa por esa altura. El motor los calcula desde los cruces de la traza con las curvas de nivel; el que
-            dibujes aquí manda sobre esa cota.
+            {t('Un contorno estructural es la recta de cota constante sobre la superficie: donde el contacto pasa por esa altura. El motor los calcula desde los cruces de la traza con las curvas de nivel; el que dibujes aquí manda sobre esa cota.')}
           </p>
-          <Field label="Superficie a la que pertenece">
+          <Field label={t('Superficie a la que pertenece')}>
             <select
               className={inputCls}
               value={`${dialog.target.kind}:${dialog.target.id}`}
@@ -981,13 +983,13 @@ export default function App() {
               ))}
               {project.faults.map((f) => (
                 <option key={f.id} value={`fault:${f.id}`}>
-                  {f.name} (falla)
+                  {f.name} ({t('falla')})
                 </option>
               ))}
             </select>
           </Field>
           <div className="mt-2">
-            <Field label="Cota estructural (m s.n.m.)">
+            <Field label={t('Cota estructural (m s.n.m.)')}>
               <input
                 autoFocus
                 type="number"
@@ -1016,18 +1018,18 @@ export default function App() {
               +{project.settings.contourInterval}
             </Btn>
             <Btn variant="primary" className="flex-1" onClick={saveStructureContour}>
-              Añadir contorno
+              {t('Añadir contorno')}
             </Btn>
           </div>
         </Modal>
       )}
 
       {dialog?.kind === 'scale' && (
-        <Modal title="Calibrar escala" onClose={() => setDialog(null)}>
+        <Modal title={t('Calibrar escala')} onClose={() => setDialog(null)}>
           <p className="mb-2 text-xs text-slate-600">
-            La línea trazada mide {dist(dialog.a, dialog.b).toFixed(1)} píxeles. Indica su longitud real.
+            {t('La línea trazada mide')} {dist(dialog.a, dialog.b).toFixed(1)} {t('píxeles. Indica su longitud real.')}
           </p>
-          <Field label="Longitud real (m)">
+          <Field label={t('Longitud real (m)')}>
             <input
               autoFocus
               type="number"
@@ -1040,24 +1042,23 @@ export default function App() {
             />
           </Field>
           <p className="mt-2 text-xs text-slate-500">
-            Resultado: 1 px ≈ {(dialog.meters / Math.max(1e-6, dist(dialog.a, dialog.b))).toFixed(3)} m ·
-            ancho del mapa ≈{' '}
+            {t('Resultado')}: 1 px ≈ {(dialog.meters / Math.max(1e-6, dist(dialog.a, dialog.b))).toFixed(3)} m ·
+            {' '}{t('ancho del mapa')} ≈{' '}
             {fmtDistance((dialog.meters / Math.max(1e-6, dist(dialog.a, dialog.b))) * mapRect.width)}
           </p>
           <div className="mt-3 flex justify-end gap-2">
-            <Btn onClick={() => setDialog(null)}>Cancelar</Btn>
+            <Btn onClick={() => setDialog(null)}>{t('Cancelar')}</Btn>
             <Btn variant="primary" onClick={saveScale}>
-              Aplicar escala
+              {t('Aplicar escala')}
             </Btn>
           </div>
         </Modal>
       )}
 
       {dialog?.kind === 'examples' && (
-        <Modal title="Ejercicios de ejemplo" onClose={() => setDialog(null)} wide>
+        <Modal title={t('Ejercicios de ejemplo')} onClose={() => setDialog(null)} wide>
           <p className="mb-3 text-sm text-slate-600">
-            Se abre una copia nueva: lo que hagas encima no toca el ejemplo original ni los proyectos que ya
-            tengas guardados.
+            {t('Se abre una copia nueva: lo que hagas encima no toca el ejemplo original ni los proyectos que ya tengas guardados.')}
           </p>
           <ul className="space-y-2">
             {EXAMPLES.map((ex) => (
@@ -1068,7 +1069,7 @@ export default function App() {
                   {ex.detail && <div className="mt-0.5 text-[11px] text-slate-400">{ex.detail}</div>}
                 </div>
                 <Btn variant="primary" disabled={!!dialog.busy} onClick={() => openExample(ex.id)}>
-                  {dialog.busy === ex.id ? 'Abriendo…' : 'Abrir'}
+                  {dialog.busy === ex.id ? t('Abriendo…') : t('Abrir')}
                 </Btn>
               </li>
             ))}
@@ -1078,14 +1079,14 @@ export default function App() {
       )}
 
       {dialog?.kind === 'projects' && (
-        <Modal title="Proyectos guardados" onClose={() => setDialog(null)} wide>
+        <Modal title={t('Proyectos guardados')} onClose={() => setDialog(null)} wide>
           <ul className="space-y-1">
             {projects.map((p) => (
               <li key={p.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
                 <div className="flex-1">
                   <div className="text-sm font-medium">{p.name}</div>
                   <div className="text-xs text-slate-500">
-                    {p.units?.length || 0} unidades · {p.contours?.length || 0} curvas ·{' '}
+                    {p.units?.length || 0} {t('unidades')} · {p.contours?.length || 0} {t('curvas')} ·{' '}
                     {new Date(p.updatedAt).toLocaleString()}
                   </div>
                 </div>
@@ -1097,7 +1098,7 @@ export default function App() {
                     setDialog(null)
                   }}
                 >
-                  Abrir
+                  {t('Abrir')}
                 </Btn>
                 <Btn
                   variant="danger"
@@ -1106,26 +1107,25 @@ export default function App() {
                     setProjects(await db.listProjects())
                   }}
                 >
-                  Borrar
+                  {t('Borrar')}
                 </Btn>
               </li>
             ))}
-            {projects.length === 0 && <p className="text-sm text-slate-500">No hay proyectos guardados.</p>}
+            {projects.length === 0 && <p className="text-sm text-slate-500">{t('No hay proyectos guardados.')}</p>}
           </ul>
         </Modal>
       )}
 
       {dialog?.kind === 'clear' && (
-        <Modal title="Borrar todo" onClose={() => setDialog(null)}>
+        <Modal title={t('Borrar todo')} onClose={() => setDialog(null)}>
           <p className="text-sm leading-relaxed text-slate-700">
-            Esto vacía el ejercicio: curvas de nivel, unidades, contactos, fallas, perfiles, pozos y modelos.
+            {t('Esto vacía el ejercicio: curvas de nivel, unidades, contactos, fallas, perfiles, pozos y modelos.')}
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            Se conservan la imagen base, la escala y el norte, para que puedas empezar de nuevo sobre el mismo
-            mapa. La acción se puede deshacer con Ctrl+Z.
+            {t('Se conservan la imagen base, la escala y el norte, para que puedas empezar de nuevo sobre el mismo mapa. La acción se puede deshacer con Ctrl+Z.')}
           </p>
           <div className="mt-4 flex justify-end gap-2">
-            <Btn onClick={() => setDialog(null)}>Cancelar</Btn>
+            <Btn onClick={() => setDialog(null)}>{t('Cancelar')}</Btn>
             <Btn
               variant="danger"
               onClick={() => {
@@ -1136,33 +1136,37 @@ export default function App() {
                 setDialog(null)
               }}
             >
-              <Trash2 size={14} /> Borrar todo
+              <Trash2 size={14} /> {t('Borrar todo')}
             </Btn>
           </div>
         </Modal>
       )}
 
       {dialog?.kind === 'delete-image' && (
-        <Modal title="Borrar la imagen base" onClose={() => setDialog(null)}>
+        <Modal title={t('Borrar la imagen base')} onClose={() => setDialog(null)}>
           <p className="text-sm leading-relaxed text-slate-700">
-            Se quita la imagen del mapa. Todo lo digitalizado encima —curvas, contactos, fallas, perfiles y
-            pozos— se conserva con sus coordenadas.
+            {t('Se quita la imagen del mapa. Todo lo digitalizado encima —curvas, contactos, fallas, perfiles y pozos— se conserva con sus coordenadas.')}
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            El lienzo vuelve al tamaño de la imagen para que nada se mueva de sitio. Se puede deshacer con
-            Ctrl+Z.
+            {t('El lienzo vuelve al tamaño de la imagen para que nada se mueva de sitio. Se puede deshacer con Ctrl+Z.')}
           </p>
           <div className="mt-4 flex justify-end gap-2">
-            <Btn onClick={() => setDialog(null)}>Cancelar</Btn>
+            <Btn onClick={() => setDialog(null)}>{t('Cancelar')}</Btn>
             <Btn variant="danger" onClick={deleteImage}>
-              <Trash2 size={14} /> Borrar imagen
+              <Trash2 size={14} /> {t('Borrar imagen')}
             </Btn>
           </div>
         </Modal>
       )}
 
+      {dialog?.kind === 'lang' && (
+        <Modal title={t('Idioma / Language')} onClose={() => setDialog(null)}>
+          <LangSwitch lang={lang} setLang={setLang} />
+        </Modal>
+      )}
+
       {dialog?.kind === 'info' && (
-        <Modal title="Aviso" onClose={() => setDialog(null)}>
+        <Modal title={t('Aviso')} onClose={() => setDialog(null)}>
           <p className="text-sm text-slate-700">{dialog.text}</p>
         </Modal>
       )}
@@ -1220,30 +1224,72 @@ function fitView(rect) {
   return { scale, tx: 20, ty: 20 }
 }
 
-function statusText(tool, project, activeIds, scene, scTarget) {
-  if (tool === 'contour') return `Curva de nivel · próxima cota ${project.settings.lastElevation} m`
+function statusText(t, tool, project, activeIds, scene, scTarget) {
+  if (tool === 'contour')
+    return `${t('Curva de nivel')} · ${t('próxima cota')} ${project.settings.lastElevation} m`
   if (tool === 'contact') {
     const c = project.contacts.find((x) => x.id === activeIds.contact) || project.contacts[0]
-    return c ? `Trazando contacto: ${c.name}` : 'Crea unidades para generar contactos'
+    return c ? `${t('Trazando contacto')}: ${c.name}` : t('Crea unidades para generar contactos')
   }
   if (tool === 'fault') {
     const f = project.faults.find((x) => x.id === activeIds.fault) || project.faults[0]
-    return f ? `Trazando falla: ${f.name}` : 'Se creará una falla nueva al trazar'
+    return f ? `${t('Trazando falla')}: ${f.name}` : t('Se creará una falla nueva al trazar')
   }
   if (tool === 'scontour') {
     const list = scTarget?.kind === 'fault' ? project.faults : project.contacts
     const target = scTarget ? list.find((x) => x.id === scTarget.id) : null
     return target
-      ? `Traza el contorno estructural de ${target.name} y dale su cota`
-      : 'Traza una recta de cota constante: al soltar eliges superficie y cota'
+      ? `${t('Traza el contorno estructural de')} ${target.name} ${t('y dale su cota')}`
+      : t('Traza una recta de cota constante: al soltar eliges superficie y cota')
   }
-  if (tool === 'scale') return 'Traza una línea de largo conocido'
-  if (tool === 'north') return 'Traza una flecha apuntando al Norte'
-  if (tool === 'frame') return 'Arrastra el rectángulo del área de trabajo'
-  if (tool === 'section') return 'Traza la línea del perfil (A–A′)'
-  if (tool === 'well') return 'Toca el mapa para ubicar el pozo'
-  if (tool === 'erase') return 'Toca un rasgo para eliminarlo'
-  if (tool === 'select') return 'Toca un rasgo para seleccionarlo o moverlo · pulsación larga abre sus opciones'
+  if (tool === 'scale') return t('Traza una línea de largo conocido')
+  if (tool === 'north') return t('Traza una flecha apuntando al Norte')
+  if (tool === 'frame') return t('Arrastra el rectángulo del área de trabajo')
+  if (tool === 'section') return t('Traza la línea del perfil (A–A′)')
+  if (tool === 'well') return t('Toca el mapa para ubicar el pozo')
+  if (tool === 'erase') return t('Toca un rasgo para eliminarlo')
+  if (tool === 'select') return t('Toca un rasgo para seleccionarlo o moverlo · pulsación larga abre sus opciones')
   if (!scene?.ready) return null
   return null
+}
+
+/** Interruptor España/English: un slider real entre dos posiciones. */
+function LangSwitch({ lang, setLang }) {
+  const on = lang === 'en'
+  return (
+    <div className="flex flex-col items-center gap-3 py-1">
+      <div className="flex w-full items-center justify-between text-sm font-semibold text-slate-700">
+        <span className={on ? 'text-slate-400' : 'text-sky-700'}>Español</span>
+        <span className={on ? 'text-sky-700' : 'text-slate-400'}>English</span>
+      </div>
+      <button
+        role="switch"
+        aria-checked={on}
+        aria-label="Español / English"
+        onClick={() => setLang(on ? 'es' : 'en')}
+        className={`relative h-8 w-16 shrink-0 rounded-full transition-colors ${on ? 'bg-sky-600' : 'bg-slate-300'}`}
+      >
+        <span
+          className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+            on ? 'translate-x-9' : 'translate-x-1'
+          }`}
+        />
+      </button>
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="1"
+        value={on ? 1 : 0}
+        onChange={(e) => setLang(e.target.value === '1' ? 'en' : 'es')}
+        aria-label="Español / English"
+        className="w-full accent-sky-600"
+      />
+      <p className="text-center text-xs text-slate-500">
+        {on
+          ? 'The interface switches to English. It falls back to Spanish for text not yet translated.'
+          : 'La interfaz cambia a español. El texto que aún no se tradujo se ve en español bajo inglés también.'}
+      </p>
+    </div>
+  )
 }

@@ -60,8 +60,8 @@ export default function HelpPanel({ project, dispatch }) {
           <i>en ese punto</i>.
         </li>
         <li>
-          Para el <b>salto real</b> de una falla, la herramienta <b>«Punto perf.»</b> y{' '}
-          <b>Datos → Puntos de perforación</b>. Un contacto desplazado sólo da su <i>separación</i>, y con capas
+          Para el <b>salto real</b> de una falla, la herramienta <b>«Piercing Points»</b> y{' '}
+          <b>Datos → Piercing Points</b>. Un contacto desplazado sólo da su <i>separación</i>, y con capas
           paralelas el salto nunca queda determinado. Un rasgo <b>lineal</b> reconocido a los dos lados —la
           charnela de un pliegue, un dique cortando un contacto, el eje de un paleocanal— corta el plano de falla
           en <b>un punto</b>, y el vector entre los dos puntos <b>es</b> el salto neto. Con él, cada contacto
@@ -73,7 +73,7 @@ export default function HelpPanel({ project, dispatch }) {
           —espigas que se abren hacia fuera del trazo si los limbos bajan alejándose del eje, y se cierran hacia
           dentro si bajan hacia él, más una flecha de inmersión cuando el pliegue se hunde—, calculado
           directamente de los dominios de manteo: uno por paquete de capas concordantes, aunque lo aporten varias.
-          Es un buen candidato para el rasgo lineal que piden los puntos de perforación.
+          Es un buen candidato para el rasgo lineal que piden los Piercing Points.
         </li>
         <li>
           Cuando <b>dos superficies se cruzan</b> —lejos de sus datos cada una extrapola a su aire— manda la más

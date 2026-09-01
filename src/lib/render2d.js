@@ -914,7 +914,7 @@ function drawStructureContourLabel(ctx, view, it, { selected = false, taken = []
 function drawFoldAxis(ctx, view, ax) {
   const a = toScreen(view, ax.aImg)
   const b = toScreen(view, ax.bImg)
-  const color = '#1e293b'
+  const color = '#dc2626' // rojo intenso: un eje de pliegue tiene que resaltar sobre curvas y contactos
   ctx.save()
   ctx.strokeStyle = color
   ctx.lineWidth = 2.2

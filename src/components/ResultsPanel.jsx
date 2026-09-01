@@ -413,7 +413,7 @@ function PiercingSection({ scene, project, dispatch }) {
         </div>
       ) : (
         <p className="text-[11px] text-slate-500">
-          Vuelve a la herramienta «Punto perf.» y toca el rasgo al otro lado de la falla.
+          Vuelve a la herramienta «Piercing Points» y toca el rasgo al otro lado de la falla.
         </p>
       )}
     </div>
@@ -422,12 +422,12 @@ function PiercingSection({ scene, project, dispatch }) {
   return (
     <div className="mt-4 border-t border-slate-200 pt-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">Puntos de perforación</h3>
+        <h3 className="text-sm font-semibold text-slate-700">Piercing Points</h3>
         <span className="text-[11px] text-slate-400">{pairs.length} par{pairs.length === 1 ? '' : 'es'}</span>
       </div>
       {!pairs.length && (
         <p className="rounded-lg bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-600">
-          Con la herramienta <b>«Punto perf.»</b> marca el mismo rasgo <b>lineal</b> a los dos lados de la falla
+          Con la herramienta <b>«Piercing Points»</b> marca el mismo rasgo <b>lineal</b> a los dos lados de la falla
           —la charnela de un pliegue, la intersección de un dique con un contacto, el eje de un paleocanal— y
           escribe su dirección e inmersión. Cada recta corta el plano de falla en <b>un punto</b>, y el vector
           entre los dos puntos es el <b>salto neto</b>: magnitud, dirección e inmersión, sin ajuste. Es lo único
@@ -530,7 +530,7 @@ function SlipResult({ scene, slip, pair, project, inArea }) {
         </tbody>
       </table>
       <p className="mt-1 text-[10px] text-slate-500">
-        Puntos de perforación a {fmtDistance(slip.a.distance)} y {fmtDistance(slip.b.distance)} de los puntos
+        Piercing points a {fmtDistance(slip.a.distance)} y {fmtDistance(slip.b.distance)} de los puntos
         marcados, a {Math.round(slip.a.point[2])} y {Math.round(slip.b.point[2])} m de cota.
         {fuera && ' Alguno cae fuera del área de trabajo: es una construcción, no un afloramiento, así que vale igual.'}
       </p>

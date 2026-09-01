@@ -15,8 +15,10 @@ export default function ThreeView({ project, scene, image }) {
   const mountRef = useRef(null)
   const stateRef = useRef(null)
   const [vExag, setVExag] = useState(1)
+  const [unitsOpacity, setUnitsOpacity] = useState(0.62)
   const [aerialOpacity, setAerialOpacity] = useState(0.28)
   const [picked, setPicked] = useState(null)
+  const [panelOpen, setPanelOpen] = useState(true)
   const [show, setShow] = useState({
     topo: true,
     contours: true,
@@ -293,7 +295,7 @@ export default function ThreeView({ project, scene, image }) {
         content.add(mesh)
       }
     }
-    if (show.surfaces) addSurfaces({ zMin: zBottom, inFrame }, 0.62, false)
+    if (show.surfaces) addSurfaces({ zMin: zBottom, inFrame }, unitsOpacity, false)
     if (show.aerial) {
       addSurfaces(
         { zMax: dem.zmax + zRange * 0.6, inFrame, eroded: true },
@@ -422,69 +424,97 @@ export default function ThreeView({ project, scene, image }) {
       controls.update()
       st.framed = true
     }
-  }, [project, scene, image, vExag, show, aerialOpacity])
+  }, [project, scene, image, vExag, show, unitsOpacity, aerialOpacity])
 
   return (
     <div className="relative h-full w-full">
       <div ref={mountRef} className="h-full w-full" />
-      <div className="absolute left-3 top-3 max-w-[240px] rounded-xl bg-slate-900/85 p-3 text-xs text-slate-100 shadow-lg">
-        <div className="mb-2 font-semibold">Vista 3D</div>
-        <label className="mb-2 block">
-          Exageración vertical ×{vExag.toFixed(1)}
-          <input
-            type="range"
-            min="0.5"
-            max="5"
-            step="0.1"
-            value={vExag}
-            onChange={(e) => setVExag(Number(e.target.value))}
-            className="w-full"
-          />
-        </label>
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-          {[
-            ['topo', 'Topografía'],
-            ['texture', 'Imagen base'],
-            ['contours', 'Curvas'],
-            ['traces', 'Trazas'],
-            ['surfaces', 'Unidades'],
-            ['faults', 'Fallas'],
-            ['wells', 'Pozos'],
-            ['sections', 'Perfiles'],
-            ['aerial', 'Sobre el terreno'],
-            ['faultTop', 'Falla hasta el techo'],
-          ].map(([k, lab]) => (
-            <label key={k} className="flex items-center gap-1.5">
+      <div className="absolute left-3 top-3 max-w-[240px] rounded-xl bg-slate-900/85 text-xs text-slate-100 shadow-lg">
+        <button
+          onClick={() => setPanelOpen((o) => !o)}
+          className="flex w-full items-center justify-between gap-2 px-3 py-2 font-semibold"
+        >
+          Vista 3D
+          <span className="text-slate-400">{panelOpen ? '▾' : '▸'}</span>
+        </button>
+        {panelOpen && (
+          <div className="px-3 pb-3">
+            <label className="mb-2 block">
+              Exageración vertical ×{vExag.toFixed(1)}
               <input
-                type="checkbox"
-                checked={show[k]}
-                onChange={(e) => setShow((s) => ({ ...s, [k]: e.target.checked }))}
+                type="range"
+                min="0.5"
+                max="5"
+                step="0.1"
+                value={vExag}
+                onChange={(e) => setVExag(Number(e.target.value))}
+                className="w-full"
               />
-              {lab}
             </label>
-          ))}
-        </div>
-        {show.aerial && (
-          <label className="mt-2 block">
-            Opacidad sobre el terreno {Math.round(aerialOpacity * 100)} %
-            <input
-              type="range"
-              min="0.04"
-              max="1"
-              step="0.02"
-              value={aerialOpacity}
-              onChange={(e) => setAerialOpacity(Number(e.target.value))}
-              className="w-full"
-            />
-            <span className="block text-[10px] leading-snug text-slate-400">
-              La prolongación de cada superficie por encima del relieve: lo que ya se erosionó.
-            </span>
-          </label>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              {[
+                ['topo', 'Topografía'],
+                ['texture', 'Imagen base'],
+                ['contours', 'Curvas'],
+                ['traces', 'Trazas'],
+                ['surfaces', 'Unidades'],
+                ['faults', 'Fallas'],
+                ['wells', 'Pozos'],
+                ['sections', 'Perfiles'],
+                ['aerial', 'Sobre el terreno'],
+                ['faultTop', 'Falla hasta el techo'],
+              ].map(([k, lab]) => (
+                <label key={k} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={show[k]}
+                    onChange={(e) => setShow((s) => ({ ...s, [k]: e.target.checked }))}
+                  />
+                  {lab}
+                </label>
+              ))}
+            </div>
+            {show.surfaces && (
+              <label className="mt-2 block">
+                Opacidad de las unidades {Math.round(unitsOpacity * 100)} %
+                <input
+                  type="range"
+                  min="0.08"
+                  max="1"
+                  step="0.02"
+                  value={unitsOpacity}
+                  onChange={(e) => setUnitsOpacity(Number(e.target.value))}
+                  className="w-full"
+                />
+                <span className="block text-[10px] leading-snug text-slate-400">
+                  Cuán transparente se ve cada superficie bajo el terreno: menos opacidad deja ver las de
+                  abajo a través de las de arriba.
+                </span>
+              </label>
+            )}
+            {show.aerial && (
+              <label className="mt-2 block">
+                Opacidad sobre el terreno {Math.round(aerialOpacity * 100)} %
+                <input
+                  type="range"
+                  min="0.04"
+                  max="1"
+                  step="0.02"
+                  value={aerialOpacity}
+                  onChange={(e) => setAerialOpacity(Number(e.target.value))}
+                  className="w-full"
+                />
+                <span className="block text-[10px] leading-snug text-slate-400">
+                  La prolongación de cada superficie por encima del relieve: lo que ya se erosionó.
+                </span>
+              </label>
+            )}
+            <p className="mt-2 text-[11px] text-slate-400">
+              Arrastra para rotar · dos dedos o rueda para acercar · clic derecho para desplazar. Toca una
+              superficie para ver qué es.
+            </p>
+          </div>
         )}
-        <p className="mt-2 text-[11px] text-slate-400">
-          Arrastra para rotar · dos dedos o rueda para acercar · clic derecho para desplazar. Toca una
-          superficie para ver qué es.
-        </p>
       </div>
       {picked && (
         <div className="absolute bottom-3 left-3 max-w-[260px] rounded-xl bg-slate-900/90 p-3 text-xs text-slate-100 shadow-lg">
