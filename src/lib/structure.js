@@ -634,6 +634,7 @@ export function buildSurface({
   contours,
   manual = null,
   manualContours = [],
+  scOnly = false,
   name = '',
   color = '#000',
   tol = 1,
@@ -648,9 +649,16 @@ export function buildSurface({
       drawn.push(p)
     }
   }
-  const points3D = overridden.size
-    ? [...measured.filter((p) => !overridden.has(p[2])), ...drawn]
-    : measured
+  // `scOnly`: la superficie la definen sus contornos a mano y nada más. Hace
+  // falta cuando los contornos ya no están a las cotas de los cruces medidos
+  // —al mover una superficie en el 3D suben o bajan de cota—, porque entonces
+  // sustituir «los de esa cota» no sustituye nada y los cruces originales
+  // quedarían tirando de la superficie hacia donde ya no está.
+  const points3D = scOnly && drawn.length
+    ? drawn
+    : overridden.size
+      ? [...measured.filter((p) => !overridden.has(p[2])), ...drawn]
+      : measured
   const keyOf = manualIdOf.size ? (p) => manualIdOf.get(p) || null : null
   const plane = fitPlane(points3D)
 

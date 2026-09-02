@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { toWorldList, toImage } from '../lib/georef.js'
-import { kinematicsOf } from '../lib/model.js'
+import { kinematicsOf, newStructureContour } from '../lib/model.js'
+import { contourSegment } from '../lib/structure.js'
 import { frameTest, modelExtent } from '../lib/models.js'
 import { buildWellModel } from '../lib/wells.js'
 import { contactMeshes, faultSheetMesh } from '../lib/surfaces3d.js'
@@ -11,7 +12,7 @@ import { contactMeshes, faultSheetMesh } from '../lib/surfaces3d.js'
  * Vista 3D: topografía reconstruida desde las curvas de nivel, trazas
  * geológicas drapeadas, superficies de contacto y falla, pozos y perfiles.
  */
-export default function ThreeView({ project, scene, image }) {
+export default function ThreeView({ project, scene, image, dispatch }) {
   const mountRef = useRef(null)
   const stateRef = useRef(null)
   const [vExag, setVExag] = useState(1)
@@ -306,9 +307,14 @@ export default function ThreeView({ project, scene, image }) {
       g.position.set(c.x + (t.dx || 0), c.y + (t.dy || 0), c.z + (t.dz || 0) * vExag)
       const k = t.scale || 1
       g.scale.set(k, k, k)
-      placed.set(key, { c, t, k })
+      placed.set(key, { c, t, k, world: [c.x + cx, c.y + cy, c.z / (vExag || 1) + cz] })
       content.add(g)
     }
+
+    // El centro de cada superficie movida, en coordenadas de terreno: es el
+    // punto sobre el que se escaló, y hace falta para repetir exactamente la
+    // misma transformación sobre sus contornos del mapa.
+    st.worldCentre = (key) => placed.get(key)?.world || null
 
     // La inversa: de un punto de la escena al sitio donde la superficie tiene
     // de verdad sus datos.
@@ -487,6 +493,84 @@ export default function ThreeView({ project, scene, image }) {
     }
   }, [project, scene, image, vExag, show, unitsOpacity, aerialOpacity, transforms])
 
+  /**
+   * Lleva al mapa lo que se hizo con la superficie en el 3D.
+   *
+   * Mover o escalar una superficie en el 3D es mover o escalar **su geometría**,
+   * y la geometría de una superficie en el mapa son sus contornos estructurales.
+   * Así que la transformación se aplica a ellos y se guardan como contornos
+   * puestos a mano, que es la forma que ya tiene la app de que una superficie la
+   * mande el usuario y no el ajuste: a partir de ahí el mapa, los perfiles, los
+   * pozos y el propio 3D se recalculan de esos contornos y todo cuenta lo mismo.
+   *
+   * Subir la superficie sube la cota de cada contorno; moverla en planta los
+   * desplaza; escalarla los separa o los junta —y eso es cambiarle el manteo—.
+   *
+   * Los contornos de los demás bloques del mismo rasgo se copian tal cual: los
+   * contornos a mano viven en el contacto, no en el bloque, y al otro lado de la
+   * falla la superficie es otra que no se ha tocado.
+   */
+  const applyToMap = (p) => {
+    const t = transforms[p.key]
+    const centre = stateRef.current?.worldCentre?.(p.key)
+    if (!t || !centre || !dispatch || !scene?.ready) return
+    const k = t.scale || 1
+    const [cxw, cyw, czw] = centre
+    const move = (q) => [cxw + k * (q[0] - cxw) + (t.dx || 0), cyw + k * (q[1] - cyw) + (t.dy || 0)]
+    const moveZ = (z) => Math.round(czw + k * (z - czw) + (t.dz || 0))
+
+    const surf =
+      p.kind === 'fault' ? scene.faultSurfaces.get(p.id) : scene.contactSurfaces.get(p.id)?.get(p.block)
+    if (!surf) return
+    const feature =
+      p.kind === 'fault'
+        ? project.faults.find((f) => f.id === p.id)
+        : project.contacts.find((c) => c.id === p.id)
+    if (!feature) return
+
+    // Sólo se reescribe el bloque que se movió. Los contornos que el estudiante
+    // ya tuviera puestos al otro lado de la falla se conservan tal cual: allí la
+    // superficie es otra y no se ha tocado. Se reconoce a cuál pertenece cada
+    // uno por dónde cae su punto medio, igual que hace la escena al repartirlos.
+    const otros = (feature.structureContours || []).filter((sc) => {
+      if (!sc?.pts || sc.pts.length < 2) return false
+      if (p.block == null) return false
+      const [a, b] = toWorldList(scene.georef, [sc.pts[0], sc.pts[sc.pts.length - 1]])
+      return scene.blocks.blockAt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) !== p.block
+    })
+
+    const movidos = []
+    for (const sc of surf.structureContours || []) {
+      const seg = contourSegment(sc, null, 0)
+      if (!seg) continue
+      movidos.push(
+        newStructureContour(moveZ(sc.elevation), [
+          toImage(scene.georef, move(seg[0])),
+          toImage(scene.georef, move(seg[1])),
+        ])
+      )
+    }
+    if (!movidos.length) return
+
+    // `scOnly`: a partir de aquí la superficie la definen estos contornos. Al
+    // subirla o bajarla sus contornos cambian de cota, así que ya no sustituyen
+    // a los cruces medidos de esa cota y, sin esto, los cruces originales
+    // seguirían tirando de la superficie hacia donde estaba antes.
+    dispatch({
+      type: 'sc.bulk',
+      groups: [{ kind: p.kind, id: p.id, items: [...otros, ...movidos], scOnly: true }],
+      replace: true,
+    })
+    // Ya está en los datos: la transformación de la vista sobra, y dejarla
+    // puesta movería la superficie dos veces.
+    setTransforms((s) => {
+      const out = { ...s }
+      delete out[p.key]
+      return out
+    })
+    setPicked(null)
+  }
+
   return (
     <div className="relative h-full w-full">
       <div ref={mountRef} className="h-full w-full" />
@@ -614,6 +698,7 @@ export default function ThreeView({ project, scene, image }) {
           </p>
           <SurfaceTransform
             value={transforms[picked.key]}
+            onApply={dispatch ? () => applyToMap(picked) : null}
             step={Math.max(10, Math.round((scene?.side || 1000) / 40))}
             onChange={(patch) =>
               setTransforms((s) => {
@@ -644,14 +729,17 @@ const surfaceKey = (kind, id, block) => `${kind}:${id}:${block ?? '-'}`
 /**
  * Mover y escalar la superficie seleccionada dentro del 3D.
  *
- * Es una manipulación de la vista, no del modelo: separar las superficies unas
- * de otras —el diagrama de bloques «explotado» de toda la vida— deja ver por
- * dentro un apilamiento que de otro modo se tapa a sí mismo, y agrandar una
- * enseña hacia dónde seguiría. Los datos no se tocan: la superficie se sigue
- * calculando de su traza y sus curvas de nivel, el mapa y los perfiles no se
- * enteran, y al soltarla vuelve a su sitio.
+ * Mientras no se aplique, es una manipulación de la vista: separar las
+ * superficies unas de otras —el diagrama de bloques «explotado» de toda la
+ * vida— deja ver por dentro un apilamiento que si no se tapa a sí mismo, y
+ * agrandar una enseña hacia dónde seguiría. «A su sitio» la devuelve.
+ *
+ * «Llevar al mapa» hace el cambio de verdad: escribe la nueva geometría en los
+ * contornos estructurales del rasgo, y desde ahí se recalculan el mapa, los
+ * perfiles, los pozos y el propio 3D. Se deshace con Ctrl+Z como cualquier otra
+ * edición.
  */
-function SurfaceTransform({ value, step, onChange }) {
+function SurfaceTransform({ value, step, onChange, onApply }) {
   const t = value || { dx: 0, dy: 0, dz: 0, scale: 1 }
   const movida = !!value
   const eje = (label, key, signo = 1) => (
@@ -702,10 +790,25 @@ function SurfaceTransform({ value, step, onChange }) {
         />
       </label>
       {movida && (
-        <p className="text-[10px] leading-snug text-slate-500">
-          Desplazada {Math.round(t.dx)} m al E, {Math.round(t.dy)} m al N y {Math.round(t.dz)} m en
-          vertical. Sólo en esta vista: el mapa y los perfiles siguen igual.
-        </p>
+        <>
+          <p className="text-[10px] leading-snug text-slate-500">
+            Desplazada {Math.round(t.dx)} m al E, {Math.round(t.dy)} m al N y {Math.round(t.dz)} m en
+            vertical{Math.abs(t.scale - 1) > 1e-6 ? `, y a ×${t.scale.toFixed(2)}` : ''}. Por ahora
+            sólo en esta vista.
+          </p>
+          {onApply && (
+            <button
+              className="mt-1.5 w-full rounded-lg bg-sky-600 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-500"
+              onClick={onApply}
+            >
+              Llevar al mapa
+            </button>
+          )}
+          <p className="mt-1 text-[10px] leading-snug text-slate-500">
+            Escribe la nueva geometría en los contornos estructurales del rasgo: el mapa, los perfiles
+            y los pozos pasan a contar lo mismo. Ctrl+Z lo deshace.
+          </p>
+        </>
       )}
     </div>
   )

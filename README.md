@@ -679,12 +679,28 @@ no se tapa a sí mismo, y agrandar una enseña hacia dónde seguiría. La escala
 aplica sobre el propio centro de la superficie, para que crezca donde está en
 vez de irse hacia el centro de la escena.
 
-Es una manipulación **de la vista, no del modelo**: los datos no se tocan, la
-superficie se sigue calculando de su traza y sus curvas de nivel, el mapa y los
-perfiles no se enteran, y «A su sitio» la devuelve. Por eso, al tocar una
-superficie que se ha movido, la app deshace primero su desplazamiento antes de
-preguntarle la actitud: lo que se lee sigue siendo la geología y no el efecto de
-haberla corrido.
+Mientras no se aplique es sólo la vista: los datos no se tocan y «A su sitio» la
+devuelve. Por eso, al tocar una superficie que se ha movido, la app deshace
+primero su desplazamiento antes de preguntarle la actitud, y lo que se lee sigue
+siendo la geología y no el efecto de haberla corrido.
+
+**«Llevar al mapa»** hace el cambio de verdad. La geometría de una superficie en
+el mapa son sus contornos estructurales, así que la transformación se aplica a
+ellos y se guardan como contornos puestos a mano: a partir de ahí el mapa, los
+perfiles, los pozos y el propio 3D se recalculan de ellos y todo cuenta lo mismo.
+Subir la superficie sube la cota de cada contorno, moverla en planta los
+desplaza, y agrandarla los separa —una semejanza uniforme, así que **el manteo no
+cambia**, sólo el tamaño; medido sobre el ejercicio de prueba, 24,8° a escala
+×0,5, ×1 y ×2—. Se deshace con Ctrl+Z como cualquier otra edición.
+
+Hace falta además marcar la superficie como definida por sus contornos
+(`scOnly`): al subirla o bajarla, sus contornos cambian de cota y ya no
+sustituyen a los cruces medidos de esa cota, de modo que sin eso los cruces
+originales seguirían tirando de la superficie hacia donde estaba —subiendo 1000 m
+el ejercicio de prueba, el manteo se desplomaba de 25° a 9°—. Se reescribe sólo
+el bloque que se movió: al otro lado de la falla la superficie es otra y no se ha
+tocado. Borrar los contornos a mano del rasgo devuelve el mando a lo medido sobre
+el mapa.
 
 Cada superficie de contacto se recorta **en el punto exacto** en que la limita
 cada cosa, no en el borde de la celda de la malla: la topografía (por encima ya

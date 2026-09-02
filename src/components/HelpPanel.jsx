@@ -58,8 +58,9 @@ export default function HelpPanel({ project, dispatch }) {
           superficie, «Falla hasta el techo» prolonga el plano de cada falla hasta el borde superior del modelo
           en vez de cortarlo justo en la traza, y tocar una superficie dice qué es y con qué rumbo y manteo
           <i>en ese punto</i>. Con ella seleccionada se la puede <b>mover en los tres ejes y agrandarla o
-          achicarla</b> para separar el apilamiento y mirarlo por dentro: es sólo la vista —el mapa y los
-          perfiles no cambian— y «A su sitio» la devuelve.
+          achicarla</b> para separar el apilamiento y mirarlo por dentro; «A su sitio» la devuelve. Con
+          <b>«Llevar al mapa»</b> el cambio pasa a los datos: se escribe en los <b>contornos
+          estructurales</b> del rasgo, y desde ahí se recalculan el mapa, los perfiles y los pozos.
         </li>
         <li>
           Para el <b>salto real</b> de una falla, la herramienta <b>«Piercing Points»</b> y{' '}

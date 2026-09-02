@@ -318,6 +318,7 @@ export function buildScene(project) {
           contours: worldContours,
           manual: cw.contact.manual,
           manualContours: manualByBlock.get(block) || [],
+          scOnly: !!cw.contact.scOnly,
           name: cw.contact.name,
           tol,
         })
@@ -336,6 +337,7 @@ export function buildScene(project) {
       contours: worldContours,
       manual: fw.fault.manual,
       manualContours: manualSc,
+      scOnly: !!fw.fault.scOnly,
       name: fw.fault.name,
       tol,
     })

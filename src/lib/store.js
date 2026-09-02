@@ -174,6 +174,11 @@ function apply(project, action) {
             structureContours: action.replace
               ? g.items
               : [...(it.structureContours || []), ...g.items],
+            // `scOnly` marca que la superficie la definen estos contornos y no
+            // los cruces de su traza con las curvas de nivel. Lo pone quien
+            // mueve la superficie en el 3D, donde los contornos cambian de cota
+            // y ya no sustituyen a ningún cruce.
+            ...(g.scOnly === undefined ? {} : { scOnly: !!g.scOnly }),
           })),
         }
       }
@@ -188,6 +193,9 @@ function apply(project, action) {
           structureContours: action.elevation == null
             ? []
             : (it.structureContours || []).filter((sc) => sc.elevation !== action.elevation),
+          // Sin contornos a mano no hay nada que pueda definir la superficie por
+          // su cuenta: vuelve a mandar lo medido sobre el mapa.
+          ...(action.elevation == null ? { scOnly: false } : {}),
         })),
       }
     }

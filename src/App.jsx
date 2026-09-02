@@ -829,7 +829,7 @@ export default function App() {
               </div>
             </div>
           )}
-          {tab === '3d' && <ThreeView project={project} scene={scene} image={image} />}
+          {tab === '3d' && <ThreeView project={project} scene={scene} image={image} dispatch={dispatch} />}
           {tab === 'pozos' && (
             <WellView
               project={project}
