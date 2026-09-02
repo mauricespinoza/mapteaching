@@ -60,6 +60,7 @@ function describe(surf, sc) {
     sc,
     elevation: sc.elevation,
     limb: sc.limb ?? 0,
+    part: sc.part ?? 0,
     mid: [(seg[0][0] + seg[1][0]) / 2, (seg[0][1] + seg[1][1]) / 2],
     length: l,
     strike: norm180(az),
@@ -208,12 +209,17 @@ export function regularContours(scene, { mode = 'regularize', strikeTol = 15, sp
       .map((sc) => describe(surf, sc))
       .filter(Boolean)
     if (described.length < 2) continue
+    // Se agrupa por limbo **y tramo**: dos tramos de la misma cota son flancos
+    // distintos del pliegue, y promediarlos juntos volvería a inventar un
+    // contorno que cruza la charnela, que es justo lo que el reparto evita.
     const byLimb = new Map()
     for (const d of described) {
-      if (!byLimb.has(d.limb)) byLimb.set(d.limb, [])
-      byLimb.get(d.limb).push(d)
+      const key = `${d.limb}|${d.part}`
+      if (!byLimb.has(key)) byLimb.set(key, [])
+      byLimb.get(key).push(d)
     }
-    for (const [limb, list] of byLimb) {
+    for (const [, list] of byLimb) {
+      const limb = list[0].limb
       list.sort((a, b) => a.elevation - b.elevation)
       const groups = runs(list, strikeTol, spacingTol)
       for (const run of groups) {

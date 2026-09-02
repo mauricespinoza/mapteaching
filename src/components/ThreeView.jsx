@@ -19,6 +19,11 @@ export default function ThreeView({ project, scene, image }) {
   const [aerialOpacity, setAerialOpacity] = useState(0.28)
   const [picked, setPicked] = useState(null)
   const [panelOpen, setPanelOpen] = useState(true)
+  // Traslación y escala con las que se manipula cada superficie en el 3D. Es
+  // una manipulación *de la vista*: sirve para separar el modelo y mirarlo por
+  // dentro, y no toca los datos —la superficie sigue calculándose de su traza y
+  // sus curvas de nivel, y el mapa y los perfiles no se enteran—.
+  const [transforms, setTransforms] = useState({})
   const [show, setShow] = useState({
     topo: true,
     contours: true,
@@ -117,20 +122,24 @@ export default function ThreeView({ project, scene, image }) {
       )
       const ray = new THREE.Raycaster()
       ray.setFromCamera(ndc, st.camera)
-      const hits = ray.intersectObjects(st.content.children, false)
+      const hits = ray.intersectObjects(st.content.children, true)
       const hit = hits.find((h) => h.object.userData?.kind)
       if (!hit) {
         setPicked(null)
         return
       }
-      const { kind, id, name, block, eroded } = hit.object.userData
-      const [wx, wy, wz] = st.toWorld(hit.point)
+      const { kind, id, name, block, eroded, key } = hit.object.userData
+      // La superficie movida o escalada ya no está donde están sus datos: se
+      // deshace su transformación antes de preguntarle la actitud, para que lo
+      // que se lee siga siendo la geología y no el efecto de haberla movido.
+      const local = st.untransform ? st.untransform(hit.point, key) : hit.point
+      const [wx, wy, wz] = st.toWorld(local)
       const surf =
         kind === 'fault'
           ? scene.faultSurfaces.get(id)
           : scene.contactSurfaces.get(id)?.get(block)
       const att = surf?.attitudeAt ? surf.attitudeAt(wx, wy) : surf?.mean
-      setPicked({ kind, name, block, eroded, z: wz, att: att || null })
+      setPicked({ kind, id, name, block, eroded, key, z: wz, att: att || null })
     }
     el.addEventListener('pointerdown', onDown)
     el.addEventListener('pointerup', onUp)
@@ -267,6 +276,53 @@ export default function ThreeView({ project, scene, image }) {
       }
     }
 
+    // Registro de lo que se ha movido, para poder deshacerlo al identificar una
+    // superficie tocada.
+    const placed = new Map()
+
+    /**
+     * Cuelga una malla con su traslación y su escala. La geometría se centra en
+     * su propio centroide y el grupo se coloca ahí: así, al escalar, la
+     * superficie crece o encoge **sobre sí misma** en vez de irse hacia el
+     * origen de la escena.
+     */
+    const addTransformed = (mesh, key) => {
+      const t = transforms[key]
+      if (!t) {
+        content.add(mesh)
+        return
+      }
+      let c = placed.get(key)?.c
+      if (!c) {
+        mesh.geometry.computeBoundingBox()
+        c = new THREE.Vector3()
+        mesh.geometry.boundingBox.getCenter(c)
+      }
+      mesh.geometry.translate(-c.x, -c.y, -c.z)
+      const g = new THREE.Group()
+      g.add(mesh)
+      // dz va en metros de terreno, así que se lleva a la escena con la misma
+      // exageración vertical que todo lo demás.
+      g.position.set(c.x + (t.dx || 0), c.y + (t.dy || 0), c.z + (t.dz || 0) * vExag)
+      const k = t.scale || 1
+      g.scale.set(k, k, k)
+      placed.set(key, { c, t, k })
+      content.add(g)
+    }
+
+    // La inversa: de un punto de la escena al sitio donde la superficie tiene
+    // de verdad sus datos.
+    st.untransform = (p, key) => {
+      const m = placed.get(key)
+      if (!m) return p
+      const o = new THREE.Vector3(
+        m.c.x + (m.t.dx || 0),
+        m.c.y + (m.t.dy || 0),
+        m.c.z + (m.t.dz || 0) * vExag
+      )
+      return p.clone().sub(o).divideScalar(m.k).add(m.c)
+    }
+
     // Superficies de contacto por bloque. Se pueden pedir dos mitades: la que
     // queda bajo el terreno —la geología que aún existe— y, aparte, la que ya
     // se ha erosionado, que enseña hacia dónde seguía el pliegue en el aire.
@@ -291,8 +347,12 @@ export default function ThreeView({ project, scene, image }) {
         )
         // Lo que hace falta para contestar al toque: qué rasgo es y en qué
         // bloque, para poder pedirle su actitud en el punto tocado.
-        mesh.userData = { kind: 'contact', id: c.id, name: c.name, block, eroded }
-        content.add(mesh)
+        const key = surfaceKey('contact', c.id, block)
+        mesh.userData = { kind: 'contact', id: c.id, name: c.name, block, eroded, key }
+        // La mitad erosionada acompaña a la que está bajo el terreno: son la
+        // misma superficie partida en dos, y separarlas al mover no tendría
+        // sentido.
+        addTransformed(mesh, key)
       }
     }
     if (show.surfaces) addSurfaces({ zMin: zBottom, inFrame }, unitsOpacity, false)
@@ -332,8 +392,9 @@ export default function ThreeView({ project, scene, image }) {
                 roughness: 0.6,
               })
             )
-            mesh.userData = { kind: 'fault', id: fw.id, name: fw.fault.name, block: null, eroded: false }
-            content.add(mesh)
+            const key = surfaceKey('fault', fw.id, null)
+            mesh.userData = { kind: 'fault', id: fw.id, name: fw.fault.name, block: null, eroded: false, key }
+            addTransformed(mesh, key)
           }
         }
       }
@@ -424,7 +485,7 @@ export default function ThreeView({ project, scene, image }) {
       controls.update()
       st.framed = true
     }
-  }, [project, scene, image, vExag, show, unitsOpacity, aerialOpacity])
+  }, [project, scene, image, vExag, show, unitsOpacity, aerialOpacity, transforms])
 
   return (
     <div className="relative h-full w-full">
@@ -551,12 +612,100 @@ export default function ThreeView({ project, scene, image }) {
             La actitud es la del punto tocado, no la media del rasgo: en un pliegue cada flanco mantea
             distinto.
           </p>
+          <SurfaceTransform
+            value={transforms[picked.key]}
+            step={Math.max(10, Math.round((scene?.side || 1000) / 40))}
+            onChange={(patch) =>
+              setTransforms((s) => {
+                const next = { ...(s[picked.key] || { dx: 0, dy: 0, dz: 0, scale: 1 }), ...patch }
+                const limpio =
+                  !next.dx && !next.dy && !next.dz && Math.abs(next.scale - 1) < 1e-6
+                const out = { ...s }
+                if (limpio) delete out[picked.key]
+                else out[picked.key] = next
+                return out
+              })
+            }
+          />
         </div>
       )}
       {!scene?.ready && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/70 text-sm text-slate-200">
           Define la escala del mapa para construir el modelo 3D.
         </div>
+      )}
+    </div>
+  )
+}
+
+/** Identidad de una superficie en el 3D: es la clave de su transformación. */
+const surfaceKey = (kind, id, block) => `${kind}:${id}:${block ?? '-'}`
+
+/**
+ * Mover y escalar la superficie seleccionada dentro del 3D.
+ *
+ * Es una manipulación de la vista, no del modelo: separar las superficies unas
+ * de otras —el diagrama de bloques «explotado» de toda la vida— deja ver por
+ * dentro un apilamiento que de otro modo se tapa a sí mismo, y agrandar una
+ * enseña hacia dónde seguiría. Los datos no se tocan: la superficie se sigue
+ * calculando de su traza y sus curvas de nivel, el mapa y los perfiles no se
+ * enteran, y al soltarla vuelve a su sitio.
+ */
+function SurfaceTransform({ value, step, onChange }) {
+  const t = value || { dx: 0, dy: 0, dz: 0, scale: 1 }
+  const movida = !!value
+  const eje = (label, key, signo = 1) => (
+    <div className="flex items-center gap-1">
+      <span className="w-3 font-mono text-slate-400">{label}</span>
+      <button
+        className="flex-1 rounded bg-white/10 py-0.5 hover:bg-white/20"
+        onClick={() => onChange({ [key]: t[key] - step * signo })}
+      >
+        −
+      </button>
+      <button
+        className="flex-1 rounded bg-white/10 py-0.5 hover:bg-white/20"
+        onClick={() => onChange({ [key]: t[key] + step * signo })}
+      >
+        +
+      </button>
+    </div>
+  )
+  return (
+    <div className="mt-2 border-t border-white/10 pt-2">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-slate-300">Mover en el 3D</span>
+        {movida && (
+          <button
+            className="rounded px-1.5 py-0.5 text-[10px] text-sky-300 hover:bg-white/10"
+            onClick={() => onChange({ dx: 0, dy: 0, dz: 0, scale: 1 })}
+          >
+            A su sitio
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+        {eje('E', 'dx')}
+        {eje('N', 'dy')}
+        {eje('Z', 'dz')}
+      </div>
+      <label className="mt-1.5 block text-[11px] text-slate-300">
+        Tamaño ×{t.scale.toFixed(2)}
+        <input
+          type="range"
+          min="0.25"
+          max="2.5"
+          step="0.05"
+          value={t.scale}
+          onChange={(e) => onChange({ scale: Number(e.target.value) })}
+          className="w-full"
+        />
+      </label>
+      {movida && (
+        <p className="text-[10px] leading-snug text-slate-500">
+          Desplazada {Math.round(t.dx)} m al E, {Math.round(t.dy)} m al N y {Math.round(t.dz)} m en
+          vertical. Sólo en esta vista: el mapa y los perfiles siguen igual.
+        </p>
       )}
     </div>
   )
@@ -653,6 +802,9 @@ function clipSegment(a, b, inFrame) {
 function disposeGroup(group) {
   for (const child of [...group.children]) {
     group.remove(child)
+    // Las superficies que se han movido cuelgan de un grupo propio: hay que
+    // bajar hasta sus mallas para soltar la geometría y el material.
+    if (child.children?.length) disposeGroup(child)
     child.geometry?.dispose?.()
     if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose())
     else child.material?.dispose?.()

@@ -51,12 +51,165 @@ export function intersectWithContours(traces, contours, tol = 1) {
   return out
 }
 
+/** Desvío de rumbo, en grados, que se admite dentro de un mismo panel. */
+const MAX_STRIKE_DEV = 35
+/** Apertura, en grados, con la que se busca la dirección de rumbo dominante. */
+const STRIKE_WINDOW = 18
+
+/**
+ * Rumbo dominante de una superficie, a partir de los pares de puntos de igual
+ * cota.
+ *
+ * Todos los contornos estructurales de una superficie son paralelos entre sí:
+ * en un panel plano porque es un plano, y en un pliegue cilíndrico porque los
+ * contornos de los dos flancos van paralelos al eje. Así que la dirección que
+ * más pares de igual cota comparten **es** la del rumbo.
+ *
+ * Sólo votan los pares de puntos *vecinos*. Dos cruces contiguos de una misma
+ * cota son del mismo limbo —van seguidos a lo largo del afloramiento— y se
+ * alinean con el rumbo; en cambio los limbos se repiten *a través* del rumbo,
+ * de modo que los pares que cruzan de un flanco a otro apuntan casi todos
+ * perpendicularmente al rumbo, y en un tren de pliegues son tantos que, si se
+ * les deja votar, ganan ellos y el rumbo sale girado 90°.
+ */
+function consensusStrike(groups, tol) {
+  const dirs = []
+  for (const pts of groups) {
+    for (let i = 0; i < pts.length; i++) {
+      const near = pts
+        .map((q, j) => ({ j, d: Math.hypot(q[0] - pts[i][0], q[1] - pts[i][1]) }))
+        .filter((x) => x.j !== i && x.d >= tol * 3)
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 2)
+      for (const { j, d } of near) {
+        dirs.push([(pts[j][0] - pts[i][0]) / d, (pts[j][1] - pts[i][1]) / d])
+      }
+    }
+  }
+  if (dirs.length < 2) return null
+  const cos = Math.cos(STRIKE_WINDOW * RAD)
+  let best = null
+  for (const cand of dirs) {
+    const near = dirs.filter((d) => Math.abs(d[0] * cand[0] + d[1] * cand[1]) >= cos)
+    if (!best || near.length > best.length) best = near
+  }
+  return best && best.length >= 2 ? meanDirection(best) : null
+}
+
+/** Mediana de una lista de números (se ordena una copia). */
+function median(xs) {
+  if (!xs.length) return 0
+  const s = [...xs].sort((a, b) => a - b)
+  return s[s.length >> 1]
+}
+
+/**
+ * Parte los puntos de una misma cota en los contornos de cada limbo.
+ *
+ * Un contorno estructural es una recta de cota constante sobre la superficie, y
+ * todos los de una superficie son paralelos. Medida la posición de cada punto
+ * **a través** del rumbo, los del mismo limbo caen todos en el mismo sitio y
+ * los del otro flanco caen apartados: entre unos y otros queda un hueco, y ese
+ * hueco es la charnela. Cortar ahí es exactamente trazar cada contorno con los
+ * cruces de un solo limbo.
+ *
+ * El corte va a través del rumbo y no a lo largo: un mismo limbo puede aflorar
+ * en dos fajas separadas por un valle, y ésas sí son el mismo contorno.
+ *
+ * El reparto en dominios (domains.js) ya intenta separar los limbos antes de
+ * llegar aquí, pero necesita bastantes puntos para que el RANSAC los distinga;
+ * con pocos devuelve un solo dominio y los dos flancos entran juntos. Esta
+ * comprobación no depende de aquello.
+ */
+function splitByLimb(pts, dir, tol) {
+  if (pts.length <= 1 || !dir) return [pts]
+  // Coordenada a través del rumbo.
+  const across = pts.map((p) => -p[0] * dir[1] + p[1] * dir[0])
+  const order = pts.map((_, i) => i).sort((a, b) => across[a] - across[b])
+  const gaps = []
+  for (let i = 1; i < order.length; i++) gaps.push(across[order[i]] - across[order[i - 1]])
+  if (!gaps.length) return [pts]
+  // El umbral se mide contra la dispersión propia del grupo: dentro de un limbo
+  // los puntos se apartan de su recta lo que se digitalizó de más o de menos, y
+  // eso da huecos pequeños y parecidos. Un hueco varias veces mayor que ésos no
+  // es ruido, es la charnela.
+  const cut = Math.max(tol * 4, median(gaps) * 5)
+  const parts = []
+  let run = [pts[order[0]]]
+  for (let i = 1; i < order.length; i++) {
+    if (across[order[i]] - across[order[i - 1]] > cut) {
+      parts.push(run)
+      run = []
+    }
+    run.push(pts[order[i]])
+  }
+  parts.push(run)
+  return parts
+}
+
+/** Distancia de un punto a la recta que pasa por `c` con dirección `dir`. */
+const lineDistance = (p, c, dir) => Math.abs((p[0] - c[0]) * dir[1] - (p[1] - c[1]) * dir[0])
+
+/**
+ * Segundo filtro: un contorno tiene que ser **una recta**.
+ *
+ * El corte por huecos separa los flancos de un pliegue cilíndrico, donde los
+ * contornos de los dos limbos son paralelos y quedan apartados uno de otro.
+ * Cuando el pliegue no es cilíndrico los dos limbos tienen rumbos distintos y
+ * sus contornos de la misma cota se *cruzan* en el mapa: entonces no hay hueco
+ * que cortar, pero los puntos dejan de estar alineados. Se queda la recta que
+ * más puntos reúne y los demás forman la suya, que es la del otro flanco.
+ */
+function splitCollinear(pts, tol) {
+  if (pts.length <= 2) return [pts]
+  let ext = 0
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const d = Math.hypot(pts[j][0] - pts[i][0], pts[j][1] - pts[i][1])
+      if (d > ext) ext = d
+    }
+  }
+  // Un contorno de verdad se aparta de su recta lo que se digitalizó de más o
+  // de menos: unos pocos metros sobre cientos. Un 2,5 % de su propia extensión
+  // deja pasar ese ruido de sobra y no deja pasar dos limbos cruzados, que se
+  // apartan un orden de magnitud más.
+  const band = Math.max(tol * 3, ext * 0.025)
+  const whole = fitLine(pts)
+  if (!whole || whole.rms <= band) return [pts] // ya es una recta
+
+  let best = null
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      const dx = pts[j][0] - pts[i][0]
+      const dy = pts[j][1] - pts[i][1]
+      const len = Math.hypot(dx, dy)
+      if (len < tol * 3) continue
+      const dir = [dx / len, dy / len]
+      const inl = pts.filter((p) => lineDistance(p, pts[i], dir) <= band)
+      const fit = inl.length >= 2 ? fitLine(inl) : null
+      if (!fit) continue
+      if (!best || inl.length > best.inl.length || (inl.length === best.inl.length && fit.rms < best.rms)) {
+        best = { inl, rms: fit.rms }
+      }
+    }
+  }
+  if (!best || best.inl.length === pts.length) return [pts]
+  const taken = new Set(best.inl)
+  const rest = pts.filter((p) => !taken.has(p))
+  return [best.inl, ...(rest.length ? splitCollinear(rest, tol) : [])]
+}
+
 /**
  * Agrupa los puntos 3D por cota y ajusta una recta a cada grupo.
  *
  * `keyOf` separa además grupos que comparten cota y limbo: es lo que mantiene
  * a cada contorno estructural puesto a mano como una curva propia, aunque el
  * reparto en dominios lo asigne al mismo limbo que otro.
+ *
+ * Cada grupo se parte además en los tramos que de verdad son una recta
+ * (`splitLimbLines`), de modo que un contorno nunca une puntos de dos flancos
+ * de un pliegue. `part` distingue esos tramos dentro de una misma cota y
+ * limbo, y forma parte de la identidad del contorno igual que el limbo.
  */
 export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null) {
   const byZ = new Map()
@@ -71,31 +224,67 @@ export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null
     if (!arr) byZ.set(key, (arr = { elevation: p[2], limb, manualId, pts: [] }))
     arr.pts.push([p[0], p[1]])
   }
+  // El rumbo dominante se mide una vez, con todos los cruces de la superficie:
+  // es la referencia con la que se separan los flancos cota a cota.
+  const strike = consensusStrike(
+    [...byZ.values()].filter((g) => !g.manualId).map((g) => g.pts),
+    tol
+  )
+
   const out = []
   for (const group of byZ.values()) {
     const { elevation, limb, manualId } = group
-    const pts = group.pts
-    if (pts.length < 2) {
-      out.push({ elevation, limb, manualId, points: pts, fit: null, n: pts.length })
-      continue
-    }
-    const fit = fitLine(pts)
-    if (!fit || fit.spread < tol * 1.5) {
-      // Puntos prácticamente coincidentes: no definen una dirección de rumbo.
-      out.push({ elevation, limb, manualId, points: pts, fit: null, n: pts.length })
-      continue
-    }
-    // Extensión del contorno: proyección de los puntos sobre la recta.
-    let tmin = Infinity
-    let tmax = -Infinity
-    for (const p of pts) {
-      const t = dot(sub(p, fit.c), fit.dir)
-      if (t < tmin) tmin = t
-      if (t > tmax) tmax = t
-    }
-    out.push({ elevation, limb, manualId, points: pts, fit, tmin, tmax, n: pts.length })
+    // Un contorno puesto a mano es un dato, no una medida: se respeta entero.
+    const parts = manualId
+      ? [group.pts]
+      : splitByLimb(group.pts, strike, tol).flatMap((g) => splitCollinear(g, tol))
+    parts.forEach((pts, part) => {
+      if (pts.length < 2) {
+        out.push({ elevation, limb, part, manualId, points: pts, fit: null, n: pts.length })
+        return
+      }
+      const fit = fitLine(pts)
+      if (!fit || fit.spread < tol * 1.5) {
+        // Puntos prácticamente coincidentes: no definen una dirección de rumbo.
+        out.push({ elevation, limb, part, manualId, points: pts, fit: null, n: pts.length })
+        return
+      }
+      // Extensión del contorno: proyección de los puntos sobre la recta.
+      let tmin = Infinity
+      let tmax = -Infinity
+      for (const p of pts) {
+        const t = dot(sub(p, fit.c), fit.dir)
+        if (t < tmin) tmin = t
+        if (t > tmax) tmax = t
+      }
+      out.push({ elevation, limb, part, manualId, points: pts, fit, tmin, tmax, n: pts.length })
+    })
   }
-  out.sort((a, b) => a.limb - b.limb || a.elevation - b.elevation)
+
+  // Un panel es plano, así que todos sus contornos son paralelos. Con dos
+  // puntos no hay forma de ver que la recta se sale del limbo —dos puntos
+  // siempre son colineales—, pero sí de ver que su rumbo no es el del panel:
+  // ése es el par que cruza de un flanco al otro. Se queda sin ajuste, que es
+  // lo mismo que decir «este contorno no está resuelto» en vez de dibujar uno
+  // que no existe.
+  const byLimb = new Map()
+  for (const sc of out) {
+    if (!sc.fit || sc.manualId) continue
+    if (!byLimb.has(sc.limb)) byLimb.set(sc.limb, [])
+    byLimb.get(sc.limb).push(sc)
+  }
+  for (const list of byLimb.values()) {
+    const solid = list.filter((s) => s.n >= 3)
+    if (!solid.length) continue
+    const ref = meanDirection(solid.map((s) => s.fit.dir))
+    for (const sc of list) {
+      if (sc.n >= 3) continue
+      const cos = Math.abs(sc.fit.dir[0] * ref[0] + sc.fit.dir[1] * ref[1])
+      if (Math.acos(Math.min(1, cos)) * DEG > MAX_STRIKE_DEV) sc.fit = null
+    }
+  }
+
+  out.sort((a, b) => a.limb - b.limb || a.part - b.part || a.elevation - b.elevation)
   return out
 }
 
@@ -491,17 +680,20 @@ export function buildSurface({
   const scs = structureContours(points3D, tol, limbOf, keyOf)
   const usable = scs.filter((s) => s.fit)
   const pairs = []
-  // Los pares se forman dentro de cada limbo, entre cotas consecutivas.
+  // Los pares se forman dentro de cada limbo, entre cotas consecutivas. El
+  // tramo (`part`) cuenta tanto como el limbo: dos tramos de la misma cota son
+  // flancos distintos, y emparejar uno con el otro daría un manteo inventado.
   const byLimb = new Map()
   for (const sc of usable) {
-    if (!byLimb.has(sc.limb)) byLimb.set(sc.limb, [])
-    byLimb.get(sc.limb).push(sc)
+    const key = `${sc.limb}|${sc.part}`
+    if (!byLimb.has(key)) byLimb.set(key, [])
+    byLimb.get(key).push(sc)
   }
   for (const list of byLimb.values()) {
     list.sort((a, b) => a.elevation - b.elevation)
     for (let i = 1; i < list.length; i++) {
       const a = attitudeBetween(list[i - 1], list[i])
-      if (a) pairs.push({ ...a, limb: list[i].limb })
+      if (a) pairs.push({ ...a, limb: list[i].limb, part: list[i].part })
     }
   }
 

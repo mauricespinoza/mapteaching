@@ -187,6 +187,31 @@ resuelto más cercano, desplazada hasta pasar por sus propios puntos: es la
 hipótesis de pliegue cilíndrico, y evita que el único dato que hay en esa zona se
 quede fuera de la reconstrucción.
 
+Ese reparto necesita bastantes puntos para que el RANSAC distinga los limbos: con
+pocos devuelve un solo dominio y los dos flancos entrarían juntos. Por eso, al
+trazar cada contorno, **se comprueba además la única propiedad que un contorno no
+puede incumplir: ser una recta de un solo limbo**. Todos los contornos de una
+superficie son paralelos entre sí —en un panel plano porque es un plano, y en un
+pliegue cilíndrico porque van paralelos al eje—, así que se mide la posición de
+cada cruce *a través* de ese rumbo común: los del mismo limbo caen juntos y los
+del otro flanco caen apartados, y el hueco entre unos y otros es la charnela.
+Ahí se corta. El corte va a través del rumbo y no a lo largo, porque un mismo
+limbo puede aflorar en dos fajas separadas por un valle y ésas sí son el mismo
+contorno. Cuando el pliegue no es cilíndrico los dos flancos tienen rumbos
+distintos y sus contornos se *cruzan* —no hay hueco que cortar—, y entonces lo
+que los delata es que los puntos dejan de estar alineados: se queda la recta que
+más puntos reúne y los demás forman la suya. Un par suelto de dos puntos no
+puede juzgarse por ninguna de las dos vías —dos puntos siempre están
+alineados—, así que se descarta si su rumbo se aparta más de 35° del de su
+panel: antes que dibujar un contorno que no existe, se declara sin resolver.
+
+El rumbo común con el que se mide todo esto sale de los propios cruces, votando
+sólo entre **puntos vecinos**: dos cruces contiguos de una misma cota son del
+mismo limbo y se alinean con el rumbo, mientras que los limbos se repiten *a
+través* del rumbo, de modo que los pares que cruzan de un flanco a otro apuntan
+casi todos perpendicularmente. En un tren de pliegues esos pares son tantos que,
+si se les deja votar, el rumbo sale girado 90°.
+
 La superficie en profundidad se reconstruye después apoyándose en el plano del
 dominio de cada zona, no en un plano global, así que cada limbo conserva su
 manteo y sólo la charnela queda redondeada, en aproximadamente un intervalo de
@@ -646,6 +671,20 @@ piso a techo, en vez de cortada por la silueta del terreno.
 **Tocar una superficie** dice qué rasgo es, en qué bloque, su cota en ese punto y
 su **actitud ahí mismo** — no la media del rasgo: en un pliegue cada flanco
 mantea distinto y la media no describe a ninguno de los dos.
+
+Con la superficie ya seleccionada se la puede además **mover en los tres ejes y
+agrandarla o achicarla**. Es el diagrama de bloques «explotado» de toda la vida:
+separar las superficies unas de otras deja ver por dentro un apilamiento que si
+no se tapa a sí mismo, y agrandar una enseña hacia dónde seguiría. La escala se
+aplica sobre el propio centro de la superficie, para que crezca donde está en
+vez de irse hacia el centro de la escena.
+
+Es una manipulación **de la vista, no del modelo**: los datos no se tocan, la
+superficie se sigue calculando de su traza y sus curvas de nivel, el mapa y los
+perfiles no se enteran, y «A su sitio» la devuelve. Por eso, al tocar una
+superficie que se ha movido, la app deshace primero su desplazamiento antes de
+preguntarle la actitud: lo que se lee sigue siendo la geología y no el efecto de
+haberla corrido.
 
 Cada superficie de contacto se recorta **en el punto exacto** en que la limita
 cada cosa, no en el borde de la celda de la malla: la topografía (por encima ya

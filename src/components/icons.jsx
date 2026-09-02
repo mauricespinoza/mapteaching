@@ -13,17 +13,21 @@ const base = {
 
 /**
  * Curvas de nivel: los «cerritos» concéntricos con los que se explica en
- * clase, no las líneas onduladas genéricas del icono de lucide. Tres anillos
- * cerrados, cada vez más chicos y desplazados hacia la cumbre, son la lectura
- * en planta de una elevación —exactamente lo que se digitaliza con esta
- * herramienta—.
+ * clase, no las líneas onduladas genéricas del icono de lucide. Tres curvas
+ * cerradas de contorno irregular —como salen de verdad en un mapa
+ * topográfico—, cada vez más chicas y corridas hacia la cumbre, que queda
+ * descentrada: es la lectura en planta de una loma, exactamente lo que se
+ * digitaliza con esta herramienta.
+ *
+ * Tres y no más: con cuatro, a los 22 px de la barra las curvas se empastan y
+ * el icono deja de leerse.
  */
 export function ContourIcon({ size = 24, strokeWidth = 2, className = '', ...rest }) {
   return (
     <svg width={size} height={size} strokeWidth={strokeWidth} className={className} {...base} {...rest}>
-      <ellipse cx="11.5" cy="16" rx="8.5" ry="4.6" />
-      <ellipse cx="13" cy="12.3" rx="5.4" ry="3" />
-      <ellipse cx="14.3" cy="9" rx="2.6" ry="1.5" />
+      <path d="M23.3 12.1C23.0 14.2 19.7 15.9 17.8 17.7C15.9 19.5 14.1 22.7 11.9 22.9C9.7 23.1 6.3 20.7 4.8 18.9C3.3 17.1 3.3 14.6 3.1 12.1C2.8 9.6 2.0 5.5 3.5 4.1C5.0 2.7 9.3 3.5 11.9 3.7C14.5 3.9 17.2 3.9 19.1 5.3C21.0 6.7 23.5 10.0 23.3 12.1Z" />
+      <path d="M19.7 11.7C19.5 13.0 17.3 14.1 16.1 15.2C14.9 16.4 13.7 18.5 12.3 18.6C11.0 18.7 8.7 17.2 7.8 16.0C6.8 14.8 6.8 13.2 6.7 11.7C6.5 10.1 6.0 7.4 6.9 6.5C7.9 5.6 10.7 6.1 12.3 6.3C14.0 6.4 15.7 6.4 17.0 7.3C18.2 8.2 19.8 10.3 19.7 11.7Z" />
+      <path d="M16.2 11.2C16.1 11.8 15.1 12.3 14.5 12.9C14.0 13.4 13.4 14.4 12.8 14.4C12.2 14.5 11.1 13.7 10.7 13.2C10.2 12.7 10.2 11.9 10.2 11.2C10.1 10.5 9.9 9.2 10.3 8.8C10.7 8.4 12.0 8.7 12.8 8.7C13.6 8.8 14.4 8.8 14.9 9.2C15.5 9.6 16.2 10.6 16.2 11.2Z" />
     </svg>
   )
 }

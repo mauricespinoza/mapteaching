@@ -988,8 +988,9 @@ function shortName(name, max = 16) {
 function midpointOfPair(pair, surf) {
   // El limbo forma parte de la identidad del contorno: en un pliegue hay dos
   // contornos de la misma cota, uno en cada flanco.
-  const lo = surf.structureContours.find((s) => s.elevation === pair.z1 && s.limb === pair.limb && s.fit)
-  const hi = surf.structureContours.find((s) => s.elevation === pair.z2 && s.limb === pair.limb && s.fit)
+  const same = (s, z) => s.elevation === z && s.limb === pair.limb && s.part === pair.part && s.fit
+  const lo = surf.structureContours.find((s) => same(s, pair.z1))
+  const hi = surf.structureContours.find((s) => same(s, pair.z2))
   if (!lo || !hi) return null
   return [(lo.fit.c[0] + hi.fit.c[0]) / 2, (lo.fit.c[1] + hi.fit.c[1]) / 2]
 }

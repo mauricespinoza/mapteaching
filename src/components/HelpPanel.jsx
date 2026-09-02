@@ -57,7 +57,9 @@ export default function HelpPanel({ project, dispatch }) {
           el salto de una falla. En el <b>3D</b>, «Sobre el terreno» dibuja la prolongación ya erosionada de cada
           superficie, «Falla hasta el techo» prolonga el plano de cada falla hasta el borde superior del modelo
           en vez de cortarlo justo en la traza, y tocar una superficie dice qué es y con qué rumbo y manteo
-          <i>en ese punto</i>.
+          <i>en ese punto</i>. Con ella seleccionada se la puede <b>mover en los tres ejes y agrandarla o
+          achicarla</b> para separar el apilamiento y mirarlo por dentro: es sólo la vista —el mapa y los
+          perfiles no cambian— y «A su sitio» la devuelve.
         </li>
         <li>
           Para el <b>salto real</b> de una falla, la herramienta <b>«Piercing Points»</b> y{' '}

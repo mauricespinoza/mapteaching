@@ -607,7 +607,7 @@ export function structureContourItems(scene) {
       const seg = contourSegment(sc, null, sc.manualId ? 0 : 0.15)
       if (!seg) continue
       out.push({
-        key: `${kind}:${feature.id}:${block}:${sc.elevation}:${sc.limb}:${sc.manualId || ''}`,
+        key: `${kind}:${feature.id}:${block}:${sc.elevation}:${sc.limb}:${sc.part}:${sc.manualId || ''}`,
         kind,
         featureId: feature.id,
         name: feature.name,
@@ -615,6 +615,7 @@ export function structureContourItems(scene) {
         block,
         elevation: sc.elevation,
         limb: sc.limb,
+        part: sc.part,
         manualId: sc.manualId || null,
         n: sc.n,
         /** Renglones del rótulo: cota, unidad de encima, unidad de debajo. */
