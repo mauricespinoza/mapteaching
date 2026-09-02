@@ -42,6 +42,59 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | **Regla** | Mide distancias sobre el mapa. Con el **imán** activo los extremos se pegan a las trazas digitalizadas y la medida se toma **perpendicular** a la traza en la que se ancla; si el manteo de ese contacto está resuelto, añade el espesor verdadero `e = L·sen δ`. |
 | **Área de trabajo** | Rectángulo que acota el ejercicio: los polígonos del mapa geológico, el modelo 3D, las trazas drapeadas y los planos de falla y de perfil se recortan a él. Se dibuja arrastrando y se quita desde el panel de capas. |
 
+#### Digitalización automática
+
+**Archivo → Digitalizar el mapa…** aísla las líneas impresas del mapa y las
+convierte en trazas, con el algoritmo de **MapDigitizer Lite** portado a
+JavaScript (allí es un plugin de QGIS sobre numpy/OpenCV; aquí cada pieza está
+escrita sobre arrays tipados y corre en el navegador, sin subir la imagen a
+ningún sitio). El pipeline es el mismo:
+
+1. **Umbral adaptativo gaussiano invertido**: aísla lo oscuro respecto de *su
+   entorno*, que es lo que aguanta un escaneo con la iluminación desigual. Cierre
+   3×3 para sellar los cortes de 1 px del trazo y filtro por tamaño de componente
+   conexa para tirar motas y texto pequeño.
+2. **Adelgazamiento Zhang-Suen** a un esqueleto de 1 px.
+3. **Esqueleto → grafo**: cada píxel se clasifica por su grado y se recorren los
+   tramos de nodo a nodo. Un cruce real deja un *grupo* de píxeles-nodo (una X
+   deja un bloque 2×2), así que se agrupan y todos los tramos que llegan terminan
+   en el mismo vértice: la red sale **noded**, que es lo que hace falta para que
+   un contacto acabe donde empieza otro.
+4. **Fusión de tramos colineales** a través de los cruces: un cruce no debe
+   partir una falla en dos elementos, así que en cada nudo se emparejan los dos
+   extremos más opuestos y el trazo pasa de largo.
+5. **Douglas–Peucker** para quitar el zigzag de píxel, y filtro de **sinuosidad**
+   —largo del trazo dividido por la distancia entre sus extremos—: una letra o un
+   símbolo se enrolla, un contacto no.
+
+**Dos botones, no uno.** Las curvas de nivel y la geología se imprimen con
+**tintas distintas**, y ésa es la forma de separarlas: el mismo pipeline corre
+sobre máscaras de tinta distintas y un paso recoge las curvas mientras el otro
+recoge los contactos y las fallas. Cuál es cuál cambia de un mapa a otro —en unas
+cartas las curvas son las oscuras y la geología va en azul, en otras al revés—,
+así que la tinta se elige en el propio diálogo: **negra o gris**, **de color**
+(con el tono dominante ya propuesto) o **toda**, y un cuentagotas para tomarla
+del mapa tocando una línea. La vista previa enseña lo que se va a añadir antes de
+tocar nada, y hay cinco controles —sensibilidad, grosor mínimo, suavizado, largo
+mínimo y enredo máximo— para afinarlo.
+
+Sobre la carta del ejercicio de prueba, «negra o gris» recoge las 175 curvas de
+nivel y «de color» los 16 contactos azules, limpios y sin mezclarse.
+
+Dos límites que conviene tener presentes:
+
+- **Las cotas no están en el dibujo.** Las curvas digitalizadas se numeran en
+  orden —proyectando sus centros sobre la dirección en que más se reparten— a
+  partir de una cota inicial y de la equidistancia del proyecto. Es una
+  propuesta, no una medida: hay que revisarla curva a curva.
+- **A qué unidades separa cada contacto tampoco.** Las trazas entran todas en un
+  contacto nuevo (o en una falla nueva), y desde ahí se reasignan con una
+  pulsación larga sobre cada una.
+
+Una imagen grande se procesa sobre una copia reducida —el adelgazamiento recorre
+la imagen entera una vez por iteración y un escaneo de 12 Mpx dejaría la pestaña
+colgada— y las líneas se devuelven a la escala del mapa al terminar.
+
 **Trazo híbrido**: un toque coloca un vértice; mantener apretado y arrastrar
 dibuja un trazo continuo (suavizado Douglas–Peucker al soltar). Ambos se mezclan
 en la misma línea. El botón «Sólo lápiz» activa el rechazo de palma: los dedos

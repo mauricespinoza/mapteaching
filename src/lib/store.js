@@ -49,6 +49,20 @@ function apply(project, action) {
       return { ...p, contours: action.replace ? nuevas : [...p.contours, ...nuevas] }
     }
 
+    /**
+     * Alta de lo que sale de digitalizar el mapa: las curvas de nivel, o un
+     * contacto o una falla con todas sus trazas de una vez. Va en una sola
+     * acción para que quepa en un solo paso de deshacer: una digitalización
+     * produce decenas de líneas y deshacerlas de una en una dejaría el
+     * historial inservible.
+     */
+    case 'digitize.add': {
+      if (action.contours) return { ...p, contours: [...p.contours, ...action.contours] }
+      if (action.contact) return { ...p, contacts: [...p.contacts, action.contact] }
+      if (action.fault) return { ...p, faults: [...p.faults, action.fault] }
+      return p
+    }
+
     case 'unit.add': {
       const unit = newUnit(p, action.name)
       const units = [...p.units, unit]

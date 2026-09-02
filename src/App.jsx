@@ -31,6 +31,7 @@ import {
   Frame,
   Target,
   Globe,
+  ScanLine,
 } from 'lucide-react'
 import { watchForUpdate, reloadToLatest } from './lib/version.js'
 import { useLang } from './lib/i18n.jsx'
@@ -43,6 +44,7 @@ import LayersPanel from './components/LayersPanel.jsx'
 import ResultsPanel from './components/ResultsPanel.jsx'
 import HelpPanel from './components/HelpPanel.jsx'
 import ModelPanel from './components/ModelPanel.jsx'
+import DigitizePanel from './components/DigitizePanel.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
 import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
@@ -581,6 +583,7 @@ export default function App() {
               <div className="absolute left-0 top-full z-30 mt-1 w-56 overflow-hidden rounded-xl bg-white py-1 text-slate-700 shadow-2xl ring-1 ring-black/10">
                 {[
                   ['Importar imagen base', ImageIcon, () => fileRef.current?.click()],
+                  ['Digitalizar el mapa…', ScanLine, () => setDialog({ kind: 'digitize' })],
                   ['Ejercicio nuevo', FilePlus2, startNew],
                   ['Abrir proyecto…', FolderOpen, openProjects],
                   ['Exportar ejercicio', Download, exportProject],
@@ -1157,6 +1160,15 @@ export default function App() {
             </Btn>
           </div>
         </Modal>
+      )}
+
+      {dialog?.kind === 'digitize' && (
+        <DigitizePanel
+          project={project}
+          image={image}
+          dispatch={dispatch}
+          onClose={() => setDialog(null)}
+        />
       )}
 
       {dialog?.kind === 'lang' && (

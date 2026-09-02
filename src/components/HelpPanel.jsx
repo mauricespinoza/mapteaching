@@ -26,7 +26,12 @@ export default function HelpPanel({ project, dispatch }) {
         </li>
         <li>
           <b>Digitaliza las curvas de nivel</b> asignando la cota de cada una. La equidistancia se autocompleta:
-          cada curva nueva propone la cota siguiente.
+          cada curva nueva propone la cota siguiente. Con <b>Archivo → Digitalizar el mapa…</b> se pueden
+          sacar solas: aísla las líneas impresas y las convierte en trazas. Las curvas y la geología se
+          separan por <b>tinta</b> —en una carta se imprimen con colores distintos—, así que hay un paso
+          para cada una. Ojo con dos cosas que el dibujo no dice: las <b>cotas</b> de las curvas (se
+          numeran en orden, como propuesta a revisar) y a qué <b>unidades</b> separa cada contacto (entran
+          todos en un contacto nuevo y se reasignan con una pulsación larga).
         </li>
         <li>
           <b>Define las unidades</b> de base a techo. Entre unidades consecutivas se crea un contacto; digitaliza
