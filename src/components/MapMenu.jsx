@@ -83,13 +83,34 @@ function Body({ hit, project, dispatch, done, onAddSc, onSelect }) {
 }
 
 function ContactMenu({ hit, project, dispatch, done, onAddSc }) {
-  const c = project.contacts.find((x) => x.id === hit.id)
+  // El contacto se busca por quién es dueño de esta traza, no por el id que
+  // traía `hit`: reasignar sus unidades puede sacarla a otro contacto (véase
+  // `setPair`), y el menú sigue abierto sobre la misma traza mientras el
+  // usuario ajusta abajo y arriba una detrás de otra.
+  const c =
+    project.contacts.find((x) => x.traces.some((t) => t.id === hit.traceId)) ||
+    project.contacts.find((x) => x.id === hit.id)
   if (!c) return null
   const units = sortedUnits(project)
   const nTraces = c.traces.length
   const nSc = (c.structureContours || []).length
-  const setPair = (lowerUnitId, upperUnitId) =>
+  // Un contacto agrupa varias trazas —a propósito, cuando el mismo contacto
+  // real aparece en varios trozos del mapa, o por accidente, cuando la
+  // digitalización automática mete todas las trazas de una tinta en uno solo—.
+  // Cambiar el par de unidades de una traza sola no debe tocar a las demás: si
+  // el contacto tiene más de una, la traza se saca a un contacto que ya tenga
+  // ese par (o a uno nuevo si no hay ninguno) en vez de reasignar el grupo
+  // entero.
+  const setPair = (lowerUnitId, upperUnitId) => {
+    lowerUnitId = lowerUnitId || null
+    upperUnitId = upperUnitId || null
+    if (lowerUnitId === c.lowerUnitId && upperUnitId === c.upperUnitId) return
+    if (c.traces.length > 1 && hit.traceId) {
+      dispatch({ type: 'contact.reassignTrace', id: c.id, traceId: hit.traceId, lowerUnitId, upperUnitId })
+      return
+    }
     dispatch({ type: 'contact.update', id: c.id, patch: reassignContact(project, c, lowerUnitId, upperUnitId) })
+  }
 
   return (
     <>

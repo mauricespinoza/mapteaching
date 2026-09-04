@@ -355,6 +355,33 @@ export default function MapView({
     [project, view.scale]
   )
 
+  /**
+   * Punto de corte más cercano sobre una traza (curva, contacto o falla): la
+   * herramienta «Cortar línea». A diferencia de `hitTest` no basta con saber
+   * qué rasgo está debajo del toque, hace falta *dónde* en la polilínea —el
+   * segmento y la posición dentro de él— para partirla en ese punto exacto.
+   */
+  const cutHit = useCallback(
+    (p, tolPx = 16) => {
+      const tol = tolPx / view.scale
+      const layers = project.settings?.layers || {}
+      const locked = (k) => layers[k]?.locked
+      let best = null
+      const consider = (kind, id, traceId, pts) => {
+        if (pts.length < 2) return
+        const r = pointPolyline(p, pts)
+        if (r.d <= tol && (!best || r.d < best.d)) best = { kind, id, traceId, ...r }
+      }
+      if (!locked('faults'))
+        for (const f of project.faults) for (const tr of f.traces) consider('fault', f.id, tr.id, tr.pts)
+      if (!locked('contacts'))
+        for (const c of project.contacts) for (const tr of c.traces) consider('contact', c.id, tr.id, tr.pts)
+      if (!locked('contours')) for (const c of project.contours) consider('contour', c.id, null, c.pts)
+      return best
+    },
+    [project, view.scale]
+  )
+
   const finishStroke = useCallback(
     (pts) => {
       setDraft(null)
@@ -572,6 +599,12 @@ export default function MapView({
         return
       }
       if (hit && hit.kind !== 'image') deleteHit(hit, dispatch)
+      return
+    }
+
+    if (tool === 'cut') {
+      const hit = cutHit(p, touchTol(ev, 16))
+      if (hit) dispatch({ type: 'trace.split', kind: hit.kind, id: hit.id, traceId: hit.traceId, i: hit.i, at: hit.proj })
       return
     }
 

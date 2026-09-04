@@ -97,6 +97,33 @@ function apply(project, action) {
       return { ...p, contacts: replaceIn(p.contacts, action.id, (c) => ({ ...c, ...action.patch })) }
     case 'contact.delete':
       return { ...p, contacts: p.contacts.filter((c) => c.id !== action.id) }
+    /**
+     * Saca una traza de su contacto y la lleva al contacto que ya tenga ese
+     * par de unidades, o a uno nuevo si no hay ninguno. Así reasignar las
+     * unidades de una sola traza no cambia las demás que compartían contacto
+     * —lo que junta la digitalización automática, todas las trazas de una
+     * tinta en un solo contacto sin unidades, y hay que poder separar trazo a
+     * trozo—. Los contornos estructurales a mano se quedan donde estaban: son
+     * la interpretación de la superficie, no de una traza en particular.
+     */
+    case 'contact.reassignTrace': {
+      const src = p.contacts.find((c) => c.id === action.id)
+      const trace = src?.traces.find((t) => t.id === action.traceId)
+      if (!src || !trace) return p
+      const remaining = src.traces.filter((t) => t.id !== action.traceId)
+      const target = p.contacts.find(
+        (c) => c.id !== src.id && c.lowerUnitId === action.lowerUnitId && c.upperUnitId === action.upperUnitId
+      )
+      let contacts = p.contacts.map((c) => {
+        if (c.id === src.id) return { ...c, traces: remaining }
+        if (target && c.id === target.id) return { ...c, traces: [...c.traces, trace] }
+        return c
+      })
+      if (!target) contacts = [...contacts, { ...newContact(p, action.lowerUnitId, action.upperUnitId), traces: [trace] }]
+      // Un contacto que se queda sin trazas ni contornos a mano ya no sirve de nada.
+      contacts = contacts.filter((c) => c.id !== src.id || remaining.length > 0 || (src.structureContours || []).length > 0)
+      return { ...p, contacts }
+    }
 
     case 'fault.add':
       return { ...p, faults: [...p.faults, action.fault] }
@@ -120,6 +147,55 @@ function apply(project, action) {
       return {
         ...p,
         [key]: replaceIn(p[key], action.id, (it) => ({ ...it, traces: it.traces.filter((t) => t.id !== action.traceId) })),
+      }
+    }
+    /**
+     * Corta una traza en dos, en el punto que se tocó. `i` es el índice del
+     * segmento donde cae el corte y `at` el punto exacto sobre él —lo que
+     * calcula `pointPolyline` en `cutHit`—, así que el corte no reajusta el
+     * trazo, sólo lo parte donde ya pasaba.
+     *
+     * Cortar en el primer o el último vértice no parte nada —un lado quedaría
+     * con un solo punto—, así que ahí no hace nada.
+     */
+    case 'trace.split': {
+      const splitPts = (pts) => {
+        if (action.i < 0 || action.i >= pts.length - 1) return null
+        if (action.i === 0 && (action.at[0] === pts[0][0] && action.at[1] === pts[0][1])) return null
+        const last = pts.length - 2
+        if (action.i === last && action.at[0] === pts[pts.length - 1][0] && action.at[1] === pts[pts.length - 1][1]) return null
+        const a = [...pts.slice(0, action.i + 1), action.at]
+        const b = [action.at, ...pts.slice(action.i + 1)]
+        return a.length >= 2 && b.length >= 2 ? [a, b] : null
+      }
+      if (action.kind === 'contour') {
+        const src = p.contours.find((c) => c.id === action.id)
+        const halves = src && splitPts(src.pts)
+        if (!halves) return p
+        return {
+          ...p,
+          contours: [
+            ...p.contours.filter((c) => c.id !== src.id),
+            { ...src, id: uid('cv'), pts: halves[0] },
+            { ...src, id: uid('cv'), pts: halves[1] },
+          ],
+        }
+      }
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      const owner = p[key].find((x) => x.id === action.id)
+      const trace = owner?.traces.find((t) => t.id === action.traceId)
+      const halves = trace && splitPts(trace.pts)
+      if (!owner || !halves) return p
+      return {
+        ...p,
+        [key]: replaceIn(p[key], owner.id, (it) => ({
+          ...it,
+          traces: [
+            ...it.traces.filter((t) => t.id !== trace.id),
+            { id: uid('tr'), pts: halves[0] },
+            { id: uid('tr'), pts: halves[1] },
+          ],
+        })),
       }
     }
     case 'trace.update': {

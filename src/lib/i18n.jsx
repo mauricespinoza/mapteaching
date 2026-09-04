@@ -62,6 +62,7 @@ const EN = {
   Pozo: 'Well',
   'Piercing Points': 'Piercing Points',
   Modelo: 'Model',
+  'Cortar línea': 'Cut line',
   'Borrar rasgo': 'Erase feature',
   'Toque = vértice': 'Tap = vertex',
   'Arrastrar = trazo': 'Drag = stroke',

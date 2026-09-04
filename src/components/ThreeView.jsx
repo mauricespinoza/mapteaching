@@ -584,6 +584,13 @@ export default function ThreeView({ project, scene, image, dispatch }) {
         </button>
         {panelOpen && (
           <div className="px-3 pb-3">
+            {!project.frame && (
+              <p className="mb-2 rounded-lg bg-amber-50 p-2 text-[11px] leading-relaxed text-amber-900">
+                No hay área de trabajo definida: el relieve fuera de donde llegan las curvas de nivel es sólo
+                una prolongación y puede verse muy desajustado en los bordes. Define un área de trabajo (herramienta
+                «Área de trabajo») para recortar el modelo a la zona con datos.
+              </p>
+            )}
             <label className="mb-2 block">
               Exageración vertical ×{vExag.toFixed(1)}
               <input
