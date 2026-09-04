@@ -4,403 +4,411 @@
 // son trazas geológicas, no isohipsas: no dicen nada de la cota del terreno y
 // nunca se pasan a esta función (véase `scene.js`).
 //
-// El método es el que se hace a mano: entre la curva de 300 y la de 400 se
-// dibujan curvas intermedias equiespaciadas —310, 320, … 390— que van pasando
-// gradualmente de la forma de una a la de la otra, y el relieve queda definido
-// por esa familia de curvas. Aquí no se dibujan n curvas sueltas sino el campo
-// continuo del que salen: en cada punto se mide la distancia a la curva de
-// abajo y a la de arriba, y la cota sale del reparto entre ambas. Las curvas de
-// nivel intermedias son exactamente las curvas de nivel de ese campo, así que
-// el paso entre una curva y la siguiente es gradual por construcción y no
-// depende de cuántas intermedias se quieran.
+// El problema es el de siempre: se conoce la cota sobre unas cuantas líneas y
+// hay que rellenar todo lo demás. Lo que se busca no es "un" relleno sino el
+// más suave de todos: la superficie que pasa por las curvas y que dobla lo
+// menos posible en el camino, que es exactamente lo que hace la mano al
+// dibujar el sombreado entre dos curvas. Eso se escribe como minimizar
 //
-// Ese reparto no puede ser lineal, y es lo que dejaba el relieve escalonado.
-// Con el reparto lineal la ladera es un plano dentro de cada banda: baja con
-// pendiente equidistancia/ancho-de-la-banda, constante, y al cruzar la curva
-// siguiente cambia de golpe a la pendiente de la banda de al lado. La cota es
-// continua —por eso en planta no se notaba— pero la pendiente no, y el
-// sombreado lee justo la pendiente: cada curva salía dibujada como una arista,
-// una franja de terraza. Las intermedias equiespaciadas quedaban además
-// apelotonadas a un lado de la curva y sueltas al otro.
+//     E(z) = Σ_curvas (z(p) − cota(p))²  +  λ ∫ (∇²z)²
 //
-// Así que dentro de cada banda el reparto es una cúbica de Hermite monótona
-// (PCHIP): pasa por las dos cotas y llega a cada curva con la pendiente
-// promedio —media armónica— de las dos bandas que ahí se juntan. Como las dos
-// bandas vecinas calculan esa misma media, la pendiente coincide a los dos
-// lados y la ladera cruza la curva sin quiebre. La media armónica es la de
-// PCHIP y garantiza que la cúbica no se pase de las cotas de sus curvas: entre
-// la de 300 y la de 400 no puede haber ni un pico de 410 ni un hoyo de 290, y
-// las curvas intermedias salen repartidas de verdad.
+// —el ajuste a las curvas contra la curvatura total—, y su mínimo es la lámina
+// delgada (spline de placa fina, la misma idea que ANUDEM o `surface` de GMT).
+// Esa superficie es continua *en pendiente* al cruzar una curva de nivel, así
+// que no deja el escalón que delataba a los métodos anteriores; entre dos
+// curvas la ladera pasa de una a otra de forma monótona y sin rellanos; y sobre
+// la última curva cerrada de una cumbre levanta ella sola la bóveda, porque
+// prolongar la pendiente que llega cuesta menos curvatura que aplanarse.
 //
-// Lo que hace que funcione —y lo que fallaba antes— es *con qué par de curvas
-// se interpola*. No sirve tomar las dos cotas más cercanas: junto a un collado,
-// la segunda cota más próxima salta de la de arriba a la de abajo de un nodo al
-// siguiente y la cota interpolada da un brinco de casi dos equidistancias. Por
-// eso las curvas se rasterizan primero y se etiquetan las *regiones* que
-// delimitan: dentro de una región las curvas que la encierran no cambian, las
-// distancias se miden sin salir de ella, y el campo no puede saltar.
+// Lo que se hacía antes —etiquetar las regiones que las curvas encierran y
+// repartir la cota según la distancia a la de abajo y a la de arriba— dependía
+// de que las curvas cerraran el paso de verdad. En un mapa dibujado a mano eso
+// se cumple; en uno digitalizado automáticamente no: las etiquetas de cota
+// parten las curvas en trozos, y por cada hueco dos laderas de cotas muy
+// distintas se reencuentran y pasan a ser la misma región. Con unos pocos
+// huecos el mapa entero es una sola región, sin par de curvas que mande en
+// ningún sitio, y la cota se calculaba promediando parejas de curvas por
+// distancia: un rellano pegado a cada curva, un escalón entre ellas y una
+// cubeta en medio de cada banda. Aquí no hay regiones que cerrar. Cada trozo de
+// curva, largo o corto, aporta lo suyo y nada más; que esté partida no cambia
+// el resultado.
 //
-// Para que ese etiquetado signifique algo, las curvas tienen que cerrar el paso
-// de verdad: si entre el final de una curva y el borde de la lámina queda un
-// pasillo abierto, las dos laderas que separaba se reencuentran rodeando por
-// fuera y pasan a ser la misma región. Con unos pocos pasillos el mapa entero
-// acaba siendo una sola región, sin par de curvas que mande en ningún sitio, y
-// el relieve se calcula a ciegas —aterrazado, con un rellano en cada curva—. De
-// ahí que se prolonguen los extremos que se salen de la lámina y que lo que
-// queda fuera del área de trabajo sea barrera: allí no hay curvas que
-// digitalizar, así que el margen vacío es el pasillo más ancho de todos.
-//
-// Quedan las regiones que sólo tocan una curva: el interior de una curva
-// cerrada, es decir una cumbre o una depresión. Ahí no hay nada que
-// interpolar y hay que prolongar. Se levanta (o se hunde) una bóveda que
-// arranca con la misma pendiente que trae la ladera de fuera y se aplana en el
-// centro, acotada a una equidistancia: por encima habría otra curva dibujada.
-// Es lo que se lee en el mapa —una cima está entre la última curva y la
-// siguiente que no llegó a dibujarse— y evita tanto la meseta plana como el
-// pico inventado.
+// El mínimo de E es un sistema lineal enorme (una incógnita por nodo) y se
+// resuelve en malla escalonada: primero en una grilla gruesa —donde el relieve
+// de escala grande se acomoda en pocas pasadas—, y el resultado se interpola
+// como punto de partida de la grilla siguiente, el doble de fina, donde ya sólo
+// queda afinar el detalle. Así el coste es proporcional al número de nodos, no
+// a su cuadrado: es lo que hace que sea utilizable a 300 o 500 celdas de lado.
+
+/** Lado de la grilla más gruesa de la cascada. */
+const COARSEST = 12
+/** Peso del ajuste a las curvas frente a la curvatura, en la grilla más fina. */
+const DATA_WEIGHT = 40
+/**
+ * Al engrosar la grilla el término de curvatura pesa menos (va con h⁻³ frente
+ * al del ajuste), así que las curvas mandan más: es lo que se quiere, porque en
+ * una grilla gruesa no hay detalle que preservar y sí una forma general que
+ * cuadrar con los datos.
+ */
+const WEIGHT_PER_LEVEL = 4
+/**
+ * Tensión: una pizca de membrana mezclada con la placa. Frena las oscilaciones
+ * que la curvatura mínima pura puede sacarse de la manga donde las curvas se
+ * aprietan, y de paso fija las esquinas de la grilla, que la placa sola deja
+ * indeterminadas. Muy pequeña dentro —a esta escala no se nota en la ladera— y
+ * bastante mayor fuera del área de trabajo, donde no hay curvas: allí el
+ * relieve se prolonga y se va aplanando en vez de dispararse.
+ */
+const TENSION_IN = 0.004
+const TENSION_OUT = 0.25
+/**
+ * A partir de cuántas "distancias típicas a una curva" empieza a entrar la
+ * tensión, y dónde llega al máximo. Dentro de una banda normal no llega a
+ * asomar; en un hueco grande sin curvas —el margen del mapa, o el interior de
+ * una curva cerrada muy ancha— manda ella y el relieve se prolonga aplanándose
+ * en vez de dispararse.
+ */
+const TENSION_FROM = 3
+const TENSION_FULL = 7
+/**
+ * Sobrerrelajación de Gauss-Seidel y pasadas por grilla. Las pasadas se doblan
+ * en cada grilla más gruesa: allí cuestan cuatro veces menos y son las que
+ * cuadran la forma general, así que a la grilla fina llega poco que corregir y
+ * le basta con pulir el detalle. Todo el trabajo junto sale proporcional al
+ * número de nodos de la grilla fina.
+ */
+const OMEGA = 1.25
+const SWEEPS = 20
+const SWEEPS_MAX = 320
 
 /**
- * Rasteriza las curvas sobre la grilla y devuelve, de paso, los puntos densos
- * de cada cota. Las celdas por las que pasa una curva quedan fijadas a su cota:
- * son las condiciones de contorno de todo lo demás y no se tocan nunca más.
+ * Puntos de las curvas, remuestreados a medio paso de celda: son los datos a
+ * los que se ajusta la superficie. Cada uno se reparte por interpolación
+ * bilineal entre los cuatro nodos que lo rodean, así que su posición cuenta con
+ * precisión de subcelda y la curva no queda "pegada" al nodo más próximo (ese
+ * error de medio nodo, repetido a lo largo de cada curva, era otra fuente de
+ * escalones).
  */
-function rasterizeLevels(levels, bbox, nx, ny, cell, outside) {
-  const n = nx * ny
-  const fixed = new Uint8Array(n)
-  const fixZ = new Float32Array(n)
-  const fixLevel = new Int16Array(n).fill(-1)
-  const points = levels.map(() => [])
-
-  const stamp = (x, y, li, z) => {
-    const i = Math.round((x - bbox.minX) / cell)
-    const j = Math.round((y - bbox.minY) / cell)
-    points[li].push([x, y])
-    if (i < 0 || j < 0 || i >= nx || j >= ny) return
-    const k = j * nx + i
-    fixed[k] = 1
-    fixZ[k] = z
-    fixLevel[k] = li
+function buildSamples(usable, cell) {
+  const xs = []
+  const ys = []
+  const es = []
+  const step = cell * 0.5
+  const push = (x, y, e) => {
+    xs.push(x)
+    ys.push(y)
+    es.push(e)
   }
-
-  // Se recorre el segmento a medio paso de celda: así la traza queda continua
-  // aunque los vértices estén muy separados, y dos regiones vecinas nunca se
-  // filtran la una en la otra.
-  const stampSegment = (a, b, li, elevation) => {
-    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (cell * 0.5)))
-    for (let s = 1; s <= steps; s++) {
-      const t = s / steps
-      stamp(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, li, elevation)
-    }
-  }
-
-  /**
-   * Una curva que se sale de la lámina se prolonga hasta salir de ella.
-   *
-   * En el mapa esa curva separa lo que queda a un lado de lo que queda al otro
-   * hasta el borde mismo. Si se la deja terminar un poco antes, queda un pasillo
-   * abierto por fuera, y basta *uno* para que dos bandas de cotas muy distintas
-   * pasen a ser la misma región. Con unos pocos pasillos el mapa entero acaba
-   * siendo una sola región y el relieve se calcula a ciegas.
-   *
-   * Se prueba a salir por donde venía la curva y por las cuatro direcciones de
-   * la grilla, y se toma la salida más corta. Sólo se prolongan los extremos que
-   * ya están a un paso de salir: uno que acaba en mitad del mapa es una traza
-   * incompleta, y ahí no hay nada que cerrar.
-   */
-  const reach = Math.max(cell * 4, Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY) * 0.02)
-  const isOutside = (x, y) => {
-    const i = Math.round((x - bbox.minX) / cell)
-    const j = Math.round((y - bbox.minY) / cell)
-    if (i < 0 || j < 0 || i >= nx || j >= ny) return true
-    return outside[j * nx + i] === 1
-  }
-  const extendToBorder = (end, inner, li, elevation) => {
-    const dirs = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ]
-    const tx = end[0] - inner[0]
-    const ty = end[1] - inner[1]
-    const tm = Math.hypot(tx, ty)
-    if (tm > 1e-9) dirs.push([tx / tm, ty / tm])
-    let best = null
-    const step = cell * 0.5
-    for (const dir of dirs) {
-      for (let d = step; d <= reach; d += step) {
-        if (!isOutside(end[0] + dir[0] * d, end[1] + dir[1] * d)) continue
-        if (!best || d < best[0]) best = [d, dir]
-        break
-      }
-    }
-    if (!best) return
-    const [d, dir] = best
-    // Se sale un par de celdas más allá para tapar también la orla de nodos que
-    // la grilla deja por fuera del último dato.
-    const len = d + cell * 2
-    stampSegment(end, [end[0] + dir[0] * len, end[1] + dir[1] * len], li, elevation)
-  }
-
-  for (let li = 0; li < levels.length; li++) {
-    const { elevation, lines } = levels[li]
+  for (const { elevation, lines } of usable) {
     for (const pts of lines) {
       if (!pts?.length) continue
-      stamp(pts[0][0], pts[0][1], li, elevation)
-      for (let m = 1; m < pts.length; m++) stampSegment(pts[m - 1], pts[m], li, elevation)
-      const first = pts[0]
-      const last = pts[pts.length - 1]
-      const closed = pts.length > 2 && Math.hypot(last[0] - first[0], last[1] - first[1]) <= cell
-      if (!closed) {
-        extendToBorder(first, pts[1] || first, li, elevation)
-        extendToBorder(last, pts[pts.length - 2] || last, li, elevation)
-      }
-    }
-  }
-  return { fixed, fixZ, fixLevel, points }
-}
-
-/**
- * Etiqueta las regiones que las curvas dejan entre sí (relleno por inundación,
- * 4-conectividad) y anota, para cada una, la cota más baja y la más alta de las
- * curvas que la tocan: son las dos con las que se interpola dentro.
- *
- * Lo que cae fuera del área de trabajo tampoco se inunda: es tan barrera como
- * una curva. Sin eso, dos laderas separadas por una curva se reencuentran
- * rodeando por el margen —donde no hay curvas que digitalizar— y acaban siendo
- * la misma región.
- */
-function labelRegions(fixed, fixLevel, outside, nx, ny) {
-  const n = nx * ny
-  const region = new Int32Array(n).fill(-1)
-  const stack = new Int32Array(n)
-  const lo = []
-  const hi = []
-  const size = []
-  const levelsOf = []
-  let count = 0
-
-  for (let start = 0; start < n; start++) {
-    if (fixed[start] || outside[start] || region[start] >= 0) continue
-    const id = count++
-    lo.push(Infinity)
-    hi.push(-Infinity)
-    size.push(0)
-    levelsOf.push(new Set())
-    let top = 0
-    stack[top++] = start
-    region[start] = id
-    while (top > 0) {
-      const k = stack[--top]
-      size[id]++
-      const i = k % nx
-      const j = (k - i) / nx
-      for (let dj = -1; dj <= 1; dj++) {
-        for (let di = -1; di <= 1; di++) {
-          if (di === 0 && dj === 0) continue
-          const ii = i + di
-          const jj = j + dj
-          if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue
-          const kn = jj * nx + ii
-          if (fixed[kn]) {
-            // Curva vecina: anota su cota como límite de esta región.
-            const li = fixLevel[kn]
-            if (li >= 0) {
-              if (li < lo[id]) lo[id] = li
-              if (li > hi[id]) hi[id] = li
-              levelsOf[id].add(li)
-            }
-            continue
-          }
-          if (outside[kn]) continue
-          // La inundación va por lados, no por esquinas: dos regiones que se
-          // tocan sólo en diagonal están separadas por la curva que pasa entre
-          // ellas y no deben fundirse.
-          if (di !== 0 && dj !== 0) continue
-          if (region[kn] < 0) {
-            region[kn] = id
-            stack[top++] = kn
-          }
+      push(pts[0][0], pts[0][1], elevation)
+      for (let m = 1; m < pts.length; m++) {
+        const a = pts[m - 1]
+        const b = pts[m]
+        const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step))
+        for (let s = 1; s <= steps; s++) {
+          const t = s / steps
+          push(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, elevation)
         }
       }
     }
   }
-  return { region, lo, hi, size, levelsOf: levelsOf.map((s) => [...s].sort((a, b) => a - b)), count }
+  return { x: Float64Array.from(xs), y: Float64Array.from(ys), e: Float64Array.from(es), n: es.length }
 }
 
 /**
- * Distancia a una curva de nivel (transformada vectorial de Danielsson, dos
- * pasadas). Propaga el vector al punto más cercano, no un conteo de pasos, así
- * que la distancia es prácticamente exacta y —lo que importa aquí— isótropa: un
- * chamfer por pasos deja facetas en las direcciones diagonales que se cuelan
- * tal cual en el relieve.
+ * Distancia de cada nodo a la curva más próxima, en celdas (chamfer de dos
+ * pasadas: aproximada, pero sólo se usa para graduar la tensión). Los nodos por
+ * los que pasa una curva quedan a cero.
  */
-function distanceField(samples, bbox, nx, ny, cell) {
+function distanceToData(nx, ny, seeds) {
   const n = nx * ny
-  const vx = new Float32Array(n)
-  const vy = new Float32Array(n)
-  const d2 = new Float64Array(n).fill(Infinity)
-  for (const p of samples) {
-    let ix = Math.round((p[0] - bbox.minX) / cell)
-    let iy = Math.round((p[1] - bbox.minY) / cell)
-    ix = Math.max(0, Math.min(nx - 1, ix))
-    iy = Math.max(0, Math.min(ny - 1, iy))
-    const k = iy * nx + ix
-    const dx = p[0] - (bbox.minX + ix * cell)
-    const dy = p[1] - (bbox.minY + iy * cell)
-    const q = dx * dx + dy * dy
-    if (q < d2[k]) {
-      d2[k] = q
-      vx[k] = dx
-      vy[k] = dy
-    }
-  }
-  const relax = (k, kn, ox, oy) => {
-    if (d2[kn] === Infinity) return
-    const dx = vx[kn] + ox
-    const dy = vy[kn] + oy
-    const q = dx * dx + dy * dy
-    if (q < d2[k]) {
-      d2[k] = q
-      vx[k] = dx
-      vy[k] = dy
-    }
-  }
+  const d = new Float64Array(n).fill(1e9)
+  for (const k of seeds) d[k] = 0
+  const D1 = 1
+  const D2 = Math.SQRT2
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const k = j * nx + i
-      if (i > 0) relax(k, k - 1, -cell, 0)
-      if (j > 0) relax(k, k - nx, 0, -cell)
-      if (i > 0 && j > 0) relax(k, k - nx - 1, -cell, -cell)
-      if (i < nx - 1 && j > 0) relax(k, k - nx + 1, cell, -cell)
+      let v = d[k]
+      if (i > 0) v = Math.min(v, d[k - 1] + D1)
+      if (j > 0) v = Math.min(v, d[k - nx] + D1)
+      if (i > 0 && j > 0) v = Math.min(v, d[k - nx - 1] + D2)
+      if (i < nx - 1 && j > 0) v = Math.min(v, d[k - nx + 1] + D2)
+      d[k] = v
     }
   }
   for (let j = ny - 1; j >= 0; j--) {
     for (let i = nx - 1; i >= 0; i--) {
       const k = j * nx + i
-      if (i < nx - 1) relax(k, k + 1, cell, 0)
-      if (j < ny - 1) relax(k, k + nx, 0, cell)
-      if (i < nx - 1 && j < ny - 1) relax(k, k + nx + 1, cell, cell)
-      if (i > 0 && j < ny - 1) relax(k, k + nx - 1, -cell, cell)
+      let v = d[k]
+      if (i < nx - 1) v = Math.min(v, d[k + 1] + D1)
+      if (j < ny - 1) v = Math.min(v, d[k + nx] + D1)
+      if (i < nx - 1 && j < ny - 1) v = Math.min(v, d[k + nx + 1] + D2)
+      if (i > 0 && j < ny - 1) v = Math.min(v, d[k + nx - 1] + D2)
+      d[k] = v
     }
   }
-  const out = new Float64Array(n)
-  for (let k = 0; k < n; k++) out[k] = Math.sqrt(d2[k])
-  return out
+  return d
 }
 
-/**
- * Rellena los nodos por los que pasa una curva —los únicos huecos que deja el
- * campo— con el promedio de sus vecinos, unas cuantas relajaciones.
- *
- * Clavarlos a la cota de la curva no vale: la curva de 1300 pasa por *dentro*
- * de la celda, y el centro del nodo queda un poco a un lado, así que su cota es
- * 1300 más o menos lo que ese trocito de ladera suba o baje. Clavarlo dejaba
- * una muesca de medio nodo a lo largo de cada curva —el escalón que se veía
- * sombreado— y no se puede corregir con la distancia, que no lleva signo.
- *
- * El promedio de los vecinos sí lo resuelve: la ladera a un lado y otro del
- * trazo ya está bien calculada, y en un tramo recto el promedio de los dos
- * vecinos opuestos da exactamente el valor de en medio. Repetirlo unas pasadas
- * propaga el relleno a los pocos sitios donde el trazo es más grueso de un nodo
- * (una curva en diagonal, o dos curvas que casi se tocan).
- */
-function fillTraceCells(z, fixed, outside, nx, ny, passes = 12) {
-  const holes = []
-  for (let k = 0; k < nx * ny; k++) if (fixed[k] && !outside[k]) holes.push(k)
-  if (!holes.length) return
-  for (let p = 0; p < passes; p++) {
-    let moved = 0
-    for (const k of holes) {
-      const i = k % nx
-      const j = (k - i) / nx
-      let sum = 0
-      let w = 0
-      // Los vecinos de fuera del trazo mandan; los de dentro sólo empujan el
-      // relleno hacia el interior de un trazo grueso.
-      for (const [ii, jj] of [
-        [i - 1, j],
-        [i + 1, j],
-        [i, j - 1],
-        [i, j + 1],
-      ]) {
-        if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue
-        const kn = jj * nx + ii
-        if (outside[kn]) continue
-        const wn = fixed[kn] ? 0.25 : 1
-        sum += z[kn] * wn
-        w += wn
-      }
-      if (!w) continue
-      const v = sum / w
-      moved = Math.max(moved, Math.abs(v - z[k]))
-      z[k] = v
-    }
-    if (moved < 1e-3) break
-  }
-}
-
-/**
- * Prolonga el relieve fuera del área de trabajo copiando, en cada nodo, la cota
- * del nodo válido más cercano (misma transformada vectorial de dos pasadas que
- * las distancias a las curvas).
- *
- * Fuera del recorte no hay curvas que interpolar, así que tampoco hay relieve
- * que calcular; pero la malla de la vista 3D cubre toda la imagen, y dejar el
- * margen a una cota inventada abre un escalón a lo largo del borde del área de
- * trabajo. Copiando el vecino válido más cercano el margen sale como una
- * prolongación horizontal del terreno: encaja en el borde y no añade pendiente.
- */
-function extendOutside(z, outside, nx, ny, cell) {
+/** Una grilla de la cascada, con la geometría y los datos ya enganchados. */
+function makeLevel(bbox, nx, ny, cell, samples, mu, inFrame) {
   const n = nx * ny
-  if (!outside.includes(1)) return
-  const vx = new Float32Array(n)
-  const vy = new Float32Array(n)
-  const d2 = new Float64Array(n)
-  const src = new Float32Array(n)
+  const z = new Float64Array(n)
+  const dw = new Float64Array(n)
+  const diag = new Float64Array(n)
+  const tau = new Float64Array(n)
+
+  // Enganche de cada muestra a su celda: el nodo inferior izquierdo y la
+  // posición dentro de la celda, de donde salen los cuatro pesos bilineales.
+  const P = samples.n
+  const base = new Int32Array(P)
+  const tx = new Float32Array(P)
+  const ty = new Float32Array(P)
+  const count = new Int32Array(n + 1)
+  for (let p = 0; p < P; p++) {
+    const fx = (samples.x[p] - bbox.minX) / cell
+    const fy = (samples.y[p] - bbox.minY) / cell
+    let i = Math.floor(fx)
+    let j = Math.floor(fy)
+    i = Math.max(0, Math.min(nx - 2, i))
+    j = Math.max(0, Math.min(ny - 2, j))
+    const a = Math.max(0, Math.min(1, fx - i))
+    const b = Math.max(0, Math.min(1, fy - j))
+    const k = j * nx + i
+    base[p] = k
+    tx[p] = a
+    ty[p] = b
+    const w00 = (1 - a) * (1 - b)
+    const w10 = a * (1 - b)
+    const w01 = (1 - a) * b
+    const w11 = a * b
+    dw[k] += w00 * w00
+    dw[k + 1] += w10 * w10
+    dw[k + nx] += w01 * w01
+    dw[k + nx + 1] += w11 * w11
+    count[k]++
+    count[k + 1]++
+    count[k + nx]++
+    count[k + nx + 1]++
+  }
+
+  // Índice inverso nodo → muestras que lo tocan. Sin él habría que recorrer
+  // todas las muestras en cada pasada, y sobre todo el ajuste no podría
+  // resolverse nodo a nodo: las cuatro esquinas de una celda comparten muestra,
+  // y dejar esa parte "para la pasada siguiente" hace que el método se
+  // desmadre cuando las curvas pesan mucho.
+  const off = new Int32Array(n + 1)
+  let acc = 0
   for (let k = 0; k < n; k++) {
-    if (outside[k]) d2[k] = Infinity
-    else ((d2[k] = 0), (src[k] = z[k]))
+    off[k] = acc
+    acc += count[k]
   }
-  const relax = (k, kn, ox, oy) => {
-    if (d2[kn] === Infinity) return
-    const dx = vx[kn] + ox
-    const dy = vy[kn] + oy
-    const q = dx * dx + dy * dy
-    if (q < d2[k]) ((d2[k] = q), (vx[k] = dx), (vy[k] = dy), (src[k] = src[kn]))
+  off[n] = acc
+  const cursor = off.slice(0, n)
+  const sidx = new Int32Array(acc)
+  const swgt = new Float32Array(acc)
+  const attach = (k, p, w) => {
+    const m = cursor[k]++
+    sidx[m] = p
+    swgt[m] = w
   }
+  for (let p = 0; p < P; p++) {
+    const k = base[p]
+    const a = tx[p]
+    const b = ty[p]
+    attach(k, p, (1 - a) * (1 - b))
+    attach(k + 1, p, a * (1 - b))
+    attach(k + nx, p, (1 - a) * b)
+    attach(k + nx + 1, p, a * b)
+  }
+
+  // Tensión, graduada por lo lejos que queda la curva más próxima. La escala de
+  // referencia es la distancia típica de un nodo a su curva, que es medio ancho
+  // de banda: así el criterio no depende de la resolución ni de la equidistancia
+  // del mapa, sino de lo apretadas que vayan las curvas en este mapa concreto.
+  // Fuera del área de trabajo no hay curvas que digitalizar, así que allí la
+  // tensión entra entera desde el primer nodo.
+  const seeds = new Int32Array(P)
+  for (let p = 0; p < P; p++) seeds[p] = base[p] + (tx[p] < 0.5 ? 0 : 1) + (ty[p] < 0.5 ? 0 : nx)
+  const dist = distanceToData(nx, ny, seeds)
+  const inside = new Uint8Array(n)
+  const scale = new Float64Array(n)
+  let m = 0
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const k = j * nx + i
-      if (!outside[k]) continue
-      if (i > 0) relax(k, k - 1, -cell, 0)
-      if (j > 0) relax(k, k - nx, 0, -cell)
-      if (i > 0 && j > 0) relax(k, k - nx - 1, -cell, -cell)
-      if (i < nx - 1 && j > 0) relax(k, k - nx + 1, cell, -cell)
+      if (!inFrame || inFrame(bbox.minX + i * cell, bbox.minY + j * cell)) {
+        inside[k] = 1
+        scale[m++] = dist[k]
+      }
     }
   }
-  for (let j = ny - 1; j >= 0; j--) {
-    for (let i = nx - 1; i >= 0; i--) {
+  const typical = Math.max(1, m ? scale.subarray(0, m).sort()[m >> 1] : 1)
+  for (let k = 0; k < n; k++) {
+    if (!inside[k]) {
+      tau[k] = TENSION_OUT
+      continue
+    }
+    const u = (dist[k] / typical - TENSION_FROM) / (TENSION_FULL - TENSION_FROM)
+    const t = u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u)
+    tau[k] = TENSION_IN + (TENSION_OUT - TENSION_IN) * t
+  }
+
+  // Diagonal del sistema. La curvatura aporta 16 si el nodo tiene laplaciano
+  // propio —los del borde no lo tienen— más uno por cada vecino que lo tenga;
+  // la tensión, la suma de sus cuatro aristas; el ajuste, μ·Σw².
+  const inner = (i, j) => i > 0 && i < nx - 1 && j > 0 && j < ny - 1
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
       const k = j * nx + i
-      if (!outside[k]) continue
-      if (i < nx - 1) relax(k, k + 1, cell, 0)
-      if (j < ny - 1) relax(k, k + nx, 0, cell)
-      if (i < nx - 1 && j < ny - 1) relax(k, k + nx + 1, cell, cell)
-      if (i > 0 && j < ny - 1) relax(k, k + nx - 1, -cell, cell)
+      let d = inner(i, j) ? 16 : 0
+      if (inner(i - 1, j)) d += 1
+      if (inner(i + 1, j)) d += 1
+      if (inner(i, j - 1)) d += 1
+      if (inner(i, j + 1)) d += 1
+      let t = 0
+      if (i > 0) t += (tau[k] + tau[k - 1]) * 0.5
+      if (i < nx - 1) t += (tau[k] + tau[k + 1]) * 0.5
+      if (j > 0) t += (tau[k] + tau[k - nx]) * 0.5
+      if (j < ny - 1) t += (tau[k] + tau[k + nx]) * 0.5
+      diag[k] = d + t + mu * dw[k] + 1e-9
     }
   }
-  for (let k = 0; k < n; k++) if (outside[k] && d2[k] < Infinity) z[k] = src[k]
+  return { nx, ny, cell, z, diag, tau, base, tx, ty, off, sidx, swgt, mu, e: samples.e }
 }
 
 /**
- * Suavizado con un núcleo 3×3, unas pocas pasadas. Limpia el ruido de nodo a
- * nodo que deja la rasterización de las curvas, sin mover el relieve de donde
- * el mapa lo pone.
+ * Gauss-Seidel rojo-negro sobre el sistema completo —curvatura, tensión y
+ * ajuste a las curvas—, unas cuantas pasadas. El sistema es simétrico definido
+ * positivo (es la derivada de una suma de cuadrados), así que la sobre-
+ * relajación converge y cada pasada baja la energía.
+ */
+function relax(L, sweeps) {
+  const { nx, ny, z, diag, tau, base, tx, ty, off, sidx, swgt, mu, e } = L
+  const nx1 = nx - 1
+  const ny1 = ny - 1
+
+  /** Laplaciano en el nodo; cero donde no está definido (el borde). */
+  const lap = (i, j, k) =>
+    i > 0 && i < nx1 && j > 0 && j < ny1 ? z[k - 1] + z[k + 1] + z[k - nx] + z[k + nx] - 4 * z[k] : 0
+
+  /** Residuo del ajuste a las curvas que pasan por las celdas de este nodo. */
+  const fit = (k) => {
+    const m1 = off[k + 1]
+    let g = 0
+    for (let m = off[k]; m < m1; m++) {
+      const p = sidx[m]
+      const kb = base[p]
+      const a = tx[p]
+      const b = ty[p]
+      g +=
+        swgt[m] *
+        (e[p] -
+          ((1 - a) * (1 - b) * z[kb] +
+            a * (1 - b) * z[kb + 1] +
+            (1 - a) * b * z[kb + nx] +
+            a * b * z[kb + nx + 1]))
+    }
+    return g
+  }
+
+  const wide = nx > 4 && ny > 4
+  for (let s = 0; s < sweeps; s++) {
+    for (let color = 0; color < 2; color++) {
+      for (let j = 0; j < ny; j++) {
+        const row = j * nx
+        const fast = wide && j >= 2 && j <= ny - 3
+        const i0 = (j + color) & 1
+        for (let i = i0; i < nx; i += 2) {
+          const k = row + i
+          const zk = z[k]
+          let r
+          if (fast && i >= 2 && i <= nx - 3) {
+            // Estrella de 13 puntos: el laplaciano aplicado dos veces, ya
+            // desarrollado. Es el camino que recorre casi toda la grilla.
+            r = -(
+              20 * zk -
+              8 * (z[k - 1] + z[k + 1] + z[k - nx] + z[k + nx]) +
+              2 * (z[k - nx - 1] + z[k - nx + 1] + z[k + nx - 1] + z[k + nx + 1]) +
+              (z[k - 2] + z[k + 2] + z[k - 2 * nx] + z[k + 2 * nx])
+            )
+          } else {
+            // Junto al borde el laplaciano no está definido en todos los
+            // vecinos: la estrella se arma nodo a nodo. Los que faltan valen
+            // cero, que es la condición de borde libre —la lámina sale del mapa
+            // con la curvatura que traiga, sin aplanarse ni doblarse.
+            r = 4 * lap(i, j, k)
+            if (i > 0) r -= lap(i - 1, j, k - 1)
+            if (i < nx1) r -= lap(i + 1, j, k + 1)
+            if (j > 0) r -= lap(i, j - 1, k - nx)
+            if (j < ny1) r -= lap(i, j + 1, k + nx)
+          }
+          const tk = tau[k]
+          if (i > 0) r -= (tk + tau[k - 1]) * 0.5 * (zk - z[k - 1])
+          if (i < nx1) r -= (tk + tau[k + 1]) * 0.5 * (zk - z[k + 1])
+          if (j > 0) r -= (tk + tau[k - nx]) * 0.5 * (zk - z[k - nx])
+          if (j < ny1) r -= (tk + tau[k + nx]) * 0.5 * (zk - z[k + nx])
+          if (off[k] !== off[k + 1]) r += mu * fit(k)
+          z[k] = zk + (OMEGA * r) / diag[k]
+        }
+      }
+    }
+  }
+}
+
+/** Interpola la solución de la grilla gruesa en la fina (bilineal). */
+function prolong(coarse, fine) {
+  const { nx: cnx, ny: cny, cell: ccell, z: cz } = coarse
+  const { nx, ny, cell, z } = fine
+  for (let j = 0; j < ny; j++) {
+    const fy = (j * cell) / ccell
+    let cj = Math.floor(fy)
+    cj = Math.max(0, Math.min(cny - 2, cj))
+    const ty = Math.max(0, Math.min(1, fy - cj))
+    for (let i = 0; i < nx; i++) {
+      const fx = (i * cell) / ccell
+      let ci = Math.floor(fx)
+      ci = Math.max(0, Math.min(cnx - 2, ci))
+      const tx = Math.max(0, Math.min(1, fx - ci))
+      const k = cj * cnx + ci
+      z[j * nx + i] =
+        cz[k] * (1 - tx) * (1 - ty) +
+        cz[k + 1] * tx * (1 - ty) +
+        cz[k + cnx] * (1 - tx) * ty +
+        cz[k + cnx + 1] * tx * ty
+    }
+  }
+}
+
+/**
+ * Techo y suelo del mapa. Por encima de la curva más alta el terreno sigue
+ * subiendo, pero no puede pasar de una equidistancia: si pasara, habría otra
+ * curva dibujada. Lo mismo por abajo. El corte es suave —se acerca al límite
+ * sin llegar a tocarlo— para no reintroducir una meseta con arista justo en las
+ * cumbres, que es lo que se quería evitar.
+ */
+function softClamp(z, zLow, zHigh, margin) {
+  if (!(margin > 0)) return
+  const half = margin * 0.5
+  for (let k = 0; k < z.length; k++) {
+    const v = z[k]
+    if (v > zHigh + half) z[k] = zHigh + half + half * (1 - Math.exp(-(v - zHigh - half) / half))
+    else if (v < zLow - half) z[k] = zLow - half - half * (1 - Math.exp(-(zLow - half - v) / half))
+  }
+}
+
+/**
+ * Suavizado con un núcleo 3×3, unas pocas pasadas. La superficie ya sale suave
+ * del solver; esto sólo limpia el rizado de nodo a nodo que puede dejar una
+ * curva digitalizada con el pulso tembloroso.
  */
 function smooth(z, nx, ny, passes) {
   if (passes <= 0) return z
   let src = z
-  let dst = new Float32Array(z.length)
+  let dst = new Float64Array(z.length)
   for (let p = 0; p < passes; p++) {
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
@@ -432,9 +440,8 @@ function smooth(z, nx, ny, passes) {
  * @param bbox    { minX, minY, maxX, maxY }
  * @param res     número de celdas en el lado mayor
  * @param inFrame (x, y) => boolean — área de trabajo, si el ejercicio define una.
- *                La grilla cubre toda la imagen, pero las curvas sólo se
- *                digitalizan dentro del área de trabajo: sin este dato el
- *                margen vacío es un pasillo que une todas las bandas.
+ *                La grilla cubre toda la imagen; fuera del área no hay curvas
+ *                que digitalizar, así que allí el relieve sólo se prolonga.
  */
 export function buildDem(levels, bbox, res = 200, smoothPasses = 3, inFrame = null) {
   const width = bbox.maxX - bbox.minX
@@ -444,283 +451,66 @@ export function buildDem(levels, bbox, res = 200, smoothPasses = 3, inFrame = nu
   const nx = Math.max(2, Math.ceil(width / cell) + 1)
   const ny = Math.max(2, Math.ceil(height / cell) + 1)
   const n = nx * ny
-  const z = new Float32Array(n)
 
   const usable = levels
     .filter((l) => Number.isFinite(l.elevation) && l.lines?.some((pts) => pts?.length))
     .sort((a, b) => a.elevation - b.elevation)
 
-  if (usable.length === 0) return makeDem(bbox, nx, ny, cell, z, 0, 0, false)
+  if (usable.length === 0) return makeDem(bbox, nx, ny, cell, new Float32Array(n), 0, 0, false)
   if (usable.length === 1) {
-    z.fill(usable[0].elevation)
-    return makeDem(bbox, nx, ny, cell, z, usable[0].elevation, usable[0].elevation, true)
+    const flat = new Float32Array(n).fill(usable[0].elevation)
+    return makeDem(bbox, nx, ny, cell, flat, usable[0].elevation, usable[0].elevation, true)
   }
 
-  const elevationOf = usable.map((l) => l.elevation)
-  const outside = new Uint8Array(n)
-  if (inFrame) {
-    for (let j = 0; j < ny; j++)
-      for (let i = 0; i < nx; i++)
-        if (!inFrame(bbox.minX + i * cell, bbox.minY + j * cell)) outside[j * nx + i] = 1
+  const samples = buildSamples(usable, cell)
+  if (!samples.n) return makeDem(bbox, nx, ny, cell, new Float32Array(n), 0, 0, false)
+
+  // Cascada de grillas, de la más gruesa a la pedida. Todas comparten el origen
+  // y la extensión; sólo cambia el paso.
+  const steps = []
+  for (let d = 1; ; d *= 2) {
+    const c = cell * d
+    const gx = Math.max(2, Math.ceil(width / c) + 1)
+    const gy = Math.max(2, Math.ceil(height / c) + 1)
+    steps.push({ cell: c, nx: d === 1 ? nx : gx, ny: d === 1 ? ny : gy })
+    if (Math.max(gx, gy) <= COARSEST) break
+    if (d > 1 << 12) break
   }
-  const { fixed, fixZ, fixLevel, points } = rasterizeLevels(usable, bbox, nx, ny, cell, outside)
-  const { region, lo, hi, levelsOf, count } = labelRegions(fixed, fixLevel, outside, nx, ny)
+  steps.reverse()
 
-  // Un campo de distancias por cota. La región dice *con cuáles* interpolar en
-  // cada nodo; el campo dice a qué distancia están.
-  const fields = usable.map((l, li) => distanceField(points[li], bbox, nx, ny, cell))
-  const distTo = (li, k) => (li >= 0 && li < fields.length ? fields[li][k] : Infinity)
-
-  // Tres clases de región, según cuántas curvas la limitan:
-  //  · una sola  → cumbre o depresión: hay que prolongar,
-  //  · dos consecutivas → ladera limpia: reparto lineal entre ambas,
-  //  · más de dos → el margen exterior del mapa, o un trozo donde falta una
-  //    curva. Ahí no hay un par que mande, y repartir entre la más baja y la
-  //    más alta inventaría una rampa enorme; se promedia por inverso del
-  //    cuadrado de la distancia, que vale la cota exacta al llegar a cada curva
-  //    y pasa de una a otra sin costuras.
-  const BAND = 0
-  const CAP = 1
-  const MIXED = 2
-  const kind = new Uint8Array(count)
-  for (let r = 0; r < count; r++) {
-    if (!Number.isFinite(lo[r]) || lo[r] === hi[r]) kind[r] = CAP
-    else if (hi[r] - lo[r] === 1) kind[r] = BAND
-    else kind[r] = MIXED
-  }
-
-  // Las celdas por las que pasa una curva quedan fuera de todas las regiones:
-  // son huecos en el campo, y se rellenan al final (véase `fillTraceCells`). No
-  // se les puede asignar una banda: la curva pasa por algún punto dentro de la
-  // celda, y la distancia —que no tiene signo— no dice de qué lado del trazo
-  // quedó el centro del nodo. Asignarlas a la banda de abajo ponía cada celda
-  // de curva hasta una celda entera por debajo de donde va, y esa muesca de un
-  // nodo, repetida a lo largo de todas las curvas, es la terraza que se veía.
-
-  // Pendiente de la banda que hay más allá de una curva, medida desde este
-  // mismo nodo. `near` es lo que dista el nodo de la curva compartida; la curva
-  // del otro extremo de esa banda está `near + ancho` más lejos, así que la
-  // resta da el ancho de la banda vecina justo por aquí. Es una estimación
-  // —la curva de más allá podría quedar más cerca rodeando un espolón— y por
-  // eso se acota a un múltiplo de la pendiente de esta banda: sirve para
-  // suavizar el paso, no para mandar sobre él.
-  const NEIGHBOUR_RATIO = 5
-  const neighbourSlope = (outer, inner, near, k, own) => {
-    if (outer < 0 || outer >= elevationOf.length) return own
-    const width = distTo(outer, k) - near
-    if (!Number.isFinite(width) || width < cell * 0.5) return own
-    const s = Math.abs(elevationOf[outer] - elevationOf[inner]) / width
-    if (!(s > 0)) return own
-    return Math.max(own / NEIGHBOUR_RATIO, Math.min(own * NEIGHBOUR_RATIO, s))
-  }
-  /** Media armónica: la pendiente con la que se llega a la curva desde ambos lados. */
-  const meetingSlope = (p, q) => (p > 0 && q > 0 ? (2 * p * q) / (p + q) : 0)
-
-  /**
-   * Cota donde no hay un par de curvas que mande: los trozos en que falta una
-   * curva y la región toca tres cotas o más.
-   *
-   * No sirve promediar las cotas por inverso de la distancia. Con peso 1/d² la
-   * curva más cercana aplasta a las demás y un buen trozo alrededor de cada
-   * curva se queda pegado a su cota: sale un rellano en cada curva y un escalón
-   * entre ellas, que es justo el aterrazado que se ve sombreado. Bajar el
-   * exponente lo reparte, pero entonces las curvas lejanas tiran del resultado
-   * y la ladera se deforma.
-   *
-   * Lo que se promedia son *parejas* de curvas, no curvas sueltas: cada pareja
-   * propone el mismo reparto lineal que en una banda, y pesa según lo estrecho
-   * que sea el paso entre sus dos curvas por aquí —la cuarta potencia, para que
-   * la pareja que de verdad encierra al nodo mande y las demás apenas cuenten—.
-   * Al acercarse a una curva el valor tiende a su cota de forma lineal —no
-   * cuadrática—, así que no deja rellano. Sale mejor que el promedio por
-   * distancia en las dos cosas a la vez: se aparta la mitad del terreno real y
-   * reparte los nodos entre las cotas en vez de apelotonarlos en ellas.
-   */
-  const bracketed = (list, k) => {
-    let num = 0
-    let den = 0
-    for (let a = 0; a < list.length; a++) {
-      const da = distTo(list[a], k)
-      if (!Number.isFinite(da)) continue
-      if (da < 1e-6) return elevationOf[list[a]]
-      for (let b = a + 1; b < list.length; b++) {
-        const db = distTo(list[b], k)
-        if (!Number.isFinite(db)) continue
-        const s = da + db
-        if (!(s > 1e-9)) continue
-        const w = 1 / (s * s * s * s)
-        num += w * ((elevationOf[list[a]] * db + elevationOf[list[b]] * da) / s)
-        den += w
-      }
+  let prev = null
+  let level = null
+  for (let s = 0; s < steps.length; s++) {
+    const g = steps[s]
+    // El peso de las curvas crece con el paso de la grilla: en la gruesa mandan
+    // ellas, en la fina manda la suavidad.
+    const mu = DATA_WEIGHT * Math.pow(WEIGHT_PER_LEVEL, steps.length - 1 - s)
+    level = makeLevel(bbox, g.nx, g.ny, g.cell, samples, mu, inFrame)
+    if (prev) prolong(prev, level)
+    else {
+      let mean = 0
+      for (let p = 0; p < samples.n; p++) mean += samples.e[p]
+      level.z.fill(mean / samples.n)
     }
-    return den > 0 ? num / den : null
+    relax(level, Math.min(SWEEPS_MAX, SWEEPS * Math.pow(2, steps.length - 1 - s)))
+    prev = level
   }
 
-  // --- Laderas y márgenes.
-  for (let k = 0; k < n; k++) {
-    if (fixed[k]) {
-      // Valor de partida del hueco: la cota de la curva. El relleno lo afina.
-      z[k] = fixZ[k]
-      continue
-    }
-    const r = region[k]
-    if (r < 0) {
-      // Fuera del área de trabajo: lo resuelve `extendOutside` al final.
-      z[k] = elevationOf[0]
-      continue
-    }
-    if (kind[r] === CAP) continue
-    if (kind[r] === BAND) {
-      const li = lo[r]
-      const hj = hi[r]
-      const zLo = elevationOf[li]
-      const zHi = elevationOf[hj]
-      const a = distTo(li, k)
-      const b = distTo(hj, k)
-      const w = a + b
-      if (!(w > 1e-9) || !Number.isFinite(w)) {
-        z[k] = zLo
-        continue
-      }
-      // Pendiente propia de la banda aquí, y la de las bandas de encima y de
-      // debajo. Donde no hay banda vecina —la curva de más abajo del mapa, o la
-      // que rodea una cumbre— se usa la propia, y el tramo sale recto por ese
-      // extremo, que es lo que había antes.
-      const own = (zHi - zLo) / w
-      const below = neighbourSlope(li - 1, li, a, k, own)
-      const above = neighbourSlope(hj + 1, hj, b, k, own)
-      // Tangentes de la cúbica en coordenada de banda (t = 0 en la curva de
-      // abajo, t = 1 en la de arriba): pendiente del terreno × ancho de banda.
-      const m0 = meetingSlope(below, own) * w
-      const m1 = meetingSlope(own, above) * w
-      const t = a / w
-      const t2 = t * t
-      const t3 = t2 * t
-      z[k] =
-        (2 * t3 - 3 * t2 + 1) * zLo +
-        (t3 - 2 * t2 + t) * m0 +
-        (-2 * t3 + 3 * t2) * zHi +
-        (t3 - t2) * m1
-      continue
-    }
-    const v = bracketed(levelsOf[r], k)
-    z[k] = v == null ? elevationOf[lo[r]] : v
-  }
-
-  // --- Regiones de cumbre o depresión: bóveda que prolonga la ladera de fuera.
-  // Para cada una hacen falta tres cosas: hacia dónde sigue el relieve (arriba
-  // o abajo), con qué pendiente llega la ladera vecina, y hasta dónde puede
-  // subir antes de que tocara dibujar la curva siguiente.
-  const capApex = new Float64Array(count)
-  for (let k = 0; k < n; k++) {
-    const r = region[k]
-    if (r < 0 || kind[r] !== CAP) continue
-    const d = distTo(lo[r], k)
-    if (d > capApex[r]) capApex[r] = d
-  }
-
-  const upVotes = new Int32Array(count)
-  const downVotes = new Int32Array(count)
-  const slopeSum = new Float64Array(count)
-  const slopeN = new Int32Array(count)
-  for (let k = 0; k < n; k++) {
-    if (!fixed[k]) continue
-    const li = fixLevel[k]
-    if (li < 0) continue
-    const i = k % nx
-    const j = (k - i) / nx
-    // Regiones que esta celda de curva separa: la de dentro (la cumbre) y la de
-    // fuera (la ladera). La ladera dice hacia dónde sigue el terreno y con qué
-    // pendiente llega.
-    let capId = -1
-    for (let dj = -1; dj <= 1 && capId < 0; dj++) {
-      for (let di = -1; di <= 1; di++) {
-        const ii = i + di
-        const jj = j + dj
-        if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue
-        const r = region[jj * nx + ii]
-        if (r >= 0 && kind[r] === CAP && lo[r] === li) {
-          capId = r
-          break
-        }
-      }
-    }
-    if (capId < 0) continue
-    for (let dj = -1; dj <= 1; dj++) {
-      for (let di = -1; di <= 1; di++) {
-        const ii = i + di
-        const jj = j + dj
-        if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue
-        const kn = jj * nx + ii
-        const r = region[kn]
-        if (r < 0 || r === capId || kind[r] !== BAND) continue
-        const zLo = elevationOf[lo[r]]
-        const zHi = elevationOf[hi[r]]
-        if (hi[r] === li && lo[r] < li) upVotes[capId]++
-        else if (lo[r] === li && hi[r] > li) downVotes[capId]++
-        else continue
-        // Ancho de la banda vecina medido justo aquí: la distancia desde este
-        // nodo hasta la otra curva. La pendiente de llegada es la equidistancia
-        // dividida por ese ancho.
-        const w = hi[r] === li ? distTo(lo[r], kn) : distTo(hi[r], kn)
-        if (Number.isFinite(w) && w > cell * 0.5) {
-          slopeSum[capId] += Math.abs(zHi - zLo) / w
-          slopeN[capId]++
-        }
-      }
-    }
-  }
-
-  const capHeight = new Float64Array(count)
-  const capSign = new Float64Array(count)
-  for (let r = 0; r < count; r++) {
-    if (kind[r] !== CAP || !Number.isFinite(lo[r])) continue
-    const li = lo[r]
-    const sign = upVotes[r] >= downVotes[r] && upVotes[r] > 0 ? 1 : downVotes[r] > 0 ? -1 : 0
-    capSign[r] = sign
-    if (!sign) continue
-    // Equidistancia local: la que separa esta curva de la vecina en esa
-    // dirección; si no hay otra, la mediana del mapa.
-    const nb = sign > 0 ? li - 1 : li + 1
-    const interval =
-      nb >= 0 && nb < elevationOf.length
-        ? Math.abs(elevationOf[li] - elevationOf[nb])
-        : medianInterval(elevationOf)
-    const slope = slopeN[r] ? slopeSum[r] / slopeN[r] : 0
-    // La bóveda arranca con la pendiente de la ladera (su derivada en la base
-    // es 2h/apex) y se acota a una equidistancia: por encima ya tocaría otra
-    // curva dibujada.
-    capHeight[r] = Math.min(interval * 0.9, (slope * capApex[r]) / 2)
-  }
-
-  for (let k = 0; k < n; k++) {
-    const r = region[k]
-    if (r < 0 || kind[r] !== CAP) continue
-    const z0 = Number.isFinite(lo[r]) ? elevationOf[lo[r]] : elevationOf[0]
-    const apex = capApex[r]
-    if (!capSign[r] || apex < 1e-9) {
-      z[k] = z0
-      continue
-    }
-    // Bóveda parabólica: pendiente de la ladera en la base, plana en la cima.
-    const u = Math.min(1, distTo(lo[r], k) / apex)
-    z[k] = z0 + capSign[r] * capHeight[r] * (2 * u - u * u)
-  }
-
-  fillTraceCells(z, fixed, outside, nx, ny)
-  extendOutside(z, outside, nx, ny, cell)
+  const z = level.z
+  const elevations = usable.map((l) => l.elevation)
+  softClamp(z, elevations[0], elevations[elevations.length - 1], medianInterval(elevations))
 
   const smoothed = smooth(z, nx, ny, Math.max(0, smoothPasses))
-  if (smoothed !== z) z.set(smoothed)
-
+  const out = new Float32Array(n)
   let zmin = Infinity
   let zmax = -Infinity
   for (let k = 0; k < n; k++) {
-    const v = z[k]
+    const v = smoothed[k]
+    out[k] = v
     if (v < zmin) zmin = v
     if (v > zmax) zmax = v
   }
-  return makeDem(bbox, nx, ny, cell, z, zmin, zmax, true)
+  return makeDem(bbox, nx, ny, cell, out, zmin, zmax, true)
 }
 
 /** Equidistancia representativa del mapa (mediana de los saltos entre cotas). */

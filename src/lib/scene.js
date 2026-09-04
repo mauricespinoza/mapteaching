@@ -191,6 +191,33 @@ function anchorToTrace(surf, traces, dem, side) {
   }
 }
 
+/**
+ * El relieve sólo depende de las curvas de nivel, del calibrado, del marco y de
+ * la extensión de la grilla; de nada más de lo que se edita en el mapa. Como
+ * resolverlo cuesta lo suyo y `buildScene` se rehace con cada retoque —mover
+ * una traza, añadir un pozo—, se guarda el último y se reutiliza mientras esos
+ * datos no cambien. Las listas del proyecto se reemplazan enteras al editarlas,
+ * así que basta comparar referencias.
+ */
+let demCache = null
+function cachedDem(key, make) {
+  const k = demCache?.key
+  const same =
+    k &&
+    k.contours === key.contours &&
+    k.georef === key.georef &&
+    k.frame === key.frame &&
+    k.res === key.res &&
+    k.smoothing === key.smoothing &&
+    k.bbox.minX === key.bbox.minX &&
+    k.bbox.minY === key.bbox.minY &&
+    k.bbox.maxX === key.bbox.maxX &&
+    k.bbox.maxY === key.bbox.maxY
+  if (same) return demCache.dem
+  demCache = { key: { ...key, bbox: { ...key.bbox } }, dem: make() }
+  return demCache.dem
+}
+
 export function buildScene(project) {
   const georef = project.georef
   const ready = Boolean(georef?.metersPerPx)
@@ -265,12 +292,17 @@ export function buildScene(project) {
   // del área de trabajo. Sin decírselo, el margen vacío que queda alrededor es
   // un pasillo abierto que une todas las bandas de cota y el relieve se calcula
   // a ciegas. (Es el mismo criterio que usa el mapa de unidades.)
-  const dem = buildDem(
-    [...merged.entries()].map(([elevation, lines]) => ({ elevation, lines })),
-    bbox,
-    res,
-    project.settings.demSmoothing ?? 2,
-    demFrameTest(project, georef)
+  const smoothing = project.settings.demSmoothing ?? 2
+  const dem = cachedDem(
+    { contours: project.contours, georef, frame: project.frame, res, smoothing, bbox },
+    () =>
+      buildDem(
+        [...merged.entries()].map(([elevation, lines]) => ({ elevation, lines })),
+        bbox,
+        res,
+        smoothing,
+        demFrameTest(project, georef)
+      )
   )
 
   /**
