@@ -80,3 +80,21 @@ export function PiercingIcon({ size = 24, strokeWidth = 2, className = '', ...re
     </svg>
   )
 }
+
+/**
+ * Cortar una línea en un punto: el trazo partido en dos, con la marca del
+ * corte —la recta segmentada perpendicular— y un extremo nuevo a cada lado.
+ * Se lee de un vistazo qué deja la herramienta (dos líneas donde había una),
+ * cosa que unas tijeras no dicen.
+ */
+export function CutLineIcon({ size = 24, strokeWidth = 2, className = '', ...rest }) {
+  return (
+    <svg width={size} height={size} strokeWidth={strokeWidth} className={className} {...base} {...rest}>
+      <path d="M2.5 17.5 8.8 13.6" />
+      <path d="M15.2 10.4 21.5 6.5" />
+      <path d="M12 3.2 12 20.8" strokeDasharray="2.6 2.6" strokeWidth={Math.max(strokeWidth - 0.6, 1)} />
+      <circle cx="8.8" cy="13.6" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="15.2" cy="10.4" r="1.8" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}

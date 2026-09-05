@@ -31,7 +31,10 @@ export default function HelpPanel({ project, dispatch }) {
           separan por <b>tinta</b> —en una carta se imprimen con colores distintos—, así que hay un paso
           para cada una. Ojo con dos cosas que el dibujo no dice: las <b>cotas</b> de las curvas (se
           numeran en orden, como propuesta a revisar) y a qué <b>unidades</b> separa cada contacto (entran
-          todos en un contacto nuevo y se reasignan con una pulsación larga).
+          todos en un contacto nuevo y se reasignan con una pulsación larga). El menú cambia las unidades{' '}
+          <b>sólo de la línea que tocaste</b>, no las de sus compañeras; si un tramo largo recorre dos
+          contactos distintos, pártelo antes con <b>Cortar línea</b> (<span className="font-mono">K</span>)
+          y asigna cada mitad por separado.
         </li>
         <li>
           <b>Define las unidades</b> de base a techo. Entre unidades consecutivas se crea un contacto; digitaliza

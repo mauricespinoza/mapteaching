@@ -4,7 +4,7 @@ import { structureContourItems } from '../lib/scene.js'
 import { foldAxes as computeFoldAxes } from '../lib/folds.js'
 import { newStructureContour } from '../lib/model.js'
 import MapMenu from './MapMenu.jsx'
-import { thin, simplify, pointPolyline, dist, chaikin } from '../lib/geom.js'
+import { thin, simplify, pointPolyline, splitPolyline, dist, chaikin } from '../lib/geom.js'
 import { snapTargets, snapToLines, measureEnd, reading } from '../lib/measure.js'
 import { fmtDistance, strikeQuadrant } from '../lib/georef.js'
 import {
@@ -97,9 +97,14 @@ export default function MapView({
     }
     if ((selection.kind === 'contact' || selection.kind === 'fault') && selection.traceId) {
       const list = selection.kind === 'fault' ? project.faults : project.contacts
-      const owner = list.find((x) => x.id === selection.id)
+      // Se busca también por la traza: reasignar una línea a otro par de
+      // unidades la muda de contacto, y sin esto la edición de sus vértices se
+      // caía en cuanto se cambiaban las unidades desde el menú.
+      const owner =
+        list.find((x) => x.id === selection.id && x.traces.some((t) => t.id === selection.traceId)) ||
+        list.find((x) => x.traces.some((t) => t.id === selection.traceId))
       const tr = owner?.traces.find((t) => t.id === selection.traceId)
-      return tr ? { kind: selection.kind, id: selection.id, traceId: tr.id, trace: tr } : null
+      return tr ? { kind: selection.kind, id: owner.id, traceId: tr.id, trace: tr } : null
     }
     return null
   }, [tool, selection, project])
@@ -519,7 +524,7 @@ export default function MapView({
     // ni teclas: ahí caben la reasignación de unidades, la cinemática de una
     // falla, la cota de una curva y el borrado.
     clearTimeout(holdTimer.current)
-    if (!['erase', 'measure'].includes(tool) && pointers.current.size === 1) {
+    if (!['erase', 'measure', 'split'].includes(tool) && pointers.current.size === 1) {
       const target = findMenuTarget(p, touchTol(ev, 18))
       if (target) {
         const rect = canvas.getBoundingClientRect()
@@ -559,6 +564,17 @@ export default function MapView({
         tapCandidate: fingerNav || tool === 'pan',
         at: p,
       }
+      return
+    }
+
+    // Cortar una línea en el punto tocado. Va antes que el borrado porque
+    // comparte con él la mecánica —un toque sobre una traza y nada más— pero
+    // en vez de quitarla la parte en dos.
+    if (tool === 'split') {
+      const hit = hitTest(p, touchTol(ev, 18))
+      const cut = splitHit(hit, p, project, dispatch)
+      flash(cut ? 'Línea cortada' : 'Toca encima de una línea para cortarla')
+      if (cut) onPick(null)
       return
     }
 
@@ -1040,6 +1056,33 @@ function draftColor(tool) {
   if (tool === 'section') return '#7c3aed'
   if (tool === 'scontour') return '#0284c7'
   return '#0f172a'
+}
+
+/**
+ * Corta en dos la línea tocada, por el punto de ella más cercano al toque.
+ * Tras digitalizar el mapa de forma automática, un contacto suele venir como
+ * un trazo largo que en realidad recorre varios pares de unidades: cortarlo es
+ * el paso previo a darle a cada trozo el suyo. Devuelve si hubo corte.
+ */
+function splitHit(hit, p, project, dispatch) {
+  if (!hit) return false
+  if (hit.kind === 'contour') {
+    const c = project.contours.find((x) => x.id === hit.id)
+    const cut = c && splitPolyline(c.pts, p)
+    if (!cut) return false
+    dispatch({ type: 'contour.split', id: c.id, a: cut.a, b: cut.b })
+    return true
+  }
+  if (hit.kind === 'contact' || hit.kind === 'fault') {
+    const list = hit.kind === 'fault' ? project.faults : project.contacts
+    const owner = list.find((x) => x.id === hit.id)
+    const tr = owner?.traces.find((t) => t.id === hit.traceId)
+    const cut = tr && splitPolyline(tr.pts, p)
+    if (!cut) return false
+    dispatch({ type: 'trace.split', kind: hit.kind, id: owner.id, traceId: tr.id, a: cut.a, b: cut.b })
+    return true
+  }
+  return false
 }
 
 function deleteHit(hit, dispatch) {

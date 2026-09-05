@@ -24,6 +24,7 @@ import {
   Menu,
   Waves,
   Tag,
+  Tags,
   PenLine,
   Type,
   Compass,
@@ -69,6 +70,7 @@ const LAYER_TOGGLES = [
   { k: 'contours', label: 'Curvas de nivel', icon: ContourIcon },
   { k: 'contourLabels', label: 'Cotas de las curvas', icon: Tag },
   { k: 'contacts', label: 'Contactos', icon: PenLine },
+  { k: 'contactLabels', label: 'Unidades de los contactos', icon: Tags },
   { k: 'faults', label: 'Fallas', icon: FaultIcon },
   { k: 'structureContours', label: 'Contornos estructurales', icon: StructureContourIcon },
   { k: 'structureLabels', label: 'Rótulos de los contornos', icon: Type },
@@ -96,6 +98,7 @@ const DEFAULT_SHOW = {
   contours: true,
   contourLabels: true,
   contacts: true,
+  contactLabels: true,
   faults: true,
   structureContours: true,
   structureLabels: true,
@@ -1259,6 +1262,8 @@ function statusText(t, tool, project, activeIds, scene, scTarget) {
   if (tool === 'frame') return t('Arrastra el rectángulo del área de trabajo')
   if (tool === 'section') return t('Traza la línea del perfil (A–A′)')
   if (tool === 'well') return t('Toca el mapa para ubicar el pozo')
+  if (tool === 'split')
+    return t('Toca una línea donde quieras partirla en dos: cada trozo queda editable por separado')
   if (tool === 'erase') return t('Toca un rasgo para eliminarlo')
   if (tool === 'select') return t('Toca un rasgo para seleccionarlo o moverlo · pulsación larga abre sus opciones')
   if (!scene?.ready) return null

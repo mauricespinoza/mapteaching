@@ -40,6 +40,7 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | **Trazas de perfil** | Línea A–A′ que abre la vista de perfil. |
 | **Pozos** | Un toque sobre el mapa; luego profundidad medida, *trend* y *plunge*. |
 | **Regla** | Mide distancias sobre el mapa. Con el **imán** activo los extremos se pegan a las trazas digitalizadas y la medida se toma **perpendicular** a la traza en la que se ancla; si el manteo de ese contacto está resuelto, añade el espesor verdadero `e = L·sen δ`. |
+| **Cortar línea** | Parte en dos la línea tocada por el punto más cercano al toque: contactos, fallas y curvas de nivel. Los dos trozos comparten el punto de corte —el mapa no queda con un hueco— y a partir de ahí son líneas independientes, cada una con sus vértices y, en un contacto, con su propio par de unidades. Es el paso previo natural a la digitalización automática, que entrega tramos largos que en realidad recorren varios contactos. |
 | **Área de trabajo** | Rectángulo que acota el ejercicio: los polígonos del mapa geológico, el modelo 3D, las trazas drapeadas y los planos de falla y de perfil se recortan a él. Se dibuja arrastrando y se quita desde el panel de capas. |
 
 #### Digitalización automática
@@ -89,7 +90,12 @@ Dos límites que conviene tener presentes:
   propuesta, no una medida: hay que revisarla curva a curva.
 - **A qué unidades separa cada contacto tampoco.** Las trazas entran todas en un
   contacto nuevo (o en una falla nueva), y desde ahí se reasignan con una
-  pulsación larga sobre cada una.
+  pulsación larga sobre cada una. El menú cambia las unidades **sólo de la línea
+  tocada**: la traza se muda al contacto que ya separe ese par o estrena uno, y
+  las demás se quedan como estaban. Un selector permite pedir lo contrario —el
+  cambio sobre las líneas del contacto entero— cuando de verdad se quieren todas.
+  Si un tramo digitalizado recorre dos contactos distintos, se parte antes con
+  **Cortar línea** y luego se asigna cada mitad.
 
 Una imagen grande se procesa sobre una copia reducida —el adelgazamiento recorre
 la imagen entera una vez por iteración y un escaneo de 12 Mpx dejaría la pestaña
@@ -113,7 +119,7 @@ en tablet no tiene ni clic derecho ni teclas:
 
 | Rasgo | Qué ofrece el menú |
 | --- | --- |
-| **Contacto** | Reasignarlo a otro **par de unidades** (arriba y abajo), cambiar el tipo de contacto, añadir un contorno estructural, borrar la traza o el contacto entero. |
+| **Contacto** | Reasignar el **par de unidades** (arriba y abajo) —por defecto **sólo la línea tocada**, o las del contacto entero si se pide en el selector—, cambiar su **color** de traza, cambiar el tipo de contacto, añadir un contorno estructural, borrar la traza o el contacto entero. |
 | **Falla** | Cambiar su **cinemática**, añadir un contorno estructural, borrar la traza o la falla entera. |
 | **Curva de nivel** | Corregir su **cota** (a mano o de equidistancia en equidistancia) y borrarla. |
 | **Contorno estructural** | Cambiar su **cota estructural**, fijarlo para editarlo, borrarlo y devolver el mando al cálculo. |
@@ -126,6 +132,17 @@ depende de la API del navegador, así que no se cae al arrastrar).
 tienen control de **opacidad** y un **candado** que impide seleccionarlos y
 editarlos. Las unidades nuevas toman por defecto los colores de la tabla
 cronoestratigráfica internacional (CGMW/ICS), del Precámbrico al Cuaternario.
+El color de una unidad y el de la traza de un contacto se cambian en un
+**botón-muestra**: el color a tamaño de botón, con la paleta encima, en la
+tarjeta de la unidad y en la del contacto del panel lateral, y también en el
+menú de opciones del contacto sobre el mapa.
+
+**Rótulo de unidades**: cada traza de contacto puede llevar al lado las **dos
+unidades que separa**, techo arriba y base abajo, cada una con su color. Es lo
+que el trazo no dice, y sobre un mapa recién digitalizado enseña de un vistazo
+qué líneas quedan por reasignar. Se enciende y se apaga con el interruptor
+«Unidades de los contactos» de la barra de capas. El rótulo busca sitio a lo
+largo de su propia línea y se queda sin escribir antes que apilarse sobre otro.
 
 ### 3. Modelos sintéticos
 
@@ -801,7 +818,7 @@ comprobar que el método recupera la geometría original.
 
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
 `G` contorno estructural · `R` escala · `D` medir · `N` norte · `S` perfil ·
-`W` pozo · `M` modelo · `B` área de trabajo · `E` borrar ·
+`W` pozo · `M` modelo · `B` área de trabajo · `K` cortar línea · `E` borrar ·
 `Supr` borrar lo seleccionado · `←↑→↓` desplazar el mapa (con `Mayús`, a
 zancadas) · `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo ·
 `Esc` cancelar.

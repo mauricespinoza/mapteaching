@@ -62,6 +62,7 @@ const EN = {
   Pozo: 'Well',
   'Piercing Points': 'Piercing Points',
   Modelo: 'Model',
+  'Cortar línea': 'Cut line',
   'Borrar rasgo': 'Erase feature',
   'Toque = vértice': 'Tap = vertex',
   'Arrastrar = trazo': 'Drag = stroke',
@@ -76,6 +77,7 @@ const EN = {
   'Curvas de nivel': 'Contour lines',
   'Cotas de las curvas': 'Contour elevations',
   Contactos: 'Contacts',
+  'Unidades de los contactos': 'Contact unit labels',
   Fallas: 'Faults',
   'Contornos estructurales': 'Structure contours',
   'Rótulos de los contornos': 'Contour labels',
@@ -189,6 +191,8 @@ const EN = {
   'Arrastra el rectángulo del área de trabajo': 'Drag the work-area rectangle',
   'Traza la línea del perfil (A–A′)': 'Trace the section line (A–A′)',
   'Toca el mapa para ubicar el pozo': 'Tap the map to place the well',
+  'Toca una línea donde quieras partirla en dos: cada trozo queda editable por separado':
+    'Tap a line where you want to cut it in two: each piece stays editable on its own',
   'Toca un rasgo para eliminarlo': 'Tap a feature to delete it',
   'Toca un rasgo para seleccionarlo o moverlo · pulsación larga abre sus opciones':
     'Tap a feature to select or move it · long-press opens its options',

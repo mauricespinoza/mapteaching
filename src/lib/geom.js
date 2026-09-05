@@ -282,3 +282,21 @@ export function bboxOf(pointLists) {
 
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 export const lerp = (a, b, t) => a + (b - a) * t
+
+/**
+ * Parte una polilínea por el punto de ella más cercano a `p`. Los dos trozos
+ * comparten el punto de corte, para que en el mapa no aparezca un hueco entre
+ * ambos. Devuelve null si el corte cae sobre un extremo y una de las mitades
+ * no llegaría a ser una línea.
+ */
+export function splitPolyline(pts, p, minSeg = 1e-6) {
+  if (!pts || pts.length < 2) return null
+  const h = pointPolyline(p, pts)
+  if (h.i < 0 || !h.proj) return null
+  // Un corte pegado a un vértice repetiría ese punto: se quita el duplicado.
+  const dedupe = (q) => q.filter((v, i) => i === 0 || dist(v, q[i - 1]) > minSeg)
+  const a = dedupe([...pts.slice(0, h.i + 1), h.proj])
+  const b = dedupe([h.proj, ...pts.slice(h.i + 1)])
+  if (a.length < 2 || b.length < 2) return null
+  return { a, b, at: h.proj }
+}

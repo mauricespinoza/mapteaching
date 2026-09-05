@@ -12,7 +12,7 @@ import {
   Maximize,
   RotateCcw,
 } from 'lucide-react'
-import { Collapsible, Field, inputCls, Btn } from './ui.jsx'
+import { Collapsible, Field, inputCls, Btn, ColorSwatch } from './ui.jsx'
 import { CONTACT_TYPES, KINEMATICS, newFault, reassignContact, sortedUnits, sortedContacts } from '../lib/model.js'
 import { fmtDistance } from '../lib/georef.js'
 
@@ -166,11 +166,12 @@ export default function LayersPanel({
           {units.map((u) => (
             <li key={u.id} className="rounded-lg border border-slate-200 p-2">
               <div className="flex items-center gap-2">
-                <input
-                  type="color"
+                <ColorSwatch
                   value={u.color}
-                  onChange={(e) => dispatch({ type: 'unit.update', id: u.id, patch: { color: e.target.value } })}
-                  className="h-7 w-7 cursor-pointer rounded border border-slate-300"
+                  onChange={(color) => dispatch({ type: 'unit.update', id: u.id, patch: { color } })}
+                  title={`Color de «${u.name}» en el mapa y en el 3D`}
+                  label={`Color de la unidad ${u.name}`}
+                  size={30}
                 />
                 <input
                   className="flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300"
@@ -241,11 +242,12 @@ export default function LayersPanel({
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <input
-                    type="color"
+                  <ColorSwatch
                     value={c.color}
-                    onChange={(e) => dispatch({ type: 'contact.update', id: c.id, patch: { color: e.target.value } })}
-                    className="h-6 w-6 cursor-pointer rounded border border-slate-300"
+                    onChange={(color) => dispatch({ type: 'contact.update', id: c.id, patch: { color } })}
+                    title={`Color de la traza de «${c.name}»`}
+                    label={`Color del contacto ${c.name}`}
+                    size={28}
                   />
                   <input
                     className="flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300"

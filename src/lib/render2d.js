@@ -132,6 +132,56 @@ function labelBlock(ctx, x, y, lines, opts = {}) {
   }
 }
 
+/**
+ * Rótulo de un contacto: las dos unidades que separa, cada una con su color.
+ * Es lo que el trazo no dice —el mapa muestra dónde va el contacto, no entre
+ * qué unidades—, y en un mapa digitalizado de golpe, donde todas las líneas
+ * cuelgan del mismo contacto, es además la forma de ver de un vistazo cuáles
+ * quedan por reasignar. Arriba el techo y abajo la base, en el mismo orden en
+ * que se apilan sobre el terreno.
+ */
+const TAG_SIZE = 9.5
+// Puntos de la traza donde se prueba a escribir el rótulo, del centro hacia
+// los extremos: el centro de una línea es donde mejor se lee, y los extremos
+// son la última salida cuando lo de en medio está ocupado.
+const TAG_STOPS = [0.5, 0.35, 0.65, 0.2, 0.8, 0.45, 0.55, 0.1, 0.9]
+
+function drawUnitsTag(ctx, x, y, rows, opts = {}) {
+  const { size = TAG_SIZE, border = '#0f172a' } = opts
+  const [w, h] = unitsTagSize(ctx, rows, size)
+  const lh = size + 4
+  const sw = size - 1
+  const x0 = x - w / 2
+  const y0 = y - h / 2
+  ctx.fillStyle = 'rgba(255,255,255,0.93)'
+  ctx.fillRect(x0, y0, w, h)
+  ctx.strokeStyle = border
+  ctx.lineWidth = 1.2
+  ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1)
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  for (let i = 0; i < rows.length; i++) {
+    const cy = y0 + 4 + lh * i + lh / 2
+    ctx.fillStyle = rows[i].color || '#e2e8f0'
+    ctx.fillRect(x0 + 5, cy - sw / 2, sw, sw)
+    ctx.strokeStyle = 'rgba(15,23,42,0.35)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(x0 + 5.5, cy - sw / 2 + 0.5, sw - 1, sw - 1)
+    ctx.font = `600 ${size}px ui-sans-serif, system-ui, sans-serif`
+    ctx.fillStyle = '#0f172a'
+    ctx.fillText(rows[i].text, x0 + 5 + sw + 5, cy)
+  }
+  ctx.textAlign = 'center'
+}
+
+/** Tamaño en pantalla del rótulo de unidades, para buscarle sitio antes de escribirlo. */
+function unitsTagSize(ctx, rows, size = 10) {
+  ctx.font = `600 ${size}px ui-sans-serif, system-ui, sans-serif`
+  let w = 0
+  for (const r of rows) w = Math.max(w, ctx.measureText(r.text).width)
+  return [w + (size - 1) + 15, rows.length * (size + 4) + 8]
+}
+
 /** Tamaño en pantalla que ocupará un rótulo de varios renglones. */
 function blockSize(ctx, lines, size = 10) {
   const lh = size + 2
@@ -605,10 +655,43 @@ export function render(ctx, opts) {
   // Se dibujan al final, encima de contactos, fallas, pozos y todo lo demás:
   // son la referencia de cota que se está leyendo mientras se trabaja, y
   // enterrada bajo una falla o un contacto deja de servir para eso.
+  const taken = []
   if (scOrder && show.structureLabels !== false) {
-    const taken = []
     for (const it of scOrder) {
       drawStructureContourLabel(ctx, view, it, { selected: selection?.kind === 'sc' && selection.key === it.key, taken })
+    }
+  }
+
+  // --- Rótulos de los contactos: las dos unidades que separan ---
+  // Van después de los contornos y comparten con ellos el registro de sitio
+  // ocupado, así que ceden el paso a la cota que se está leyendo y se quedan
+  // sin escribir antes que apilarse encima.
+  if (show.contacts && show.contactLabels) {
+    const unitById = new Map(project.units.map((u) => [u.id, u]))
+    for (const c of project.contacts) {
+      const upper = unitById.get(c.upperUnitId)
+      const lower = unitById.get(c.lowerUnitId)
+      if (!upper && !lower) continue
+      const rows = [
+        { text: shortName(upper?.name || 'sin unidad', 16), color: upper?.color },
+        { text: shortName(lower?.name || 'sin unidad', 16), color: lower?.color },
+      ]
+      const box = unitsTagSize(ctx, rows, TAG_SIZE)
+      for (const tr of c.traces) {
+        const pts = tr.pts
+        if (!pts || pts.length < 2) continue
+        // El rótulo busca sitio a lo largo de su propia traza: así siempre se
+        // lee pegado a la línea que describe, aunque el centro esté ocupado.
+        // Se prueban bastantes puntos porque en un mapa cargado los primeros
+        // caen sobre otros rótulos y sin alternativas la línea se quedaría sin
+        // identificar, que es justo lo que este rótulo viene a evitar.
+        const spots = TAG_STOPS.map((t) => toScreen(view, pts[Math.round(t * (pts.length - 1))])).filter(
+          (q) => q[0] > -60 && q[1] > -30 && q[0] < width + 60 && q[1] < height + 30
+        )
+        if (!spots.length) continue
+        const spot = placeLabel(ctx, taken, spots, rows[0].text, TAG_SIZE, false, box)
+        if (spot) drawUnitsTag(ctx, spot[0], spot[1], rows, { size: TAG_SIZE, border: c.color || '#0f172a' })
+      }
     }
   }
 

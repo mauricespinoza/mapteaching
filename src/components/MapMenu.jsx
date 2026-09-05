@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Trash2, Layers, Ruler, Plus } from 'lucide-react'
-import { inputCls } from './ui.jsx'
+import { inputCls, ColorSwatch } from './ui.jsx'
 import { CONTACT_TYPES, KINEMATICS, reassignContact, sortedUnits } from '../lib/model.js'
 
 /**
@@ -82,19 +82,64 @@ function Body({ hit, project, dispatch, done, onAddSc, onSelect }) {
   return null
 }
 
+/**
+ * Menú de un contacto. La reasignación de unidades es lo delicado: un contacto
+ * agrupa todas las trazas que separan el mismo par —y la digitalización
+ * automática cuelga de uno solo todas las líneas del mapa—, así que cambiar el
+ * par del contacto cambiaba de golpe todas sus líneas. Aquí el cambio se aplica
+ * por defecto **sólo a la línea tocada**, que se muda al contacto de ese par (o
+ * a uno nuevo); quien quiera el cambio en bloque lo pide en el selector.
+ */
 function ContactMenu({ hit, project, dispatch, done, onAddSc }) {
-  const c = project.contacts.find((x) => x.id === hit.id)
+  const [scope, setScope] = useState('trace')
+  // La traza puede haberse mudado a otro contacto al reasignarla, así que el
+  // dueño se busca por la traza y no por el id con el que se abrió el menú:
+  // el menú sigue a la línea que se está tocando.
+  const c =
+    (hit.traceId && project.contacts.find((x) => x.traces.some((t) => t.id === hit.traceId))) ||
+    project.contacts.find((x) => x.id === hit.id)
   if (!c) return null
   const units = sortedUnits(project)
   const nTraces = c.traces.length
   const nSc = (c.structureContours || []).length
-  const setPair = (lowerUnitId, upperUnitId) =>
-    dispatch({ type: 'contact.update', id: c.id, patch: reassignContact(project, c, lowerUnitId, upperUnitId) })
+  const porTraza = Boolean(hit.traceId) && nTraces > 1 && scope === 'trace'
+  const setPair = (lowerUnitId, upperUnitId) => {
+    if (porTraza) dispatch({ type: 'trace.reassign', id: c.id, traceId: hit.traceId, lowerUnitId, upperUnitId })
+    else dispatch({ type: 'contact.update', id: c.id, patch: reassignContact(project, c, lowerUnitId, upperUnitId) })
+  }
 
   return (
     <>
       <Head title={c.name} sub={`contacto · ${nTraces} traza${nTraces === 1 ? '' : 's'}`} color={c.color} />
+      <div className="mb-2 flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5">
+        <ColorSwatch
+          value={c.color}
+          onChange={(color) => dispatch({ type: 'contact.update', id: c.id, patch: { color } })}
+          title="Color de la traza de este contacto"
+          label={`Color del contacto ${c.name}`}
+          size={26}
+        />
+        <span className="text-[10.5px] leading-tight text-slate-600">Color de la traza</span>
+      </div>
       <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Unidades que separa</p>
+      {hit.traceId && nTraces > 1 && (
+        <div className="mb-1.5 flex gap-1 rounded-lg bg-slate-100 p-0.5">
+          {[
+            ['trace', 'Sólo esta línea'],
+            ['contact', `Las ${nTraces} líneas`],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setScope(id)}
+              className={`flex-1 rounded-md px-1.5 py-1 text-[10.5px] font-medium transition ${
+                scope === id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mb-2 grid grid-cols-2 gap-1.5">
         <Labeled label="Abajo">
           <select
@@ -125,6 +170,12 @@ function ContactMenu({ hit, project, dispatch, done, onAddSc }) {
           </select>
         </Labeled>
       </div>
+      {porTraza && (
+        <p className="mb-2 rounded-lg bg-sky-50 px-2 py-1.5 text-[10.5px] leading-relaxed text-sky-800">
+          La línea tocada pasará al contacto de ese par de unidades —o a uno nuevo si aún no existe—. Las otras{' '}
+          {nTraces - 1} de este contacto se quedan como están.
+        </p>
+      )}
       <Labeled label="Tipo de contacto">
         <select
           className={`${inputCls} mb-2`}

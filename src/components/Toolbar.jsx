@@ -11,7 +11,7 @@ import {
   Frame,
   MoveHorizontal,
 } from 'lucide-react'
-import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon } from './icons.jsx'
+import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, CutLineIcon } from './icons.jsx'
 import { useLang } from '../lib/i18n.jsx'
 
 export const TOOLS = [
@@ -29,6 +29,7 @@ export const TOOLS = [
   { id: 'well', label: 'Pozo', icon: Crosshair, key: 'W' },
   { id: 'piercing', label: 'Piercing Points', icon: PiercingIcon, key: 'P' },
   { id: 'model', label: 'Modelo', icon: Layers3, key: 'M' },
+  { id: 'split', label: 'Cortar línea', icon: CutLineIcon, key: 'K' },
   { id: 'erase', label: 'Borrar rasgo', icon: Eraser, key: 'E' },
 ]
 

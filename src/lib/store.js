@@ -1,6 +1,6 @@
 // Reducer del proyecto con historial (deshacer/rehacer).
 
-import { newContact, newUnit, uid, sortedUnits } from './model.js'
+import { newContact, newUnit, uid, sortedUnits, reassignContact } from './model.js'
 
 const LIMIT = 80
 
@@ -122,6 +122,91 @@ function apply(project, action) {
         [key]: replaceIn(p[key], action.id, (it) => ({ ...it, traces: it.traces.filter((t) => t.id !== action.traceId) })),
       }
     }
+    /**
+     * Cambio del par de unidades de UNA traza, sin tocar a sus compañeras.
+     * Un contacto agrupa todas las trazas que separan el mismo par, así que
+     * reasignar el contacto entero las cambiaba todas de golpe —y digitalizar
+     * el mapa de forma automática deja decenas de líneas colgando de un solo
+     * contacto—. Aquí la traza se muda al contacto que ya separe ese par, o a
+     * uno nuevo si todavía no existe, y las demás se quedan como estaban.
+     */
+    case 'trace.reassign': {
+      const from = p.contacts.find((c) => c.id === action.id)
+      const tr = from?.traces.find((t) => t.id === action.traceId)
+      if (!from || !tr) return p
+      const lowerUnitId = action.lowerUnitId || null
+      const upperUnitId = action.upperUnitId || null
+      if (from.lowerUnitId === lowerUnitId && from.upperUnitId === upperUnitId) return p
+      const target = p.contacts.find(
+        (c) => c.id !== from.id && c.lowerUnitId === lowerUnitId && c.upperUnitId === upperUnitId
+      )
+      // Única traza y ningún contacto de ese par al que mudarla: no hay nada
+      // que separar, así que se reasigna el contacto en su sitio y conserva su
+      // nombre, su color y sus contornos estructurales.
+      if (!target && from.traces.length < 2) {
+        return {
+          ...p,
+          contacts: replaceIn(p.contacts, from.id, (c) => ({
+            ...c,
+            ...reassignContact(p, c, lowerUnitId, upperUnitId),
+          })),
+        }
+      }
+      // El contacto de origen se queda sin trazas y sin contornos a mano: es
+      // una ficha vacía que ya no separa nada en el mapa, y dejarla duplicaría
+      // el par del contacto de destino en el panel.
+      const vacio = from.traces.length < 2 && !(from.structureContours || []).length
+      const rest = p.contacts
+        .map((c) => (c.id === from.id ? { ...c, traces: c.traces.filter((t) => t.id !== action.traceId) } : c))
+        .filter((c) => !(vacio && c.id === from.id))
+      if (target) {
+        return { ...p, contacts: rest.map((c) => (c.id === target.id ? { ...c, traces: [...c.traces, tr] } : c)) }
+      }
+      // El contacto nuevo hereda el tipo del de origen (concordante,
+      // intrusivo…): lo que cambia es entre qué unidades va, no cómo es.
+      const nuevo = { ...newContact(p, lowerUnitId, upperUnitId), type: from.type, traces: [tr] }
+      return { ...p, contacts: [...rest, nuevo] }
+    }
+
+    /**
+     * Corte de una traza en un punto: donde había una línea quedan dos, cada
+     * una editable y reasignable por su cuenta. Es el paso previo natural a
+     * repartir en contactos distintos lo que la digitalización automática trajo
+     * como un solo trazo largo.
+     */
+    case 'trace.split': {
+      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+      return {
+        ...p,
+        [key]: replaceIn(p[key], action.id, (it) => ({
+          ...it,
+          // Los trozos se quedan sin `nodes`: la curva de Bézier del trazo
+          // original ya no describe ninguno de los dos, y se rehace del
+          // polígono al volver a editarlo.
+          traces: it.traces.flatMap((t) =>
+            t.id === action.traceId
+              ? [
+                  { id: uid('tr'), pts: action.a },
+                  { id: uid('tr'), pts: action.b },
+                ]
+              : [t]
+          ),
+        })),
+      }
+    }
+    case 'contour.split':
+      return {
+        ...p,
+        contours: p.contours.flatMap((c) =>
+          c.id === action.id
+            ? [
+                { id: uid('cv'), elevation: c.elevation, pts: action.a },
+                { id: uid('cv'), elevation: c.elevation, pts: action.b },
+              ]
+            : [c]
+        ),
+      }
+
     case 'trace.update': {
       const key = action.kind === 'fault' ? 'faults' : 'contacts'
       return {
