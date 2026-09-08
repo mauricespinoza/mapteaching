@@ -2,7 +2,7 @@
 // pantalla; `view` transforma píxeles de imagen → pantalla.
 
 import { toImage, basis, fmtDistance } from './georef.js'
-import { kinematicsOf } from './model.js'
+import { kinematicsOf, isHidden, isLabelHidden } from './model.js'
 import { norm, perp, dist } from './geom.js'
 
 export const toScreen = (view, p) => [p[0] * view.scale + view.tx, p[1] * view.scale + view.ty]
@@ -247,6 +247,14 @@ export function render(ctx, opts) {
 
   const L = project.settings?.layers || {}
   const alphaOf = (k) => (L[k]?.opacity ?? 1)
+  // Rasgos apagados de uno en uno con el ojo del panel. Sólo dejan de
+  // dibujarse: el modelo se calculó con ellos y el relleno de las unidades
+  // sigue partido por sus trazas.
+  const hiddenFeatures = new Set(project.contacts.filter(isHidden).map((c) => c.id))
+  // Rótulos callados sin apagar la línea: en un mapa con varios contactos, los
+  // de los contornos estructurales son lo primero que satura la vista, y el
+  // contorno sin su cota sigue diciendo hacia dónde se hunde la superficie.
+  const hiddenLabels = new Set(project.contacts.filter(isLabelHidden).map((c) => c.id))
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, width, height)
   ctx.fillStyle = '#f8fafc'
@@ -337,6 +345,7 @@ export function render(ctx, opts) {
     const visible = (scItems || []).filter(
       (it) =>
         (it.kind !== 'fault' || show.faultStructureContours) &&
+        !hiddenFeatures.has(it.featureId) &&
         !(show.onlySelectedSC && selection?.kind === 'contact' && selection.id !== it.featureId)
     )
     // El seleccionado se rotula primero: es el que se está trabajando.
@@ -356,6 +365,7 @@ export function render(ctx, opts) {
     ctx.save()
     ctx.globalAlpha = alphaOf('contacts')
     for (const c of project.contacts) {
+      if (isHidden(c)) continue
       const selected = selection?.kind === 'contact' && selection.id === c.id
       for (const tr of c.traces) {
         const live = edit?.preview && edit.id === c.id && edit.traceId === tr.id ? edit.preview : tr.pts
@@ -401,6 +411,7 @@ export function render(ctx, opts) {
   // --- Símbolos de rumbo y manteo ---
   if (show.attitudes && scene?.ready) {
     for (const c of scene.contacts) {
+      if (isHidden(c)) continue
       const byBlock = scene.contactSurfaces.get(c.id)
       if (!byBlock) continue
       for (const [, surf] of byBlock) {
@@ -658,6 +669,7 @@ export function render(ctx, opts) {
   const taken = []
   if (scOrder && show.structureLabels !== false) {
     for (const it of scOrder) {
+      if (hiddenLabels.has(it.featureId)) continue
       drawStructureContourLabel(ctx, view, it, { selected: selection?.kind === 'sc' && selection.key === it.key, taken })
     }
   }
@@ -669,6 +681,7 @@ export function render(ctx, opts) {
   if (show.contacts && show.contactLabels) {
     const unitById = new Map(project.units.map((u) => [u.id, u]))
     for (const c of project.contacts) {
+      if (isLabelHidden(c)) continue
       const upper = unitById.get(c.upperUnitId)
       const lower = unitById.get(c.lowerUnitId)
       if (!upper && !lower) continue

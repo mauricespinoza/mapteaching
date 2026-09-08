@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { toWorldList, toImage } from '../lib/georef.js'
-import { kinematicsOf, newStructureContour } from '../lib/model.js'
+import { kinematicsOf, newStructureContour, isHidden } from '../lib/model.js'
 import { contourSegment } from '../lib/structure.js'
 import { frameTest, modelExtent } from '../lib/models.js'
 import { buildWellModel } from '../lib/wells.js'
@@ -258,6 +258,7 @@ export default function ThreeView({ project, scene, image, dispatch }) {
     // Trazas de contactos y fallas sobre la topografía
     if (show.traces) {
       for (const cw of scene.contactWorld) {
+        if (isHidden(cw.contact)) continue
         const color = new THREE.Color(cw.contact.color || '#0f172a')
         for (const tr of cw.traces) {
           for (const run of clipRuns(tr, inFrame)) {
@@ -335,6 +336,9 @@ export default function ThreeView({ project, scene, image, dispatch }) {
     const addSurfaces = (opts, opacity, eroded) => {
       for (const { contactIndex: ci, block, tris } of contactMeshes(scene, opts)) {
         const c = scene.contacts[ci]
+        // Apagado con el ojo del panel: no se dibuja, pero se ha construido
+        // con todos, así que las de al lado siguen cortadas contra ella.
+        if (isHidden(c)) continue
         const unit = scene.units.find((u) => u.id === c.upperUnitId)
         const color = new THREE.Color(unit?.color || c.color || '#38bdf8')
         const geo = new THREE.BufferGeometry()

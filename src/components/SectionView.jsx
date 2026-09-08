@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Download, Image as ImageIcon, MoveHorizontal } from 'lucide-react'
 import { buildSectionModel } from '../lib/section.js'
-import { kinematicsOf } from '../lib/model.js'
+import { kinematicsOf, isHidden } from '../lib/model.js'
 import { fmtDistance, octant } from '../lib/georef.js'
 import { downloadSvg, downloadSvgAsPng } from '../lib/exportFile.js'
 
@@ -22,6 +22,14 @@ export default function SectionView({ project, scene, section, dispatch }) {
   }
   if (!scene?.ready) return <Empty text="Primero define la escala del mapa." />
   if (!model) return <Empty text="La traza del perfil no es válida." />
+
+  // El perfil dibuja lo que esté encendido en el mapa: el ojo del panel apaga
+  // la unidad o el contacto en las dos vistas a la vez. El corte se calculó
+  // con todo, así que apagar no mueve de sitio nada de lo que queda.
+  const hiddenUnits = new Set(project.units.filter(isHidden).map((u) => u.id))
+  const hiddenContacts = new Set(project.contacts.filter(isHidden).map((c) => c.id))
+  const visibleUnits = model.units.filter((u) => !hiddenUnits.has(u.id))
+  const visibleContacts = model.contacts.filter((c) => !hiddenContacts.has(c.id))
 
   const W = 980
   const plotW = W - M.left - M.right
@@ -193,13 +201,13 @@ export default function SectionView({ project, scene, section, dispatch }) {
 
           <g clipPath="url(#sectionClip)">
             {/* Unidades */}
-            {model.units.map((u) =>
+            {visibleUnits.map((u) =>
               u.polys.map((p, i) => (
                 <polygon key={`${u.id}-${i}`} points={poly(p)} fill={u.color} fillOpacity="0.75" stroke="none" />
               ))
             )}
             {/* Contactos proyectados sobre la topografía (erosionados) */}
-            {model.contacts.map((c) =>
+            {visibleContacts.map((c) =>
               c.air.map((l, i) => (
                 <polyline
                   key={`${c.id}-air-${i}`}
@@ -213,7 +221,7 @@ export default function SectionView({ project, scene, section, dispatch }) {
               ))
             )}
             {/* Contactos */}
-            {model.contacts.map((c) =>
+            {visibleContacts.map((c) =>
               c.lines.map((l, i) => (
                 <polyline
                   key={`${c.id}-${i}`}
@@ -350,7 +358,7 @@ export default function SectionView({ project, scene, section, dispatch }) {
           <div className="rounded-xl border border-slate-200 bg-white p-3">
             <h4 className="mb-2 text-sm font-semibold text-slate-700">Unidades en el perfil</h4>
             <div className="flex flex-wrap gap-3 text-xs">
-              {model.units.map((u) => (
+              {visibleUnits.map((u) => (
                 <span key={u.id} className="flex items-center gap-1.5">
                   <span className="inline-block h-3 w-5 rounded-sm" style={{ background: u.color }} />
                   {u.name}

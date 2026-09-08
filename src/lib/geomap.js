@@ -18,6 +18,7 @@
 // puede leer del mapa sin resolver la estructura—, pero ya no en dónde acaba.
 
 import { modelExtent, frameTest } from './models.js'
+import { isHidden } from './model.js'
 
 /**
  * Unidad que aflora en un punto, dadas las cotas de los contactos allí.
@@ -114,7 +115,10 @@ export function buildUnitRaster(scene, resolution = 190) {
 
   const contacts = scene.contacts
   const units = scene.units
-  const colors = new Map(units.map((u) => [u.id, hexToRgb(u.color)]))
+  // Una unidad apagada no entra en la tabla de colores: su región queda
+  // transparente y deja ver lo que hay debajo, pero se sigue votando igual y
+  // sigue separando a sus vecinas, así que el resto del mapa no se mueve.
+  const colors = new Map(units.filter((u) => !isHidden(u)).map((u) => [u.id, hexToRgb(u.color)]))
   const inFrame = frameTest(scene)
 
   const wall = rasterizeTraces(scene, bbox, nx, ny, cell)

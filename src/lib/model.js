@@ -73,8 +73,10 @@ export function newProject(name = 'Ejercicio sin título') {
     // una imagen la escala se borra para que el usuario la calibre.
     georef: { ...DEFAULT_GEOREF, metersPerPx: 7 },
     contours: [], // { id, elevation, pts }
-    units: [], // { id, name, color, order, lithology, notes }
-    contacts: [], // { id, name, color, type, lowerUnitId, upperUnitId, manual, traces }
+    // `hidden` apaga el relleno de color de la unidad; en los contactos,
+    // `hidden` apaga la traza y `labelHidden` sólo su rótulo. Ver `isHidden`.
+    units: [], // { id, name, color, order, lithology, notes, hidden }
+    contacts: [], // { id, name, color, type, lowerUnitId, upperUnitId, manual, traces, hidden, labelHidden }
     faults: [], // { id, name, kinematics, dipManual, traces }
     sections: [], // { id, name, a, b, vExag, depth }
     wells: [], // { id, name, at, depth, trend, plunge }
@@ -253,6 +255,27 @@ export function sortedContacts(project) {
     return ia - ib
   })
 }
+
+/**
+ * Visibilidad individual de una unidad o un contacto.
+ *
+ * Ocultar es sólo dejar de dibujar: el rasgo sigue en el proyecto y sigue
+ * mandando en el modelo. Un contacto oculto sigue partiendo el mapa en
+ * regiones y sigue definiendo la superficie que separa dos unidades; una
+ * unidad oculta sigue estando en la pila. Lo contrario —que ocultar cambiara
+ * la geología— convertiría el ojo en un borrador encubierto, y en clase se
+ * apaga una capa justo para mirar lo que hay debajo, no para quitarla.
+ *
+ * Sólo se guarda lo oculto (`hidden`, `labelHidden`): un proyecto sin esos
+ * campos se ve entero, que es como estaban los que ya existían.
+ */
+export const isHidden = (it) => Boolean(it?.hidden)
+
+/** El rótulo se calla si se apagó el rasgo entero o sólo su rótulo. */
+export const isLabelHidden = (it) => Boolean(it?.hidden || it?.labelHidden)
+
+/** Conjunto de ids ocultos de una lista de unidades, contactos o fallas. */
+export const hiddenIdSet = (list) => new Set((list || []).filter(isHidden).map((it) => it.id))
 
 export const allTracePoints = (feature) => (feature?.traces || []).map((t) => t.pts)
 
