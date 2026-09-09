@@ -78,6 +78,27 @@ const MIN_DIR_SPREAD = 1 / Math.tan((MAX_STRIKE_DEV / 2) * RAD)
 const STRIKE_WINDOW = 18
 
 /**
+ * Qué hace falta para dar por **confirmada** la actitud de un panel, y poder
+ * usarla como vara para juzgar los contornos de los demás.
+ *
+ * Un plano lo fijan tres puntos: con tres, o con cuatro, el ajuste pasa por los
+ * datos haga la superficie lo que haga, y su manteo no lo confirma nada. Con
+ * seis van tres más de los que consume el propio plano. Y las cotas cuentan
+ * aparte de los puntos: el manteo de un panel se mide entre contornos
+ * consecutivos, así que cuatro cotas son tres medidas seguidas del mismo
+ * manteo, y un panel que sólo toca dos o tres cotas no lo ha repetido lo
+ * bastante para que su rumbo valga como vara de nadie.
+ *
+ * El caso que esto describe es el retazo de la charnela: alrededor del cierre
+ * de un pliegue la traza recorre un trecho corto, corta pocas curvas de nivel y
+ * deja un puñado de cruces de los dos flancos. Ese puñado es un panel para el
+ * RANSAC —tres puntos siempre lo son— pero no es un limbo, y de él salen los
+ * contornos atravesados.
+ */
+const CONFIRMED_POINTS = 6
+const CONFIRMED_LEVELS = 4
+
+/**
  * Rumbo dominante de una superficie, a partir de los pares de puntos de igual
  * cota.
  *
@@ -231,8 +252,12 @@ function splitCollinear(pts, tol) {
  * (`splitLimbLines`), de modo que un contorno nunca une puntos de dos flancos
  * de un pliegue. `part` distingue esos tramos dentro de una misma cota y
  * limbo, y forma parte de la identidad del contorno igual que el limbo.
+ *
+ * `confirmedStrike(limbo)` da el rumbo de un panel sólo cuando su actitud está
+ * confirmada (ver CONFIRMED_POINTS). Con esos rumbos se contrasta al final cada
+ * contorno: ver `checkAgainstConfirmed`.
  */
-export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null) {
+export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null, confirmedStrike = null) {
   const byZ = new Map()
   for (const p of points3D) {
     // Con `limbOf` los puntos de una misma cota se separan por limbo: en un
@@ -308,8 +333,56 @@ export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null
     }
   }
 
+  checkAgainstConfirmed(out, confirmedStrike)
+
   out.sort((a, b) => a.limb - b.limb || a.part - b.part || a.elevation - b.elevation)
   return out
+}
+
+/**
+ * Último filtro, y el que atrapa el contorno que cruza el pliegue: **el rumbo
+ * de un contorno tiene que ser un rumbo que esta superficie enseñe de verdad
+ * en alguna parte**.
+ *
+ * Los demás filtros se pueden burlar todos a la vez, y por la misma razón. Si
+ * un panel se monta a caballo de una charnela, su plano se ajusta al promedio
+ * de los dos flancos y sus contornos son cuerdas que van de un flanco al otro:
+ * el plano y las cuerdas se dan la razón entre sí —salen paralelas, y paralelas
+ * al rumbo de ese plano promedio— porque unos y otras se han calculado con los
+ * mismos puntos mezclados. Preguntarle a ese panel por sus propios contornos no
+ * sirve de nada. Hay que preguntarle a otro.
+ *
+ * Los paneles confirmados son ese otro. Son los limbos largos, con cruces de
+ * sobra repartidos en varias cotas, y su rumbo no lo discute nadie. Una cuerda
+ * que cruza la charnela sale casi perpendicular a ellos —es lo que tiene ir de
+ * un flanco al de enfrente—, así que se delata sola en cuanto se la compara. Se
+ * queda sin recta: sus puntos siguen ahí, con su cota, pero el mapa no dibuja un
+ * rumbo que no se ha medido.
+ *
+ * La comparación es contra **cualquiera** de los paneles confirmados, no contra
+ * el más cercano: en un pliegue los dos flancos tienen rumbos distintos, y un
+ * contorno legítimo del flanco de allá no tiene por qué parecerse al panel de
+ * acá. Y si la superficie no tiene ningún panel confirmado —pocos cruces, todo
+ * son retazos— no hay con qué contrastar y no se toca nada: sin vara no se mide.
+ */
+function checkAgainstConfirmed(out, confirmedStrike) {
+  if (!confirmedStrike) return
+  const refs = []
+  for (const limb of new Set(out.map((sc) => sc.limb))) {
+    const st = confirmedStrike(limb)
+    if (st) refs.push(st)
+  }
+  if (!refs.length) return
+  for (const sc of out) {
+    // Un contorno puesto a mano es un dato del alumno, no una medida del mapa.
+    if (!sc.fit || sc.manualId) continue
+    let dev = Infinity
+    for (const r of refs) {
+      const cos = Math.abs(sc.fit.dir[0] * r[0] + sc.fit.dir[1] * r[1])
+      dev = Math.min(dev, Math.acos(Math.min(1, cos)) * DEG)
+    }
+    if (dev > MAX_STRIKE_DEV) sc.fit = null
+  }
 }
 
 /**
@@ -717,7 +790,17 @@ export function buildSurface({
   const basePlaneAt = domainPlaneField(dom.groups, domPlanes, plane, (spacing || 1) * HINGE)
   const model = points3D.length >= 6 ? buildFoldModel(points3D, basePlaneAt, spacing) : null
 
-  const scs = structureContours(points3D, tol, limbOf, keyOf)
+  // Rumbo de los paneles cuya actitud está confirmada: perpendicular a su
+  // gradiente. Los demás no sirven de vara para nadie (ver CONFIRMED_POINTS).
+  const confirmedStrike = (k) => {
+    const g = dom.groups[k]
+    const pl = dom.planes[k]
+    if (!pl || !g || g.length < CONFIRMED_POINTS) return null
+    if (new Set(g.map((p) => p[2])).size < CONFIRMED_LEVELS) return null
+    const gr = Math.hypot(pl.a, pl.b)
+    return gr < 1e-9 ? null : [-pl.b / gr, pl.a / gr]
+  }
+  const scs = structureContours(points3D, tol, limbOf, keyOf, confirmedStrike)
   const usable = scs.filter((s) => s.fit)
   const pairs = []
   // Los pares se forman dentro de cada limbo, entre cotas consecutivas. El
