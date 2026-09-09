@@ -251,6 +251,94 @@ function rng(seed) {
 }
 
 /**
+ * Cada punto, en el panel que de verdad lo explica.
+ *
+ * El RANSAC extrae los planos uno tras otro y, al terminar, reparte lo que
+ * sobró en el panel más cercano que lo admita. Las dos cosas se deciden con el
+ * plano que había en ese momento, no con el que queda al final, y ahí es donde
+ * se cuela el problema: **cerca de una charnela los dos limbos se juntan**, así
+ * que los puntos del flanco de enfrente entran dentro de la tolerancia de este
+ * y se los queda. Al reajustar con ellos dentro, el plano se va al promedio de
+ * los dos flancos, deja de pasar por unos y por otros, y el panel queda montado
+ * a caballo de la charnela.
+ *
+ * Ese panel promedio es el origen de todo lo que se ve mal en un pliegue. Su
+ * contorno de cada cota une un punto de un limbo con otro del limbo opuesto:
+ * el contorno estructural que cruza el pliegue en vez de seguirlo. Y como la
+ * charnela se calcula donde se cortan dos planos, y esa recta es perpendicular
+ * a la *diferencia* de sus gradientes, un plano que ya es el promedio de los
+ * dos flancos le quita a esa diferencia justo su componente a través del
+ * pliegue: queda la que corre a lo largo, y el eje sale girado hacia la
+ * perpendicular de su dirección real. De ahí los ejes oblicuos, y casi
+ * ortogonales, sobre un pliegue cuya dirección se lee a simple vista.
+ *
+ * La cura no necesita saber nada de pliegues: **un punto pertenece al panel
+ * que mejor lo explica**. Se recorre el reparto entero comparando cada punto
+ * con todos los paneles que tiene al lado, se mueve el que otro explique
+ * claramente mejor, se reajustan los planos y se repite. Es el mismo ir y
+ * venir de las medias móviles, y converge en dos o tres vueltas: en cuanto un
+ * puñado de puntos del flanco de enfrente se marcha, el plano deja de ser un
+ * promedio, se pega a su limbo, y los que quedaban del otro lado dejan de
+ * encajar y se van detrás.
+ *
+ * Dos limbos homólogos de un tren de pliegues no se confunden por esto: tienen
+ * el mismo manteo, pero están desplazados, así que el plano del de al lado pasa
+ * cientos de metros por encima o por debajo de estos puntos. La comparación es
+ * en cota, no en manteo, y ésa es la que los distingue. Y sólo compite el panel
+ * que tiene datos ahí mismo: un plano que encaja en cota pero cuyos puntos
+ * están a un kilómetro no explica nada, pasa por casualidad.
+ */
+function assignToBestPlane(points3D, labels, zTol, R) {
+  // Hace falta que el otro panel explique el punto **claramente** mejor: sin
+  // margen, dos planos casi iguales se intercambiarían puntos en cada vuelta
+  // sin que el reparto mejorase en nada.
+  const margin = zTol * 0.2
+  const reach = R * 2.5
+  for (let round = 0; round < 4; round++) {
+    const groups = new Map()
+    labels.forEach((l, i) => {
+      if (!groups.has(l)) groups.set(l, [])
+      groups.get(l).push(i)
+    })
+    const planes = new Map()
+    for (const [l, idx] of groups) {
+      planes.set(l, idx.length >= 3 && distinctZ(points3D, idx) >= 2 ? planeFit(idx.map((i) => points3D[i])) : null)
+    }
+    const next = labels.slice()
+    let moved = 0
+    for (let i = 0; i < points3D.length; i++) {
+      const p = points3D[i]
+      const own = planes.get(labels[i])
+      let bestL = labels[i]
+      let bestErr = own ? Math.abs(p[2] - planeAt(own, p[0], p[1])) : Infinity
+      for (const [l, idx] of groups) {
+        if (l === labels[i]) continue
+        const pl = planes.get(l)
+        if (!pl) continue
+        const err = Math.abs(p[2] - planeAt(pl, p[0], p[1]))
+        if (err > zTol || err >= bestErr - margin) continue
+        let near = Infinity
+        for (const j of idx) {
+          const d = Math.hypot(points3D[j][0] - p[0], points3D[j][1] - p[1])
+          if (d < near) near = d
+        }
+        if (near > reach) continue
+        bestErr = err
+        bestL = l
+      }
+      if (bestL !== labels[i]) {
+        next[i] = bestL
+        moved++
+      }
+    }
+    labels = next
+    if (!moved) break
+  }
+
+  return labels
+}
+
+/**
  * Reparte los puntos en dominios planos.
  * @param points3D [[x, y, z], ...]
  * @param zTol     desajuste en cota admisible dentro de un dominio (m)
@@ -325,7 +413,7 @@ export function structuralDomains(points3D, { zTol = 25, radius = null } = {}) {
     next++
   }
 
-  return finish(points3D, labels)
+  return finish(points3D, assignToBestPlane(points3D, labels, zTol, R))
 }
 
 /** Mejor plano de consenso sobre `pool` (RANSAC). */
@@ -367,6 +455,17 @@ function bestPlane(pts, pool, zTol, R) {
       if (!refit) return
       pl = refit
     }
+    // Un panel tiene que explicar a los suyos con la misma tolerancia con la
+    // que los admitió. Los puntos se recogen con el plano de la ronda anterior
+    // y el ajuste final es otro, así que puede acabar describiendo mal a la
+    // mitad de ellos —y eso es exactamente lo que hace un panel montado a
+    // caballo de una charnela: entra en la tolerancia por los pelos, recoge
+    // puntos de los dos flancos y su plano, que es el promedio de los dos, no
+    // pasa por ninguno—. Se quedan sólo los que el ajuste final sí explica; si
+    // eran de dos flancos, lo que queda es uno.
+    idx = idx.filter((t) => Math.abs(pts[t][2] - planeAt(pl, pts[t][0], pts[t][1])) <= zTol)
+    if (idx.length >= 3) idx = largestCluster(pts, idx, R)
+    if (idx.length < 3 || distinctZ(pts, idx) < 2) return
     const fit = planeFit(idx.map((t) => pts[t]))
     if (!fit) return
     if (!strikeConsistent(pts, idx, fit, R * 0.3)) return

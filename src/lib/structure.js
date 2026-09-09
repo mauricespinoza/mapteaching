@@ -53,6 +53,27 @@ export function intersectWithContours(traces, contours, tol = 1) {
 
 /** Desvío de rumbo, en grados, que se admite dentro de un mismo panel. */
 const MAX_STRIKE_DEV = 35
+
+/**
+ * Cuánto tiene que extenderse un contorno para que su dirección signifique algo.
+ *
+ * El error angular de una recta ajustada a n puntos con error de posición ε es
+ * del orden de ε / (s·√n), donde s es la desviación de los puntos a lo largo de
+ * la recta. Se exige que ese error quede por debajo de la mitad de
+ * MAX_STRIKE_DEV —la desviación con la que el motor ya da por hecho que un
+ * contorno pertenece a otro limbo—, es decir s·√n ≥ ε / tan(17,5°) ≈ 3,2·ε, con
+ * ε la tolerancia de digitalización.
+ *
+ * Es lo que descarta los cruces tangenciales. Donde la traza corre casi
+ * paralela a una curva de nivel la corta varias veces en unas pocas decenas de
+ * metros, y ese puñado de puntos amontonados ajusta una recta impecable —rms
+ * cero— apuntando a cualquier parte: no mide el rumbo de la superficie, mide el
+ * pulso con que se dibujó la traza. Publicarla es peor que no publicar nada,
+ * porque en un pliegue esas rectas salen atravesadas al rumbo real y arrastran
+ * con ellas el manteo del par.
+ */
+const MIN_DIR_SPREAD = 1 / Math.tan((MAX_STRIKE_DEV / 2) * RAD)
+
 /** Apertura, en grados, con la que se busca la dirección de rumbo dominante. */
 const STRIKE_WINDOW = 18
 
@@ -244,8 +265,11 @@ export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null
         return
       }
       const fit = fitLine(pts)
-      if (!fit || fit.spread < tol * 1.5) {
-        // Puntos prácticamente coincidentes: no definen una dirección de rumbo.
+      if (!fit || fit.spread * Math.sqrt(pts.length) < tol * MIN_DIR_SPREAD) {
+        // Puntos demasiado juntos para el error con que se digitalizaron: no
+        // definen una dirección de rumbo (ver MIN_DIR_SPREAD). Se publican los
+        // puntos sin recta, que es decir «aquí la superficie pasa por esta
+        // cota, pero su rumbo no se ha medido».
         out.push({ elevation, limb, part, manualId, points: pts, fit: null, n: pts.length })
         return
       }
@@ -292,14 +316,22 @@ export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null
  * Desajuste en cota que se admite dentro de un mismo dominio. Se mide contra el
  * intervalo entre curvas de nivel: un cuarto de intervalo separa limbos sin
  * partir un panel por el error de digitalización.
+ *
+ * El suelo es la propia tolerancia de digitalización, y no un múltiplo suyo: es
+ * una tolerancia **en cota**, y `tol` mide metros sobre el mapa, así que
+ * multiplicarla mezcla dos cosas que no son la misma. En un mapa a escala
+ * corriente, con curvas cada 100 m, un múltiplo la dejaba en tres cuartos del
+ * intervalo entre curvas: con esa holgura, un panel montado a caballo de una
+ * charnela entra sin despeinarse, porque cabe de sobra el desnivel de pasar de
+ * un flanco al otro.
  */
 function domainTolerance(points3D, tol) {
   const zs = [...new Set(points3D.map((p) => p[2]))].sort((a, b) => a - b)
-  if (zs.length < 2) return Math.max(tol * 3, 1)
+  if (zs.length < 2) return Math.max(tol, 1)
   const gaps = []
   for (let i = 1; i < zs.length; i++) gaps.push(zs[i] - zs[i - 1])
   gaps.sort((a, b) => a - b)
-  return Math.max(gaps[gaps.length >> 1] * 0.25, tol * 3)
+  return Math.max(gaps[gaps.length >> 1] * 0.25, tol)
 }
 
 /** Promedio circular de direcciones de recta (módulo 180°). */

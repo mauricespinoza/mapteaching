@@ -46,6 +46,11 @@ const MERGE_ANGLE = 20
 // cada longitud de onda, y fundirlas promediaría ondas distintas en un eje
 // que no está en ninguna de ellas.
 const MERGE_REACH = 2.5
+// Cono dentro del cual dos cortes de paneles cuentan como la misma dirección de
+// eje. Es la tolerancia del diagrama β de toda la vida: los cortes de los
+// planos de una superficie cilíndrica caen todos en el mismo punto de la falsilla,
+// y lo que los separa es el error de digitalización, no la geología.
+const BETA_CONE = 25
 
 function centroid(pts) {
   let x = 0
@@ -71,6 +76,147 @@ function planeAngle(p, q) {
 }
 
 /**
+ * Dirección 3D de la recta donde coinciden dos planos. En planta es
+ * perpendicular al gradiente de su diferencia, y la pendiente a lo largo de
+ * ella es la misma para los dos, porque es justo donde acuerdan.
+ */
+function intersectionDir(planeA, planeB) {
+  const A = planeA.a - planeB.a
+  const B = planeA.b - planeB.b
+  const g = Math.hypot(A, B)
+  if (g < 1e-9) return null
+  const ddx = -B / g
+  const ddy = A / g
+  const ddz = planeA.a * ddx + planeA.b * ddy
+  const dlen = Math.hypot(ddx, ddy, ddz) || 1
+  return [ddx / dlen, ddy / dlen, ddz / dlen]
+}
+
+/** Ángulo entre dos rectas (no vectores): 0–90°. */
+function lineAngle(u, v) {
+  const c = Math.abs(u[0] * v[0] + u[1] * v[1] + u[2] * v[2])
+  return Math.acos(Math.min(1, c)) * DEG
+}
+
+/**
+ * Eje β de una superficie plegada: la dirección que comparten los cortes de
+ * todos sus paneles.
+ *
+ * Es el diagrama β, hecho con números en vez de con falsilla. Un pliegue
+ * cilíndrico tiene **un** eje: cualquier par de limbos suyos se corta en una
+ * recta paralela a él, sean o no los dos flancos de la misma charnela —en un
+ * tren de pliegues, el primer limbo y el tercero también se cortan según el
+ * eje—. Así que la dirección que reúne a la mayoría de los cortes es el eje, y
+ * un corte que se sale de ese haz no está midiendo el pliegue: es el cruce de
+ * un panel que no describe ningún limbo, y su dirección puede salir en
+ * cualquier parte, también atravesada al eje de verdad.
+ *
+ * Devuelve la dirección del eje, o una de estas dos respuestas, que no son lo
+ * mismo y no se tratan igual:
+ *
+ *  - `null` — hay menos de tres cortes: con dos limbos sólo sale uno, y un dato
+ *    solo no se puede contradecir a sí mismo. No hay con qué contrastar, así
+ *    que no se estorba a nadie y la charnela se publica si sus propios filtros
+ *    la dan por buena. Es el pliegue sencillo de dos flancos.
+ *  - `'disperso'` — hay cortes de sobra y **no** coinciden en ninguna
+ *    dirección. Entonces lo que dice el dato es que esto no se está portando
+ *    como un pliegue cilíndrico: sus paneles no son limbos de un mismo eje. La
+ *    respuesta honrada es no dibujar ningún eje, no dibujarlos todos. Es el
+ *    caso del mapa con pocos cruces por cota, donde el reparto en paneles se
+ *    fragmenta y cada trozo mantea a su aire: antes salía de ahí un abanico de
+ *    ejes cruzados, y ninguno era el pliegue.
+ */
+function betaAxis(planes, groups) {
+  const votes = []
+  for (let i = 0; i < planes.length; i++) {
+    if (!planes[i] || groups[i].length < MIN_LIMB_POINTS) continue
+    for (let j = i + 1; j < planes.length; j++) {
+      if (!planes[j] || groups[j].length < MIN_LIMB_POINTS) continue
+      if (planeAngle(planes[i], planes[j]) < MIN_HINGE_ANGLE) continue
+      const dir = intersectionDir(planes[i], planes[j])
+      if (dir) votes.push({ dir, w: groups[i].length + groups[j].length })
+    }
+  }
+  if (votes.length < 3) return null
+  // El consenso compara cada voto con todos los demás. Con el mapa entero
+  // votando eso crece deprisa, así que sólo se quedan los que más datos tienen
+  // detrás: son los que deciden, y los de tres puntos no cambian el resultado.
+  if (votes.length > 200) {
+    votes.sort((a, b) => b.w - a.w)
+    votes.length = 200
+  }
+  const total = votes.reduce((s, v) => s + v.w, 0)
+  let best = null
+  for (const cand of votes) {
+    const near = votes.filter((v) => lineAngle(v.dir, cand.dir) <= BETA_CONE)
+    const w = near.reduce((s, v) => s + v.w, 0)
+    if (!best || w > best.w) best = { w, near }
+  }
+  if (!best || best.w <= total / 2) return 'disperso'
+  // Promedio ponderado, con el sentido de cada corte alineado al primero: son
+  // rectas, y una recta y su opuesta son la misma.
+  const ref = best.near[0].dir
+  let x = 0
+  let y = 0
+  let z = 0
+  for (const v of best.near) {
+    const d = alignTo(v.dir, ref)
+    x += d[0] * v.w
+    y += d[1] * v.w
+    z += d[2] * v.w
+  }
+  const l = Math.hypot(x, y, z) || 1
+  return [x / l, y / l, z / l]
+}
+
+/** `dir` con el sentido alineado a `ref`: son rectas, no vectores. */
+const alignTo = (dir, ref) =>
+  dir[0] * ref[0] + dir[1] * ref[1] + dir[2] * ref[2] < 0 ? [-dir[0], -dir[1], -dir[2]] : dir.slice()
+
+/**
+ * Eje β de todo el mapa: los paneles de **todas** las superficies votando
+ * juntos.
+ *
+ * Es como se hace con la falsilla: en el diagrama β se vuelcan los datos del
+ * mapa entero, no los de un contacto cada vez. Y hay una razón para hacerlo
+ * así, no es sólo costumbre: un paquete de capas concordantes se pliega junto,
+ * de modo que todos sus contactos comparten el mismo eje, y una superficie a la
+ * que le faltan cruces —pocos puntos, repartidos en paneles de tres o cuatro
+ * que mantean cada uno a su aire— no puede arrastrar al conjunto. Sola, esa
+ * superficie produce cruces en cualquier dirección y alguno pasa todos los
+ * filtros; con las demás delante, queda en minoría y se descarta.
+ *
+ * Los contactos concordantes no se estorban entre sí al votar: sus paneles del
+ * mismo limbo son paralelos —son la misma estructura a distinto nivel
+ * estratigráfico—, y dos planos paralelos no llegan a votar, porque no
+ * alcanzan el ángulo mínimo de charnela.
+ *
+ * Si el mapa entero no se pone de acuerdo, no se fuerza nada: cada superficie
+ * vuelve a juzgarse con su propio eje. Es lo que hay que hacer en un mapa con
+ * dos sistemas de pliegues de direcciones distintas, donde no existe un eje
+ * único que valga para todo.
+ */
+function sceneBeta(scene) {
+  const planes = []
+  const groups = []
+  for (const c of scene.contacts) {
+    const byBlock = scene.contactSurfaces.get(c.id)
+    if (!byBlock) continue
+    for (const [, surf] of byBlock) {
+      const dom = surf.domains
+      if (!dom) continue
+      for (let k = 0; k < dom.count; k++) {
+        if (dom.planes[k]) {
+          planes.push(dom.planes[k])
+          groups.push(dom.groups[k])
+        }
+      }
+    }
+  }
+  return betaAxis(planes, groups)
+}
+
+/**
  * Candidato de charnela entre dos dominios (limbos) de una misma superficie.
  * Dos planos distintos siempre se cortan en alguna recta, así que la mayor
  * parte del trabajo es descartar los cruces que no son charnelas. Devuelve
@@ -93,14 +239,8 @@ function hingeBetween(planeA, planeB, groupA, groupB, others = []) {
   const g = Math.hypot(A, B)
   if (g < 1e-9) return null
 
-  // Dirección 3D de la charnela: en planta es perpendicular al gradiente de
-  // esa recta; la pendiente a lo largo de ella es la misma para los dos
-  // planos, porque es justo donde acuerdan.
-  const ddx = -B / g
-  const ddy = A / g
-  const ddz = planeA.a * ddx + planeA.b * ddy
-  const dlen = Math.hypot(ddx, ddy, ddz) || 1
-  const dir = [ddx / dlen, ddy / dlen, ddz / dlen]
+  const dir = intersectionDir(planeA, planeB)
+  if (!dir) return null
 
   const cA = centroid(groupA)
   const cB = centroid(groupB)
@@ -297,6 +437,7 @@ function finalizeAxis(cluster, index, georef) {
  */
 export function foldAxes(scene) {
   if (!scene?.ready) return []
+  const mapBeta = sceneBeta(scene)
   const raw = []
   for (const c of scene.contacts) {
     const byBlock = scene.contactSurfaces.get(c.id)
@@ -304,6 +445,10 @@ export function foldAxes(scene) {
     for (const [block, surf] of byBlock) {
       const dom = surf.domains
       if (!dom || dom.count < 2) continue
+      // Vara con la que se descarta el cruce que no va con el pliegue: la del
+      // mapa entero si el mapa se pone de acuerdo, y si no la de esta
+      // superficie sola.
+      const beta = mapBeta && mapBeta !== 'disperso' ? mapBeta : betaAxis(dom.planes, dom.groups)
       for (let i = 0; i < dom.count; i++) {
         const pi = dom.planes[i]
         if (!pi) continue
@@ -315,9 +460,21 @@ export function foldAxes(scene) {
             if (k !== i && k !== j && dom.planes[k]) others.push(dom.groups[k])
           }
           const hit = hingeBetween(pi, pj, dom.groups[i], dom.groups[j], others)
+          // Un pliegue cilíndrico tiene un solo eje: una charnela que se cruza
+          // en otra dirección no es una charnela de este pliegue, por bien que
+          // encaje su posición. Es el filtro que quita los ejes atravesados.
+          if (hit && beta && (beta === 'disperso' || lineAngle(hit.dir, beta) > BETA_CONE)) continue
           if (hit)
             raw.push({
               ...hit,
+              // La dirección la pone el eje β y la posición, el cruce de estos
+              // dos limbos. Es el reparto de siempre entre la falsilla y el
+              // mapa: la orientación se lee del conjunto de los datos, que es
+              // donde se promedia el error, y dónde está la charnela sólo lo
+              // sabe el par de limbos que se junta ahí. Con la dirección de
+              // cada par por separado, un mismo pliegue salía dibujado con dos
+              // trazos axiales abiertos veinte grados entre sí.
+              dir: Array.isArray(beta) ? alignTo(beta, hit.dir) : hit.dir,
               contactId: c.id,
               name: c.name,
               color: c.color,
