@@ -7,13 +7,24 @@ import {
   Eraser,
   Lock,
   Unlock,
+  Eye,
+  EyeOff,
+  Tag,
   Image as ImageIcon,
   Frame,
   Maximize,
   RotateCcw,
 } from 'lucide-react'
 import { Collapsible, Field, inputCls, Btn, ColorSwatch } from './ui.jsx'
-import { CONTACT_TYPES, KINEMATICS, newFault, reassignContact, sortedUnits, sortedContacts } from '../lib/model.js'
+import {
+  CONTACT_TYPES,
+  KINEMATICS,
+  newFault,
+  reassignContact,
+  sortedUnits,
+  sortedContacts,
+  isHidden,
+} from '../lib/model.js'
 import { fmtDistance } from '../lib/georef.js'
 
 /** Panel lateral con todas las entidades del proyecto. */
@@ -56,6 +67,29 @@ function WorkArea({ project, dispatch, setTool }) {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Ojo de ver/ocultar un rasgo suelto: abierto se dibuja, cerrado no.
+ *
+ * Apagar es sólo dejar de dibujar. La unidad sigue en la pila y el contacto
+ * sigue partiendo el mapa y cortando las superficies vecinas en el 3D, así que
+ * al volver a encenderlo aparece exactamente donde estaba: nada de lo que
+ * queda a la vista se mueve por haber apagado un vecino. Es la diferencia
+ * entre tapar y borrar, y en clase se tapa para mirar lo de debajo.
+ */
+function EyeToggle({ visible, onToggle, what, icon: Icon = Eye, iconOff: IconOff = EyeOff, disabled = false }) {
+  return (
+    <Btn
+      variant="ghost"
+      disabled={disabled}
+      title={visible ? `Ocultar ${what}` : `Mostrar ${what}`}
+      aria-label={visible ? `Ocultar ${what}` : `Mostrar ${what}`}
+      onClick={onToggle}
+    >
+      {visible ? <Icon size={13} /> : <IconOff size={13} className="text-slate-300" />}
+    </Btn>
   )
 }
 
@@ -174,9 +208,16 @@ export default function LayersPanel({
                   size={30}
                 />
                 <input
-                  className="flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300"
+                  className={`flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300 ${
+                    isHidden(u) ? 'text-slate-400 line-through decoration-slate-300' : ''
+                  }`}
                   value={u.name}
                   onChange={(e) => dispatch({ type: 'unit.update', id: u.id, patch: { name: e.target.value } })}
+                />
+                <EyeToggle
+                  visible={!isHidden(u)}
+                  what={`el relleno de «${u.name}»`}
+                  onToggle={() => dispatch({ type: 'unit.update', id: u.id, patch: { hidden: !isHidden(u) } })}
                 />
                 <Btn variant="ghost" title="Subir" onClick={() => dispatch({ type: 'unit.move', id: u.id, delta: 1 })}>
                   <ArrowUp size={13} />
@@ -250,9 +291,30 @@ export default function LayersPanel({
                     size={28}
                   />
                   <input
-                    className="flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300"
+                    className={`flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300 ${
+                      isHidden(c) ? 'text-slate-400 line-through decoration-slate-300' : ''
+                    }`}
                     value={c.name}
                     onChange={(e) => dispatch({ type: 'contact.update', id: c.id, patch: { name: e.target.value } })}
+                  />
+                  {/* Dos ojos: uno apaga la traza entera —con su rótulo, sus
+                      contornos estructurales y su superficie en el 3D— y el
+                      otro deja la traza y calla sólo el rótulo, que es lo que
+                      satura el mapa cuando hay muchos contactos juntos. */}
+                  <EyeToggle
+                    visible={!(c.hidden || c.labelHidden)}
+                    disabled={isHidden(c)}
+                    icon={Tag}
+                    iconOff={Tag}
+                    what={`el rótulo de «${c.name}»`}
+                    onToggle={() =>
+                      dispatch({ type: 'contact.update', id: c.id, patch: { labelHidden: !c.labelHidden } })
+                    }
+                  />
+                  <EyeToggle
+                    visible={!isHidden(c)}
+                    what={`«${c.name}»`}
+                    onToggle={() => dispatch({ type: 'contact.update', id: c.id, patch: { hidden: !isHidden(c) } })}
                   />
                   <Btn variant="primary" onClick={() => draw('contact', c.id)}>
                     <Pencil size={13} /> Trazar

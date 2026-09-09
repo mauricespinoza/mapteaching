@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
+import { Download } from 'lucide-react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { toWorldList, toImage } from '../lib/georef.js'
-import { kinematicsOf, newStructureContour } from '../lib/model.js'
+import { kinematicsOf, newStructureContour, isHidden } from '../lib/model.js'
 import { contourSegment } from '../lib/structure.js'
 import { frameTest, modelExtent } from '../lib/models.js'
 import { buildWellModel } from '../lib/wells.js'
 import { contactMeshes, faultSheetMesh } from '../lib/surfaces3d.js'
+import { buildGempyBundle, safeName } from '../lib/gempy.js'
+import { zipBlob } from '../lib/zip.js'
+import { download } from '../lib/exportFile.js'
 
 /**
  * Vista 3D: topografía reconstruida desde las curvas de nivel, trazas
@@ -258,6 +262,7 @@ export default function ThreeView({ project, scene, image, dispatch }) {
     // Trazas de contactos y fallas sobre la topografía
     if (show.traces) {
       for (const cw of scene.contactWorld) {
+        if (isHidden(cw.contact)) continue
         const color = new THREE.Color(cw.contact.color || '#0f172a')
         for (const tr of cw.traces) {
           for (const run of clipRuns(tr, inFrame)) {
@@ -335,6 +340,9 @@ export default function ThreeView({ project, scene, image, dispatch }) {
     const addSurfaces = (opts, opacity, eroded) => {
       for (const { contactIndex: ci, block, tris } of contactMeshes(scene, opts)) {
         const c = scene.contacts[ci]
+        // Apagado con el ojo del panel: no se dibuja, pero se ha construido
+        // con todos, así que las de al lado siguen cortadas contra ella.
+        if (isHidden(c)) continue
         const unit = scene.units.find((u) => u.id === c.upperUnitId)
         const color = new THREE.Color(unit?.color || c.color || '#38bdf8')
         const geo = new THREE.BufferGeometry()
@@ -658,6 +666,7 @@ export default function ThreeView({ project, scene, image, dispatch }) {
               Arrastra para rotar · dos dedos o rueda para acercar · clic derecho para desplazar. Toca una
               superficie para ver qué es.
             </p>
+            <GempyExport project={project} scene={scene} />
           </div>
         )}
       </div>
@@ -839,6 +848,50 @@ function clipRuns(pts, inFrame) {
   }
   if (run.length > 1) runs.push(run)
   return runs
+}
+
+/**
+ * Descarga del ejercicio como paquete para GemPy.
+ *
+ * Va en la vista 3D porque es aquí donde se está mirando el modelo cuando surge
+ * la pregunta de llevárselo a otra parte. Lo que se exporta, eso sí, no es la
+ * malla que hay en pantalla: GemPy no interpola mallas, interpola los puntos y
+ * las orientaciones medidos —que son el dato primario de este ejercicio— y
+ * construye la suya. Lo explica el LÉEME que va dentro del paquete.
+ */
+function GempyExport({ project, scene }) {
+  const [estado, setEstado] = useState(null)
+  const exportar = () => {
+    try {
+      const files = buildGempyBundle(project, scene)
+      if (!files) {
+        setEstado('Todavía no hay superficies que exportar.')
+        return
+      }
+      download(`${safeName(project.name, 'ejercicio')}-gempy.zip`, zipBlob(files))
+      setEstado(`${files.length} archivos`)
+    } catch (e) {
+      setEstado(`No se pudo: ${e.message}`)
+    }
+  }
+  const listo = scene?.ready && scene.contacts?.length > 0
+  return (
+    <div className="mt-2 border-t border-white/10 pt-2">
+      <button
+        onClick={exportar}
+        disabled={!listo}
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-white/10 px-2 py-1.5 font-medium text-slate-100 ring-1 ring-white/10 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Download size={13} /> Exportar a GemPy (.zip)
+      </button>
+      <p className="mt-1 text-[10px] leading-snug text-slate-500">
+        {listo
+          ? 'Los puntos y las orientaciones que se han medido en el mapa, con el orden de las series, el relieve, las trazas en GeoJSON y un guion de Python listo para correr. De ahí sale el modelo que carga la mesa de realidad aumentada.'
+          : 'Hace falta al menos un contacto digitalizado y la escala definida.'}
+      </p>
+      {estado && <p className="mt-1 text-[10px] text-emerald-300">{estado}</p>}
+    </div>
+  )
 }
 
 function lineFrom(points, color, opacity = 1, width = 1) {

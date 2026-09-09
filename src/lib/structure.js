@@ -20,41 +20,105 @@ const DEG = 180 / Math.PI
 
 /**
  * Intersecta las trazas de una estructura con las curvas de nivel.
+ *
+ * Devuelve los cruces **ordenados a lo largo del afloramiento**, y con ellos la
+ * lista de tramos (`runs`): los índices de los cruces de cada traza, en el orden
+ * en que aparecen al recorrerla. Ese orden no es decoración. Es la única manera
+ * de saber qué cruces son vecinos *de verdad*: dos que se tocan en el mapa
+ * pueden estar en limbos opuestos de un pliegue, pero dos consecutivos a lo
+ * largo de una traza son el mismo trozo de afloramiento, sin nada en medio. El
+ * reparto en paneles se apoya en eso (ver `structuralDomains`).
+ *
  * @param traces  [[ [x,y], ... ]] polilíneas en coordenadas mundo (m)
  * @param contours [{ elevation, pts }] curvas de nivel en coordenadas mundo
- * @returns [[x, y, z], ...]
+ * @returns { points: [[x, y, z], ...], runs: [[i, i+1, …], …] }
  */
 export function intersectWithContours(traces, contours, tol = 1) {
-  const raw = []
+  const out = []
+  const runs = []
   for (const trace of traces) {
     if (trace.length < 2) continue
+    const hits = []
     for (const c of contours) {
       if (c.pts.length < 2) continue
       for (const hit of polylineIntersections(trace, c.pts)) {
-        raw.push([hit.p[0], hit.p[1], c.elevation])
+        // `ia + ta` es la distancia recorrida a lo largo de la traza en
+        // segmentos: sirve para ordenar, que es todo lo que hace falta.
+        hits.push({ p: [hit.p[0], hit.p[1], c.elevation], at: hit.ia + hit.ta })
       }
     }
-  }
-  // Los cruces tangenciales generan varias intersecciones casi coincidentes:
-  // se colapsan para no falsear el ajuste del contorno estructural.
-  const out = []
-  for (const p of raw) {
-    let dup = false
-    for (const q of out) {
-      if (q[2] === p[2] && Math.hypot(q[0] - p[0], q[1] - p[1]) < tol) {
-        dup = true
-        break
+    hits.sort((a, b) => a.at - b.at)
+    const run = []
+    for (const h of hits) {
+      // Los cruces tangenciales generan varias intersecciones casi
+      // coincidentes: se colapsan para no falsear el ajuste del contorno.
+      let dup = false
+      for (const q of out) {
+        if (q[2] === h.p[2] && Math.hypot(q[0] - h.p[0], q[1] - h.p[1]) < tol) {
+          dup = true
+          break
+        }
       }
+      if (dup) continue
+      run.push(out.length)
+      out.push(h.p)
     }
-    if (!dup) out.push(p)
+    if (run.length) runs.push(run)
   }
-  return out
+  return { points: out, runs }
 }
 
 /** Desvío de rumbo, en grados, que se admite dentro de un mismo panel. */
 const MAX_STRIKE_DEV = 35
+
+/**
+ * Cuánto tiene que extenderse un contorno para que su dirección signifique algo.
+ *
+ * El error angular de una recta ajustada a n puntos con error de posición ε es
+ * del orden de ε / (s·√n), donde s es la desviación de los puntos a lo largo de
+ * la recta. Se exige que ese error quede por debajo de la mitad de
+ * MAX_STRIKE_DEV —la desviación con la que el motor ya da por hecho que un
+ * contorno pertenece a otro limbo—, es decir s·√n ≥ ε / tan(17,5°) ≈ 3,2·ε, con
+ * ε la tolerancia de digitalización.
+ *
+ * Es lo que descarta los cruces tangenciales. Donde la traza corre casi
+ * paralela a una curva de nivel la corta varias veces en unas pocas decenas de
+ * metros, y ese puñado de puntos amontonados ajusta una recta impecable —rms
+ * cero— apuntando a cualquier parte: no mide el rumbo de la superficie, mide el
+ * pulso con que se dibujó la traza. Publicarla es peor que no publicar nada,
+ * porque en un pliegue esas rectas salen atravesadas al rumbo real y arrastran
+ * con ellas el manteo del par.
+ */
+const MIN_DIR_SPREAD = 1 / Math.tan((MAX_STRIKE_DEV / 2) * RAD)
+
 /** Apertura, en grados, con la que se busca la dirección de rumbo dominante. */
 const STRIKE_WINDOW = 18
+
+/**
+ * Qué hace falta para dar por **confirmada** la actitud de un panel, y poder
+ * usarla como vara para juzgar los contornos de los demás.
+ *
+ * Lo que cuenta son las cotas, no los puntos. El manteo de un panel se mide
+ * entre contornos consecutivos, así que cuatro cotas son tres medidas seguidas
+ * del mismo manteo: repetido, no afirmado una vez. Un panel que sólo toca dos o
+ * tres cotas no lo ha repetido lo bastante para servirle de vara a nadie, por
+ * muchos puntos que tenga apiñados en ellas.
+ *
+ * El caso que esto describe es el retazo de la charnela: alrededor del cierre
+ * de un pliegue la traza recorre un trecho corto, corta pocas curvas de nivel y
+ * deja un puñado de cruces de los dos flancos. Ese puñado es un panel para el
+ * RANSAC —tres puntos siempre lo son— pero no es un limbo, y de él salen los
+ * contornos atravesados.
+ *
+ * El listón bajó de seis puntos a cuatro cuando el reparto pasó a conectar por
+ * el afloramiento (ver `outcropNeighbours`): los paneles salen más pequeños y
+ * más numerosos, pero cada uno describe de verdad el trozo de superficie que
+ * cubre, así que uno de cuatro cruces repartidos en cuatro cotas ya es un dato
+ * y no una casualidad. Medido, bajarlo publica trece contornos correctos más
+ * sin añadir ninguno atravesado.
+ */
+const CONFIRMED_POINTS = 4
+const CONFIRMED_LEVELS = 4
 
 /**
  * Rumbo dominante de una superficie, a partir de los pares de puntos de igual
@@ -210,8 +274,12 @@ function splitCollinear(pts, tol) {
  * (`splitLimbLines`), de modo que un contorno nunca une puntos de dos flancos
  * de un pliegue. `part` distingue esos tramos dentro de una misma cota y
  * limbo, y forma parte de la identidad del contorno igual que el limbo.
+ *
+ * `confirmedStrike(limbo)` da el rumbo de un panel sólo cuando su actitud está
+ * confirmada (ver CONFIRMED_POINTS). Con esos rumbos se contrasta al final cada
+ * contorno: ver `checkAgainstConfirmed`.
  */
-export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null) {
+export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null, confirmedStrike = null) {
   const byZ = new Map()
   for (const p of points3D) {
     // Con `limbOf` los puntos de una misma cota se separan por limbo: en un
@@ -244,8 +312,11 @@ export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null
         return
       }
       const fit = fitLine(pts)
-      if (!fit || fit.spread < tol * 1.5) {
-        // Puntos prácticamente coincidentes: no definen una dirección de rumbo.
+      if (!fit || fit.spread * Math.sqrt(pts.length) < tol * MIN_DIR_SPREAD) {
+        // Puntos demasiado juntos para el error con que se digitalizaron: no
+        // definen una dirección de rumbo (ver MIN_DIR_SPREAD). Se publican los
+        // puntos sin recta, que es decir «aquí la superficie pasa por esta
+        // cota, pero su rumbo no se ha medido».
         out.push({ elevation, limb, part, manualId, points: pts, fit: null, n: pts.length })
         return
       }
@@ -284,22 +355,78 @@ export function structureContours(points3D, tol = 1, limbOf = null, keyOf = null
     }
   }
 
+  checkAgainstConfirmed(out, confirmedStrike)
+
   out.sort((a, b) => a.limb - b.limb || a.part - b.part || a.elevation - b.elevation)
   return out
+}
+
+/**
+ * Último filtro, y el que atrapa el contorno que cruza el pliegue: **el rumbo
+ * de un contorno tiene que ser un rumbo que esta superficie enseñe de verdad
+ * en alguna parte**.
+ *
+ * Los demás filtros se pueden burlar todos a la vez, y por la misma razón. Si
+ * un panel se monta a caballo de una charnela, su plano se ajusta al promedio
+ * de los dos flancos y sus contornos son cuerdas que van de un flanco al otro:
+ * el plano y las cuerdas se dan la razón entre sí —salen paralelas, y paralelas
+ * al rumbo de ese plano promedio— porque unos y otras se han calculado con los
+ * mismos puntos mezclados. Preguntarle a ese panel por sus propios contornos no
+ * sirve de nada. Hay que preguntarle a otro.
+ *
+ * Los paneles confirmados son ese otro. Son los limbos largos, con cruces de
+ * sobra repartidos en varias cotas, y su rumbo no lo discute nadie. Una cuerda
+ * que cruza la charnela sale casi perpendicular a ellos —es lo que tiene ir de
+ * un flanco al de enfrente—, así que se delata sola en cuanto se la compara. Se
+ * queda sin recta: sus puntos siguen ahí, con su cota, pero el mapa no dibuja un
+ * rumbo que no se ha medido.
+ *
+ * La comparación es contra **cualquiera** de los paneles confirmados, no contra
+ * el más cercano: en un pliegue los dos flancos tienen rumbos distintos, y un
+ * contorno legítimo del flanco de allá no tiene por qué parecerse al panel de
+ * acá. Y si la superficie no tiene ningún panel confirmado —pocos cruces, todo
+ * son retazos— no hay con qué contrastar y no se toca nada: sin vara no se mide.
+ */
+function checkAgainstConfirmed(out, confirmedStrike) {
+  if (!confirmedStrike) return
+  const refs = []
+  for (const limb of new Set(out.map((sc) => sc.limb))) {
+    const st = confirmedStrike(limb)
+    if (st) refs.push(st)
+  }
+  if (!refs.length) return
+  for (const sc of out) {
+    // Un contorno puesto a mano es un dato del alumno, no una medida del mapa.
+    if (!sc.fit || sc.manualId) continue
+    let dev = Infinity
+    for (const r of refs) {
+      const cos = Math.abs(sc.fit.dir[0] * r[0] + sc.fit.dir[1] * r[1])
+      dev = Math.min(dev, Math.acos(Math.min(1, cos)) * DEG)
+    }
+    if (dev > MAX_STRIKE_DEV) sc.fit = null
+  }
 }
 
 /**
  * Desajuste en cota que se admite dentro de un mismo dominio. Se mide contra el
  * intervalo entre curvas de nivel: un cuarto de intervalo separa limbos sin
  * partir un panel por el error de digitalización.
+ *
+ * El suelo es la propia tolerancia de digitalización, y no un múltiplo suyo: es
+ * una tolerancia **en cota**, y `tol` mide metros sobre el mapa, así que
+ * multiplicarla mezcla dos cosas que no son la misma. En un mapa a escala
+ * corriente, con curvas cada 100 m, un múltiplo la dejaba en tres cuartos del
+ * intervalo entre curvas: con esa holgura, un panel montado a caballo de una
+ * charnela entra sin despeinarse, porque cabe de sobra el desnivel de pasar de
+ * un flanco al otro.
  */
 function domainTolerance(points3D, tol) {
   const zs = [...new Set(points3D.map((p) => p[2]))].sort((a, b) => a - b)
-  if (zs.length < 2) return Math.max(tol * 3, 1)
+  if (zs.length < 2) return Math.max(tol, 1)
   const gaps = []
   for (let i = 1; i < zs.length; i++) gaps.push(zs[i] - zs[i - 1])
   gaps.sort((a, b) => a - b)
-  return Math.max(gaps[gaps.length >> 1] * 0.25, tol * 3)
+  return Math.max(gaps[gaps.length >> 1] * 0.25, tol)
 }
 
 /** Promedio circular de direcciones de recta (módulo 180°). */
@@ -639,7 +766,7 @@ export function buildSurface({
   color = '#000',
   tol = 1,
 }) {
-  const measured = intersectWithContours(traces, contours, tol)
+  const { points: measured, runs } = intersectWithContours(traces, contours, tol)
   const overridden = new Set(manualContours.map((m) => m.elevation))
   const manualIdOf = new Map()
   const drawn = []
@@ -666,7 +793,10 @@ export function buildSurface({
   // un manteo, de modo que un pliegue se resuelve limbo a limbo y dos ondas de
   // un mismo tren no comparten contornos.
   const zTol = domainTolerance(points3D, tol)
-  const dom = structuralDomains(points3D, { zTol })
+  // Los tramos de afloramiento sólo describen los cruces medidos. Si la
+  // superficie se define además con contornos puestos a mano —que no vienen de
+  // ninguna traza—, el reparto vuelve a conectar por cercanía en el mapa.
+  const dom = structuralDomains(points3D, { zTol, runs: points3D === measured ? runs : null })
   const index = new Map(points3D.map((p, i) => [p, dom.labels[i]]))
   const limbOf = points3D.length ? (p) => index.get(p) ?? 0 : null
   const limbCount = dom.count
@@ -685,7 +815,17 @@ export function buildSurface({
   const basePlaneAt = domainPlaneField(dom.groups, domPlanes, plane, (spacing || 1) * HINGE)
   const model = points3D.length >= 6 ? buildFoldModel(points3D, basePlaneAt, spacing) : null
 
-  const scs = structureContours(points3D, tol, limbOf, keyOf)
+  // Rumbo de los paneles cuya actitud está confirmada: perpendicular a su
+  // gradiente. Los demás no sirven de vara para nadie (ver CONFIRMED_POINTS).
+  const confirmedStrike = (k) => {
+    const g = dom.groups[k]
+    const pl = dom.planes[k]
+    if (!pl || !g || g.length < CONFIRMED_POINTS) return null
+    if (new Set(g.map((p) => p[2])).size < CONFIRMED_LEVELS) return null
+    const gr = Math.hypot(pl.a, pl.b)
+    return gr < 1e-9 ? null : [-pl.b / gr, pl.a / gr]
+  }
+  const scs = structureContours(points3D, tol, limbOf, keyOf, confirmedStrike)
   const usable = scs.filter((s) => s.fit)
   const pairs = []
   // Los pares se forman dentro de cada limbo, entre cotas consecutivas. El
@@ -700,8 +840,20 @@ export function buildSurface({
   for (const list of byLimb.values()) {
     list.sort((a, b) => a.elevation - b.elevation)
     for (let i = 1; i < list.length; i++) {
-      const a = attitudeBetween(list[i - 1], list[i])
-      if (a) pairs.push({ ...a, limb: list[i].limb, part: list[i].part })
+      const lo = list[i - 1]
+      const hi = list[i]
+      const a = attitudeBetween(lo, hi)
+      if (!a) continue
+      // Dónde se hizo la medida: a medio camino entre los dos contornos, que es
+      // el único sitio del que el par dice algo. La actitud de un par no es una
+      // propiedad de toda la superficie sino de esa franja, y quien la exporte
+      // —el paquete de GemPy— necesita saber dónde ponerla.
+      pairs.push({
+        ...a,
+        limb: hi.limb,
+        part: hi.part,
+        at: [(lo.fit.c[0] + hi.fit.c[0]) / 2, (lo.fit.c[1] + hi.fit.c[1]) / 2, (lo.elevation + hi.elevation) / 2],
+      })
     }
   }
 
