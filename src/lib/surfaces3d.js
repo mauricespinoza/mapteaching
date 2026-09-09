@@ -104,6 +104,12 @@ export function contactMeshes(
   const LOOSE = Math.max(1, dem.zmax - dem.zmin) * 100
   const loose = (v) => (Number.isFinite(v) ? Math.min(v, LOOSE) : LOOSE)
   const capped = Number.isFinite(zMax)
+  // `zMin` recorta igual que `zMax`, no sujeta el vértice: sujetarlo deja dos
+  // vértices de un mismo triángulo clavados en la misma cota mientras el
+  // tercero sigue en la suya, y ese triángulo sale casi horizontal —el
+  // parche plano en el fondo del modelo—. Recortando, el bloque termina donde
+  // de verdad cruza esa cota y no antes.
+  const cappedMin = Number.isFinite(zMin)
 
   const byKey = new Map()
   for (const block of blockIds) {
@@ -140,9 +146,10 @@ export function contactMeshes(
             const v = [gx[k], gy[k], z, eroded ? z - gz[k] : gz[k] - z, loose(rooms[k][ci])]
             for (const c of active) v.push(loose(want[c] * (z - zf[c][k])))
             if (capped) v.push(zMax - z)
+            if (cappedMin) v.push(z - zMin)
             return v
           })
-          const nCrit = 2 + active.length + (capped ? 1 : 0)
+          const nCrit = 2 + active.length + (capped ? 1 : 0) + (cappedMin ? 1 : 0)
           for (let c = 0; c < nCrit && poly.length >= 3; c++) poly = clipBy(poly, c)
           if (poly.length < 3) continue
           const key = `${ci}|${block}`
@@ -152,7 +159,7 @@ export function contactMeshes(
           const v0 = poly[0]
           for (let t = 1; t + 1 < poly.length; t++) {
             for (const v of [v0, poly[t], poly[t + 1]]) {
-              mesh.tris.push(v[0], v[1], Math.max(zMin, v[2]))
+              mesh.tris.push(v[0], v[1], v[2])
             }
           }
         }
@@ -180,37 +187,70 @@ export function contactMeshes(
  */
 export function faultSheetMesh(trace, surf, dem, { zBottom, zTop = null, inFrame = null, side, rows = 14 } = {}) {
   if (!trace || trace.length < 2 || !surf?.defined) return null
+  // Paso «de referencia»: una distancia en el mapa mientras la superficie es
+  // tendida, y sólo eso —ver más abajo por qué no basta cuando se empina.
   const step = Math.max(side * 0.0015, 0.5)
-  const eps = step * 0.5
-  const zAt = (x, y) => {
-    const v = surf.elevationAt(x, y)
-    return Number.isFinite(v) ? v : NaN
-  }
 
-  // Camino sobre la línea de máxima pendiente desde `p`: `dir > 0` desciende
-  // (como antes), `dir < 0` asciende hacia `limit` en el sentido contrario.
+  // La cota que `surf.elevationAt(x, y)` da en un plano casi vertical no es de
+  // fiar más que exactamente encima de donde se ajustó. La ecuación es
+  // z = a·x + b·y + c, y con manteo de 89.6° la pendiente ronda 150: un
+  // desvío lateral de apenas 50 m —el trazo digitalizado no cae perfecto
+  // sobre la línea del ajuste, ni tiene por qué— sale multiplicado por esa
+  // pendiente y da 7500 m de cota espuria. Es la misma matemática por la que
+  // `fitPlane` prefiere el ajuste perpendicular para el manteo: aquí es la
+  // *evaluación*, no el ajuste, la que se degrada, y ninguna de las dos cosas
+  // se arregla acotando el paso del camino —eso ya se hizo y no bastaba—.
+  //
+  // La salida: no fiarse a ciegas de una cota absoluta lejos de la traza.
+  // `{a, b}` sí es de fiar en cualquier punto —es la pendiente del plano, no
+  // depende de cuánto se aleje uno de dónde se ajustó—, así que en cada paso
+  // se calcula primero cuánto anuncia esa pendiente (`h · g`) y sólo se
+  // cambia por lo que de verdad marca la superficie en el punto nuevo cuando
+  // las dos cosas más o menos concuerdan. Es lo que deja curvarse a una falla
+  // lístrica de manteo moderado —ahí la superficie real y lo que anuncia el
+  // plano local casi coinciden—, y lo que evita seguir un valor disparado
+  // cuando no: si la lectura se va mucho más allá de lo previsto, no es
+  // curvatura, es la amplificación de un plano casi vertical evaluado donde
+  // no se ajustó, y se prefiere lo que la propia pendiente anuncia.
+  //
+  // El punto de partida sí es de fiar: la traza de la falla es, por
+  // definición, donde el plano corta el terreno, y el terreno mismo —no la
+  // superficie del modelo— es lo que da esa cota sin ambigüedad.
   const walk = (p, dir, limit) => {
-    const z0 = zAt(p[0], p[1])
+    const z0 = dem?.valid ? dem.elevationAt(p[0], p[1]) : surf.elevationAt(p[0], p[1])
     if (!Number.isFinite(z0)) return null
     const path = [[p[0], p[1], z0]]
     let x = p[0]
     let y = p[1]
     let z = z0
-    for (let n = 0; n < 600; n++) {
+    // Con el paso acotado en cota, una falla casi vertical necesita muchos más
+    // pasos para bajar la misma distancia que antes cubría de un salto; el
+    // límite crece para que eso no la corte antes de tiempo. El costo es
+    // trivial: cada paso es una evaluación de un plano o de un pliegue con
+    // pocos puntos.
+    for (let n = 0; n < 4000; n++) {
       if (dir > 0 ? z <= limit : z >= limit) break
-      const gxg = (zAt(x + eps, y) - zAt(x - eps, y)) / (2 * eps)
-      const gyg = (zAt(x, y + eps) - zAt(x, y - eps)) / (2 * eps)
-      const g = Math.hypot(gxg, gyg)
+      const s = surf.sampleAt(x, y)
+      const g = Math.hypot(s.a, s.b)
       if (!(g > 1e-9)) break
-      const nx = x - dir * (gxg / g) * step
-      const ny = y - dir * (gyg / g) * step
+      // Paso repartido como hipotenusa (`step² = horizontal² + vertical²`): el
+      // avance en cota queda acotado por `step` en cualquier manteo, y en
+      // planta se encoge solo cuanto más vertical es el plano —que es lo que
+      // debe pasar: una falla casi vertical se recorre casi en línea recta
+      // hacia abajo, con apenas deriva lateral—.
+      const h = step / Math.sqrt(1 + g * g)
+      const predicted = -dir * h * g
+      const nx = x - dir * (s.a / g) * h
+      const ny = y - dir * (s.b / g) * h
       if (inFrame && !inFrame(nx, ny)) break
-      const nz = zAt(nx, ny)
-      if (!Number.isFinite(nz)) break
-      if (dir > 0 ? nz >= z : nz <= z) break
+      const ns = surf.sampleAt(nx, ny)
+      const actual = Number.isFinite(ns.z) ? ns.z - z : NaN
+      // ¿Concuerdan? Un margen generoso —el doble de lo previsto, más un
+      // paso— para no desechar curvatura real; nada que se dispare así de
+      // lejos de lo que la pendiente local anuncia puede ser tal cosa.
+      z += Number.isFinite(actual) && Math.abs(actual - predicted) <= Math.abs(predicted) * 2 + step ? actual : predicted
       x = nx
       y = ny
-      z = nz
       path.push([x, y, z])
     }
     return path
