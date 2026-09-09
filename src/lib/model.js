@@ -256,6 +256,76 @@ export function sortedContacts(project) {
   })
 }
 
+/** El contacto que ya separa este par de unidades, si existe. */
+export function findContactByPair(project, lowerUnitId, upperUnitId) {
+  return (
+    project.contacts.find((c) => c.lowerUnitId === lowerUnitId && c.upperUnitId === upperUnitId) || null
+  )
+}
+
+/**
+ * Par de unidades que propone «+ Contacto»: por defecto la más antigua con la
+ * más joven —el caso que no sale solo, una discordancia que salta unidades—,
+ * o el primer par sin ficha si ese ya tiene contacto. `null` si todos los
+ * pares posibles ya tienen uno.
+ */
+export function nextContactPair(project) {
+  const units = sortedUnits(project)
+  if (units.length < 2) return null
+  const base = units[units.length - 1].id
+  const top = units[0].id
+  if (!findContactByPair(project, base, top)) return [base, top]
+  for (let i = 0; i < units.length; i++) {
+    for (let j = i + 1; j < units.length; j++) {
+      if (!findContactByPair(project, units[i].id, units[j].id)) return [units[i].id, units[j].id]
+    }
+  }
+  return null
+}
+
+/**
+ * Fusiona los contactos que repiten el mismo par de unidades en uno solo.
+ *
+ * Cada par de unidades separa una única superficie: dos contactos para el
+ * mismo par no son dos rasgos distintos, son el mismo repartido en dos
+ * fichas. Eso pasaba —antes de que `contact.add` y el alta automática de
+ * `unit.add` comprobaran si el par ya tenía dueño— al pulsar «+ Contacto»
+ * más de una vez para el mismo par, o al recuperar un proyecto guardado con
+ * ese descuido. El efecto no se nota en el panel hasta que se digitaliza o se
+ * calcula el modelo: cada ficha alimenta su propia superficie 3D con sólo una
+ * parte de las trazas y los contornos estructurales del contacto real, así
+ * que salen dos superficies independientes —y a menudo contradictorias en su
+ * actitud— donde sólo debería haber una, y el relleno del mapa en planta
+ * titubea entre ellas donde una cubre y la otra no.
+ *
+ * Se aplica al cargar un proyecto (abrir, importar, ejemplos) para sanear los
+ * que ya se guardaron con el problema. Conserva el primer contacto de cada
+ * par —nombre, color, tipo y actitud manual— y le suma las trazas y los
+ * contornos estructurales de sus duplicados; no reordena ni toca los pares
+ * que ya eran únicos.
+ */
+export function mergeDuplicateContacts(project) {
+  const seen = new Map() // "lowerId|upperId" -> contacto que se conserva
+  const merged = []
+  let changed = false
+  for (const c of project.contacts) {
+    // Un contacto sin las dos unidades asignadas no separa ningún par: no hay
+    // nada que fusionar y agruparlos por "null|null" los mezclaría entre sí.
+    const key = c.lowerUnitId && c.upperUnitId ? `${c.lowerUnitId}|${c.upperUnitId}` : null
+    const keeper = key && seen.get(key)
+    if (!keeper) {
+      const copy = { ...c, traces: [...c.traces], structureContours: [...(c.structureContours || [])] }
+      if (key) seen.set(key, copy)
+      merged.push(copy)
+      continue
+    }
+    changed = true
+    keeper.traces.push(...c.traces)
+    keeper.structureContours.push(...(c.structureContours || []))
+  }
+  return changed ? { ...project, contacts: merged } : project
+}
+
 /**
  * Visibilidad individual de una unidad o un contacto.
  *

@@ -23,6 +23,7 @@ import {
   reassignContact,
   sortedUnits,
   sortedContacts,
+  nextContactPair,
   isHidden,
 } from '../lib/model.js'
 import { fmtDistance } from '../lib/georef.js'
@@ -250,13 +251,14 @@ export default function LayersPanel({
             title={units.length < 2 ? 'Hacen falta al menos dos unidades' : 'Nuevo contacto entre las unidades que elijas'}
             onClick={() => {
               // Por defecto se propone el par más antiguo y el más joven —el
-              // caso que no sale solo, una discordancia que salta unidades—;
-              // las selects de cada tarjeta aceptan después cualquier otro par.
-              // `units` aquí está invertido (techo arriba) para la columna, así
-              // que la base y el techo son sus dos extremos en orden contrario.
-              const base = units[units.length - 1]?.id || null
-              const techo = units[0]?.id || null
-              dispatch({ type: 'contact.add', lowerUnitId: base, upperUnitId: techo })
+              // caso que no sale solo, una discordancia que salta unidades—; si
+              // ese par ya tiene contacto se prueba con el primero que no lo
+              // tenga, porque pedir otro para el mismo par no crea nada nuevo
+              // (ver `contact.add`) y el botón parecería no hacer nada. Las
+              // selects de cada tarjeta aceptan después cualquier otro par.
+              const pair = nextContactPair(project)
+              if (!pair) return
+              dispatch({ type: 'contact.add', lowerUnitId: pair[0], upperUnitId: pair[1] })
             }}
           >
             <Plus size={13} /> Contacto

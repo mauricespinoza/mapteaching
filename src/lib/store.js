@@ -1,6 +1,6 @@
 // Reducer del proyecto con historial (deshacer/rehacer).
 
-import { newContact, newUnit, uid, sortedUnits, reassignContact } from './model.js'
+import { newContact, newUnit, uid, sortedUnits, reassignContact, findContactByPair, mergeDuplicateContacts } from './model.js'
 
 const LIMIT = 80
 
@@ -68,7 +68,10 @@ function apply(project, action) {
       const units = [...p.units, unit]
       const prevTop = sortedUnits(p)[p.units.length - 1]
       let contacts = p.contacts
-      if (prevTop) {
+      // Si el par ya tiene contacto —una unidad borrada y repuesta, por
+      // ejemplo— no se le suma otro: se quedaría con el mismo par que el que
+      // ya la separaba y duplicaría la ficha en el panel.
+      if (prevTop && !findContactByPair(p, prevTop.id, unit.id)) {
         const c = newContact({ ...p, units }, prevTop.id, unit.id)
         contacts = [...contacts, c]
       }
@@ -91,8 +94,14 @@ function apply(project, action) {
       return { ...p, units: copy.map((u, k) => ({ ...u, order: k })) }
     }
 
-    case 'contact.add':
+    case 'contact.add': {
+      // El par ya tiene una ficha: sumarle otra no crearía un contacto nuevo,
+      // duplicaría el que ya separa esas dos unidades y repartiría sus trazas
+      // y contornos estructurales entre las dos, con las consecuencias que
+      // explica `mergeDuplicateContacts`.
+      if (findContactByPair(p, action.lowerUnitId, action.upperUnitId)) return p
       return { ...p, contacts: [...p.contacts, newContact(p, action.lowerUnitId, action.upperUnitId)] }
+    }
     case 'contact.update':
       return { ...p, contacts: replaceIn(p.contacts, action.id, (c) => ({ ...c, ...action.patch })) }
     case 'contact.delete':
@@ -444,7 +453,7 @@ export function reducer(state, action) {
       return { past: [...state.past, state.present].slice(-LIMIT), present, future }
     }
     case 'project.load':
-      return { past: [], present: action.project, future: [] }
+      return { past: [], present: mergeDuplicateContacts(action.project), future: [] }
     default: {
       const next = apply(state.present, action)
       if (next === state.present) return state
