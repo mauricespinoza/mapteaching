@@ -15,8 +15,28 @@
 // conectados. Cada conjunto es un dominio: un tramo de la superficie con manteo
 // aproximadamente constante. El cambio de dominio es el cambio de pendiente.
 
-/** Plano de mínimos cuadrados z = a·x + b·y + c. */
+import { planeNormal, planeFromNormal, zRms, STEEP_GRADIENT } from './geom.js'
+
+/**
+ * Plano de mínimos cuadrados z = a·x + b·y + c.
+ *
+ * Si el plano sale empinado se rehace por distancia perpendicular: regresar la
+ * cota sobre el mapa supone que el error está en la cota, y en una superficie
+ * empinada está en el mapa. Ver `fitPlane` en geom.js, donde se explica.
+ */
 export function planeFit(pts, weights = null) {
+  const direct = planeFitLS(pts, weights)
+  // El ajuste perpendicular sólo se calcula si hay alguna posibilidad de que la
+  // superficie sea empinada: en una tendida sale igual y cuesta, y esto se
+  // ejecuta miles de veces dentro del RANSAC. Un plano que la regresión ya ve a
+  // 45° puede ser en realidad de 90°; uno que ve horizontal, no.
+  if (!direct || Math.hypot(direct.a, direct.b) < 1) return direct
+  const perpendicular = planeFromNormal(planeNormal(pts))
+  if (!perpendicular || Math.hypot(perpendicular.a, perpendicular.b) < STEEP_GRADIENT) return direct
+  return { ...perpendicular, rms: zRms(pts, perpendicular), n: pts.length }
+}
+
+function planeFitLS(pts, weights = null) {
   const n = pts.length
   if (n < 3) return null
   let cx = 0

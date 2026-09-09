@@ -165,18 +165,39 @@ export default function MapView({
     [scVisible, scDraft]
   )
 
-  /** Contorno estructural más cercano al punto (en píxeles de imagen). */
+  /**
+   * Contorno estructural más cercano al punto (en píxeles de imagen).
+   *
+   * Cuando varios caen prácticamente a la misma distancia no vale quedarse con
+   * el más cercano sin más. Una superficie empinada dibuja sus contornos casi
+   * unos encima de otros —en una falla de 87°, dos cotas separadas 200 m van a
+   * menos de dos píxeles en el mapa—, y ahí «el más cercano» lo decide el ruido
+   * del pulso: se toca la cota de 200 y sale la de 400. El desempate lo gana
+   * entonces el que ya estaba seleccionado, de modo que una vez cogido un
+   * contorno se pueda trabajar sin que se escape, y si no hay ninguno cogido, el
+   * puesto a mano, que es el que se puede editar.
+   */
   const scHit = useCallback(
     (p, tolPx = 14) => {
       const tol = tolPx / view.scale
-      let best = null
+      const near = []
       for (const it of scVisible) {
         const d = pointPolyline(p, [it.a, it.b]).d
-        if (d <= tol && (!best || d < best.d)) best = { it, d }
+        if (d <= tol) near.push({ it, d })
       }
-      return best
+      if (!near.length) return null
+      near.sort((a, b) => a.d - b.d)
+      const tied = near.filter((x) => x.d <= near[0].d + tol * 0.5)
+      if (tied.length > 1) {
+        return (
+          tied.find((x) => x.it.key === selection?.key) ||
+          tied.find((x) => x.it.manualId) ||
+          near[0]
+        )
+      }
+      return near[0]
     },
-    [scVisible, view.scale]
+    [scVisible, view.scale, selection?.key]
   )
 
   /**

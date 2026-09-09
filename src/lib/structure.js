@@ -11,7 +11,7 @@
 // una superficie plegada cambia de manteo: unir los puntos de igual cota a través
 // de una charnela daría un contorno estructural que no existe en el mapa.
 
-import { fitLine, fitPlane, polylineIntersections, dot, sub, norm, perp, clipLineToRect } from './geom.js'
+import { fitLine, fitPlane, polylineIntersections, dot, sub, norm, perp, clipLineToRect, STEEP_GRADIENT } from './geom.js'
 import { azimuthWorld, formatAttitude, norm360 } from './georef.js'
 import { structuralDomains, domainPlaneField, completeDomainPlanes } from './domains.js'
 
@@ -644,6 +644,36 @@ const OUTLIER = 4
  * Devuelve `{ z, a, b }`: cota y gradiente local, con `z = a·x + b·y + c` cerca
  * del punto consultado.
  */
+/**
+ * El modelo de una superficie empinada: la tendencia y nada más.
+ *
+ * Toda la corrección local de `buildFoldModel` está medida en metros de cota, y
+ * eso sólo es una escala razonable mientras la superficie esté tendida. Al
+ * empinarse, un metro de error en el mapa —el grosor del trazo, el píxel— vale
+ * tan(manteo) metros de cota: 2.7 a 70°, 19 a 87°. Los residuos que la
+ * corrección ve entonces no son forma de la superficie sino ese error
+ * amplificado, y hacerlos pasar por dato levanta relieve de cientos de metros
+ * donde el dato es un plano. En la falla que destapó esto, contornos
+ * perpendicularmente planos a 2 m producían 282 m de bollos.
+ *
+ * Una superficie empinada tampoco se pliega en el sentido que el modelo sabe
+ * resolver: lo que se ve de ella en el mapa es una banda estrecha, y no hay con
+ * qué medir curvatura a través de ella. Se deja el plano —o la mezcla de planos
+ * de los dominios—, que es exactamente lo que el dato sostiene.
+ */
+function planarModel(trend, n) {
+  if (!trend) return null
+  return {
+    n,
+    planar: true,
+    evaluate: (x, y) => {
+      const g = trend(x, y)
+      if (!g) return { z: NaN, a: 0, b: 0 }
+      return { z: g.a * x + g.b * y + g.c, a: g.a, b: g.b }
+    },
+  }
+}
+
 export function buildFoldModel(points3D, trend, spacing) {
   const n = points3D.length
   if (n < 4 || !trend) return null
@@ -813,7 +843,17 @@ export function buildSurface({
   const spacing = contourSpacing(points3D)
   const domPlanes = completeDomainPlanes(dom.groups, dom.planes, plane)
   const basePlaneAt = domainPlaneField(dom.groups, domPlanes, plane, (spacing || 1) * HINGE)
-  const model = points3D.length >= 6 ? buildFoldModel(points3D, basePlaneAt, spacing) : null
+  // ¿Empinada? Basta con que lo sea alguno de sus paneles: donde la superficie
+  // se pone de canto, la corrección local deja de medir forma (ver
+  // `planarModel`). Se pregunta a los planos de los dominios y al global.
+  const gradientOf = (pl) => (pl ? Math.hypot(pl.a, pl.b) : 0)
+  const steep = Math.max(gradientOf(plane), ...domPlanes.map(gradientOf)) >= STEEP_GRADIENT
+  const model =
+    points3D.length >= 6
+      ? steep
+        ? planarModel(basePlaneAt, points3D.length)
+        : buildFoldModel(points3D, basePlaneAt, spacing)
+      : null
 
   // Rumbo de los paneles cuya actitud está confirmada: perpendicular a su
   // gradiente. Los demás no sirven de vara para nadie (ver CONFIRMED_POINTS).
@@ -1038,6 +1078,7 @@ export function buildSurface({
     manualContours,
     points3D,
     model,
+    steep,
     gradStep,
     sampleAt,
     limbCount,

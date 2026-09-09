@@ -946,9 +946,15 @@ function drawStructureContour(ctx, view, it, { selected = false } = {}) {
     ctx.lineTo(b[0], b[1])
     ctx.stroke()
   }
+  // Continuo el calculado, punteado el puesto a mano. Es la convención de
+  // cualquier mapa geológico: la línea llena es la que sostiene el dato —aquí,
+  // los cruces medidos de la traza con las curvas de nivel— y la discontinua la
+  // que pone quien interpreta. Un contorno dibujado a mano es exactamente eso,
+  // una hipótesis del estudiante, y debe verse como tal aunque mande sobre el
+  // cálculo. Va además más grueso, para que no se pierda entre los otros.
   ctx.strokeStyle = it.color
   ctx.lineWidth = manual ? 2.6 : 1.8
-  ctx.setLineDash(manual ? [] : [10, 6])
+  ctx.setLineDash(manual ? [10, 6] : [])
   ctx.beginPath()
   ctx.moveTo(a[0], a[1])
   ctx.lineTo(b[0], b[1])

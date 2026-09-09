@@ -194,11 +194,159 @@ export function fitLine(points) {
   return { c: [cx, cy], dir, rms, spread, n }
 }
 
+// Manteo a partir del cual una superficie deja de poder ajustarse regresando la
+// cota sobre el mapa. Ver `planeNormal`.
+export const STEEP_GRADIENT = Math.tan((70 * Math.PI) / 180)
+// Ningún plano se devuelve exactamente vertical: z = a·x + b·y + c no puede
+// representarlo. A 89.8° la pendiente ya es de 286 m de cota por metro de mapa:
+// sobre un desnivel de 1000 m, recortar ahí desplaza la superficie menos de
+// cuatro metros en el mapa —por debajo del grosor del trazo— y a cambio todo
+// sigue siendo un número finito.
+const MAX_GRADIENT = Math.tan((89.8 * Math.PI) / 180)
+
 /**
- * Ajuste de plano z = a·x + b·y + c por mínimos cuadrados.
+ * Normal del plano que mejor ajusta una nube por distancia **perpendicular**
+ * (mínimos cuadrados totales): el autovector menor de la matriz de covarianza,
+ * por rotaciones de Jacobi.
+ *
+ * Devuelve `{ n, c, perp }` —normal unitaria, centroide y residuo medido
+ * perpendicular al plano— o null.
+ */
+export function planeNormal(points) {
+  const n = points.length
+  if (n < 3) return null
+  let cx = 0
+  let cy = 0
+  let cz = 0
+  for (const p of points) {
+    cx += p[0]
+    cy += p[1]
+    cz += p[2]
+  }
+  cx /= n
+  cy /= n
+  cz /= n
+  let a = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ]
+  for (const p of points) {
+    const d = [p[0] - cx, p[1] - cy, p[2] - cz]
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) a[i][j] += d[i] * d[j]
+  }
+  let v = [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ]
+  const mul = (X, Y) => X.map((row) => [0, 1, 2].map((j) => row[0] * Y[0][j] + row[1] * Y[1][j] + row[2] * Y[2][j]))
+  for (let sweep = 0; sweep < 40; sweep++) {
+    // Se anula el mayor término fuera de la diagonal; en 3x3 basta con eso.
+    let p = 0
+    let q = 1
+    let big = Math.abs(a[0][1])
+    if (Math.abs(a[0][2]) > big) {
+      big = Math.abs(a[0][2])
+      p = 0
+      q = 2
+    }
+    if (Math.abs(a[1][2]) > big) {
+      big = Math.abs(a[1][2])
+      p = 1
+      q = 2
+    }
+    if (big <= 1e-14 * Math.max(1, a[0][0] + a[1][1] + a[2][2])) break
+    const th = 0.5 * Math.atan2(2 * a[p][q], a[q][q] - a[p][p])
+    const c = Math.cos(th)
+    const s = Math.sin(th)
+    const r = [
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+    ]
+    r[p][p] = c
+    r[q][q] = c
+    r[p][q] = s
+    r[q][p] = -s
+    const rt = [0, 1, 2].map((i) => [0, 1, 2].map((j) => r[j][i]))
+    a = mul(rt, mul(a, r))
+    v = mul(v, r)
+  }
+  let k = 0
+  for (let i = 1; i < 3; i++) if (a[i][i] < a[k][k]) k = i
+  const nrm = [v[0][k], v[1][k], v[2][k]]
+  const len = Math.hypot(nrm[0], nrm[1], nrm[2]) || 1
+  return {
+    n: [nrm[0] / len, nrm[1] / len, nrm[2] / len],
+    c: [cx, cy, cz],
+    perp: Math.sqrt(Math.max(0, a[k][k]) / n),
+  }
+}
+
+/**
+ * El mismo ajuste perpendicular, ya escrito como z = a·x + b·y + c.
+ * Devuelve null si el plano sale vertical de verdad.
+ */
+export function planeFromNormal(nn) {
+  if (!nn) return null
+  const [nx, ny, nz] = nn.n
+  if (!(Math.abs(nz) > 1e-12)) return null
+  let a = -nx / nz
+  let b = -ny / nz
+  const g = Math.hypot(a, b)
+  if (g > MAX_GRADIENT) {
+    a = (a / g) * MAX_GRADIENT
+    b = (b / g) * MAX_GRADIENT
+  }
+  return { a, b, c: nn.c[2] - a * nn.c[0] - b * nn.c[1] }
+}
+
+/**
+ * Ajuste de plano z = a·x + b·y + c.
  * points: [[x,y,z], ...]. Devuelve { a, b, c, rms } o null.
+ *
+ * Por defecto se regresa la cota sobre el mapa, que es lo que corresponde
+ * cuando el error está en la cota: sobre una superficie tendida, dónde cae el
+ * cruce en el mapa se sabe mucho mejor que a qué curva de nivel pertenece.
+ *
+ * En una superficie empinada la suposición se invierte. Lo que se conoce mal es
+ * la posición en planta —el grosor del trazo, el píxel— y la cota es exacta:
+ * es la curva de nivel que se eligió. Regresar z sobre (x, y) lee entonces ese
+ * error horizontal multiplicado por la tangente del manteo: a 87°, el medio
+ * milímetro de un trazo se convierte en decenas de metros de cota, y con los
+ * puntos casi alineados en planta —que es como se ve en el mapa una superficie
+ * vertical— el sistema queda además mal condicionado y devuelve manteos que no
+ * tienen nada que ver con el dato (en el caso que destapó esto, 55° donde los
+ * contornos daban 90°).
+ *
+ * Por eso se mide primero el manteo con un ajuste perpendicular, que no depende
+ * de esa suposición ni se degrada al empinarse, y si sale empinado se conserva
+ * ése. El `rms` que se publica sigue siendo el vertical, porque las tolerancias
+ * de todo lo que viene después están en metros de cota.
  */
 export function fitPlane(points) {
+  const direct = fitPlaneLS(points)
+  if (direct && Math.hypot(direct.a, direct.b) < 1) return direct
+  const nn = planeNormal(points)
+  const perpendicular = planeFromNormal(nn)
+  if (!perpendicular) return direct
+  if (Math.hypot(perpendicular.a, perpendicular.b) < STEEP_GRADIENT) return direct
+  return { ...perpendicular, rms: zRms(points, perpendicular), perp: nn.perp }
+}
+
+/** El residuo vertical de un plano frente a la nube. */
+export function zRms(points, pl) {
+  let err = 0
+  for (const p of points) {
+    const d = p[2] - (pl.a * p[0] + pl.b * p[1] + pl.c)
+    err += d * d
+  }
+  return Math.sqrt(err / points.length)
+}
+
+/** Regresión de la cota sobre el mapa, sin más. */
+export function fitPlaneLS(points) {
   const n = points.length
   if (n < 3) return null
   let sx = 0

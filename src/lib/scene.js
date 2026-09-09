@@ -152,6 +152,14 @@ function demFrameTest(project, georef) {
  */
 function anchorToTrace(surf, traces, dem, side) {
   if (!surf?.defined || !dem?.valid) return surf
+  // En una falla empinada, no. La corrección es vertical, y sobre una superficie
+  // de canto un desajuste vertical enorme es un desajuste horizontal
+  // insignificante: con manteo de 87°, los 200 m que separarían la superficie
+  // del terreno sobre la traza son diez metros de mapa, el grosor del trazo.
+  // Subir o bajar la superficie esos 200 m para que toque el terreno en la traza
+  // la alabea entera —y la traza de una falla vertical dibujada a mano nunca es
+  // tan recta como el plano—, así que aquí el remedio es peor que el mal.
+  if (surf.steep) return surf
   const step = Math.max(side * 0.01, 1)
   const anchors = []
   for (const tr of traces) {
