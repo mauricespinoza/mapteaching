@@ -815,8 +815,20 @@ export function buildSurface({
   for (const list of byLimb.values()) {
     list.sort((a, b) => a.elevation - b.elevation)
     for (let i = 1; i < list.length; i++) {
-      const a = attitudeBetween(list[i - 1], list[i])
-      if (a) pairs.push({ ...a, limb: list[i].limb, part: list[i].part })
+      const lo = list[i - 1]
+      const hi = list[i]
+      const a = attitudeBetween(lo, hi)
+      if (!a) continue
+      // Dónde se hizo la medida: a medio camino entre los dos contornos, que es
+      // el único sitio del que el par dice algo. La actitud de un par no es una
+      // propiedad de toda la superficie sino de esa franja, y quien la exporte
+      // —el paquete de GemPy— necesita saber dónde ponerla.
+      pairs.push({
+        ...a,
+        limb: hi.limb,
+        part: hi.part,
+        at: [(lo.fit.c[0] + hi.fit.c[0]) / 2, (lo.fit.c[1] + hi.fit.c[1]) / 2, (lo.elevation + hi.elevation) / 2],
+      })
     }
   }
 
