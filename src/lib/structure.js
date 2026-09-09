@@ -20,35 +20,52 @@ const DEG = 180 / Math.PI
 
 /**
  * Intersecta las trazas de una estructura con las curvas de nivel.
+ *
+ * Devuelve los cruces **ordenados a lo largo del afloramiento**, y con ellos la
+ * lista de tramos (`runs`): los índices de los cruces de cada traza, en el orden
+ * en que aparecen al recorrerla. Ese orden no es decoración. Es la única manera
+ * de saber qué cruces son vecinos *de verdad*: dos que se tocan en el mapa
+ * pueden estar en limbos opuestos de un pliegue, pero dos consecutivos a lo
+ * largo de una traza son el mismo trozo de afloramiento, sin nada en medio. El
+ * reparto en paneles se apoya en eso (ver `structuralDomains`).
+ *
  * @param traces  [[ [x,y], ... ]] polilíneas en coordenadas mundo (m)
  * @param contours [{ elevation, pts }] curvas de nivel en coordenadas mundo
- * @returns [[x, y, z], ...]
+ * @returns { points: [[x, y, z], ...], runs: [[i, i+1, …], …] }
  */
 export function intersectWithContours(traces, contours, tol = 1) {
-  const raw = []
+  const out = []
+  const runs = []
   for (const trace of traces) {
     if (trace.length < 2) continue
+    const hits = []
     for (const c of contours) {
       if (c.pts.length < 2) continue
       for (const hit of polylineIntersections(trace, c.pts)) {
-        raw.push([hit.p[0], hit.p[1], c.elevation])
+        // `ia + ta` es la distancia recorrida a lo largo de la traza en
+        // segmentos: sirve para ordenar, que es todo lo que hace falta.
+        hits.push({ p: [hit.p[0], hit.p[1], c.elevation], at: hit.ia + hit.ta })
       }
     }
-  }
-  // Los cruces tangenciales generan varias intersecciones casi coincidentes:
-  // se colapsan para no falsear el ajuste del contorno estructural.
-  const out = []
-  for (const p of raw) {
-    let dup = false
-    for (const q of out) {
-      if (q[2] === p[2] && Math.hypot(q[0] - p[0], q[1] - p[1]) < tol) {
-        dup = true
-        break
+    hits.sort((a, b) => a.at - b.at)
+    const run = []
+    for (const h of hits) {
+      // Los cruces tangenciales generan varias intersecciones casi
+      // coincidentes: se colapsan para no falsear el ajuste del contorno.
+      let dup = false
+      for (const q of out) {
+        if (q[2] === h.p[2] && Math.hypot(q[0] - h.p[0], q[1] - h.p[1]) < tol) {
+          dup = true
+          break
+        }
       }
+      if (dup) continue
+      run.push(out.length)
+      out.push(h.p)
     }
-    if (!dup) out.push(p)
+    if (run.length) runs.push(run)
   }
-  return out
+  return { points: out, runs }
 }
 
 /** Desvío de rumbo, en grados, que se admite dentro de un mismo panel. */
@@ -81,21 +98,26 @@ const STRIKE_WINDOW = 18
  * Qué hace falta para dar por **confirmada** la actitud de un panel, y poder
  * usarla como vara para juzgar los contornos de los demás.
  *
- * Un plano lo fijan tres puntos: con tres, o con cuatro, el ajuste pasa por los
- * datos haga la superficie lo que haga, y su manteo no lo confirma nada. Con
- * seis van tres más de los que consume el propio plano. Y las cotas cuentan
- * aparte de los puntos: el manteo de un panel se mide entre contornos
- * consecutivos, así que cuatro cotas son tres medidas seguidas del mismo
- * manteo, y un panel que sólo toca dos o tres cotas no lo ha repetido lo
- * bastante para que su rumbo valga como vara de nadie.
+ * Lo que cuenta son las cotas, no los puntos. El manteo de un panel se mide
+ * entre contornos consecutivos, así que cuatro cotas son tres medidas seguidas
+ * del mismo manteo: repetido, no afirmado una vez. Un panel que sólo toca dos o
+ * tres cotas no lo ha repetido lo bastante para servirle de vara a nadie, por
+ * muchos puntos que tenga apiñados en ellas.
  *
  * El caso que esto describe es el retazo de la charnela: alrededor del cierre
  * de un pliegue la traza recorre un trecho corto, corta pocas curvas de nivel y
  * deja un puñado de cruces de los dos flancos. Ese puñado es un panel para el
  * RANSAC —tres puntos siempre lo son— pero no es un limbo, y de él salen los
  * contornos atravesados.
+ *
+ * El listón bajó de seis puntos a cuatro cuando el reparto pasó a conectar por
+ * el afloramiento (ver `outcropNeighbours`): los paneles salen más pequeños y
+ * más numerosos, pero cada uno describe de verdad el trozo de superficie que
+ * cubre, así que uno de cuatro cruces repartidos en cuatro cotas ya es un dato
+ * y no una casualidad. Medido, bajarlo publica trece contornos correctos más
+ * sin añadir ninguno atravesado.
  */
-const CONFIRMED_POINTS = 6
+const CONFIRMED_POINTS = 4
 const CONFIRMED_LEVELS = 4
 
 /**
@@ -744,7 +766,7 @@ export function buildSurface({
   color = '#000',
   tol = 1,
 }) {
-  const measured = intersectWithContours(traces, contours, tol)
+  const { points: measured, runs } = intersectWithContours(traces, contours, tol)
   const overridden = new Set(manualContours.map((m) => m.elevation))
   const manualIdOf = new Map()
   const drawn = []
@@ -771,7 +793,10 @@ export function buildSurface({
   // un manteo, de modo que un pliegue se resuelve limbo a limbo y dos ondas de
   // un mismo tren no comparten contornos.
   const zTol = domainTolerance(points3D, tol)
-  const dom = structuralDomains(points3D, { zTol })
+  // Los tramos de afloramiento sólo describen los cruces medidos. Si la
+  // superficie se define además con contornos puestos a mano —que no vienen de
+  // ninguna traza—, el reparto vuelve a conectar por cercanía en el mapa.
+  const dom = structuralDomains(points3D, { zTol, runs: points3D === measured ? runs : null })
   const index = new Map(points3D.map((p, i) => [p, dom.labels[i]]))
   const limbOf = points3D.length ? (p) => index.get(p) ?? 0 : null
   const limbCount = dom.count
