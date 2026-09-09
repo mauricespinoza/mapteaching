@@ -258,6 +258,62 @@ function apply(project, action) {
       }
     }
     /**
+     * Cambio del par de unidades de UN contorno estructural puesto a mano, sin
+     * tocar a las trazas del contacto ni a sus demás contornos. Es el mismo
+     * criterio que `trace.reassign`, aplicado a un contorno: el estudiante
+     * pone un contorno a mano y descubre que en realidad describe la
+     * superficie de otro par de unidades —o de un contacto que todavía no
+     * existe—, y sólo ese contorno se muda.
+     *
+     * Sólo los contactos tienen «unidades»: una falla no se reasigna así.
+     */
+    case 'sc.reassign': {
+      const from = p.contacts.find((c) => c.id === action.id)
+      const sc = from?.structureContours?.find((s) => s.id === action.scId)
+      if (!from || !sc) return p
+      const lowerUnitId = action.lowerUnitId || null
+      const upperUnitId = action.upperUnitId || null
+      if (from.lowerUnitId === lowerUnitId && from.upperUnitId === upperUnitId) return p
+      const target = p.contacts.find(
+        (c) => c.id !== from.id && c.lowerUnitId === lowerUnitId && c.upperUnitId === upperUnitId
+      )
+      // Único contorno y sin trazas propias: no hay nada más que separar, así
+      // que se reasigna el contacto en su sitio y conserva su nombre y su
+      // color si eran los automáticos.
+      if (!target && from.traces.length === 0 && (from.structureContours || []).length < 2) {
+        return {
+          ...p,
+          contacts: replaceIn(p.contacts, from.id, (c) => ({
+            ...c,
+            ...reassignContact(p, c, lowerUnitId, upperUnitId),
+          })),
+        }
+      }
+      // El contacto de origen se queda sin trazas y sin este contorno: es una
+      // ficha vacía que ya no separa nada en el mapa, y dejarla duplicaría el
+      // par del contacto de destino en el panel.
+      const vacio = from.traces.length === 0 && (from.structureContours || []).length < 2
+      const rest = p.contacts
+        .map((c) =>
+          c.id === from.id
+            ? { ...c, structureContours: (c.structureContours || []).filter((s) => s.id !== action.scId) }
+            : c
+        )
+        .filter((c) => !(vacio && c.id === from.id))
+      if (target) {
+        return {
+          ...p,
+          contacts: rest.map((c) =>
+            c.id === target.id ? { ...c, structureContours: [...(c.structureContours || []), sc] } : c
+          ),
+        }
+      }
+      // El contacto nuevo hereda el tipo del de origen: lo que cambia es entre
+      // qué unidades va, no cómo es el contacto.
+      const nuevo = { ...newContact(p, lowerUnitId, upperUnitId), type: from.type, structureContours: [sc] }
+      return { ...p, contacts: [...rest, nuevo] }
+    }
+    /**
      * Varios rasgos a la vez, en un solo paso de historial: regularizar o
      * densificar toca todos los contactos del ejercicio y deshacerlo tiene que
      * ser un solo Ctrl+Z, no veinte.

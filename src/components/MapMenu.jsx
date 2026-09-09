@@ -293,33 +293,48 @@ function ContourMenu({ hit, project, dispatch, done }) {
 }
 
 /**
- * Contorno estructural. Si aún es el que calcula el motor, cambiar la cota o
- * moverlo obliga a fijarlo primero: `onSelect` lo materializa junto con los
- * demás contornos de esa cota, para no perder el otro limbo del pliegue.
+ * Contorno estructural. Si aún es el que calcula el motor, cambiar la cota,
+ * moverlo o reasignarlo obliga a fijarlo primero: `onSelect` lo materializa
+ * junto con los demás contornos de esa cota, para no perder el otro limbo del
+ * pliegue.
  */
 function ScMenu({ hit, project, dispatch, done, onSelect }) {
   const it = hit.it
   const key = it.kind === 'fault' ? 'faults' : 'contacts'
-  const feature = project[key].find((x) => x.id === it.featureId)
-  // El contorno puede fijarse desde este mismo menú, y entonces `hit.it` se
-  // queda viejo: el id vivo se guarda aquí.
+  // El contorno puede fijarse desde este mismo menú, y puede mudarse a otro
+  // contacto al reasignarlo: el dueño se busca por el id vivo del contorno, no
+  // por el `featureId` con el que se abrió el menú, que se queda atrás en
+  // cuanto se reasigna —igual que la traza en ContactMenu.
   const [scId, setScId] = useState(it.manualId)
+  const owner = scId ? project[key].find((x) => (x.structureContours || []).some((s) => s.id === scId)) : null
+  const feature = owner || project[key].find((x) => x.id === it.featureId)
   const sc = scId ? (feature?.structureContours || []).find((x) => x.id === scId) : null
   const z = sc ? sc.elevation : it.elevation
   const step = project.settings.contourInterval || 100
-  const setZ = (elevation) => {
-    let id = sc?.id
-    if (!id) {
-      id = onSelect?.(it)
-      setScId(id)
-    }
-    if (id) dispatch({ type: 'sc.update', kind: it.kind, id: it.featureId, scId: id, patch: { elevation } })
+  // Fija el contorno si todavía es el calculado por el motor, y devuelve su id
+  // vivo y el del contacto que lo tiene en ese momento: lo necesitan tanto
+  // `setZ` como `setPair` antes de despachar su cambio.
+  const fix = () => {
+    if (sc) return { id: sc.id, ownerId: feature.id }
+    const id = onSelect?.(it)
+    setScId(id)
+    return { id, ownerId: it.featureId }
   }
+  const setZ = (elevation) => {
+    const { id, ownerId } = fix()
+    if (id) dispatch({ type: 'sc.update', kind: it.kind, id: ownerId, scId: id, patch: { elevation } })
+  }
+  const units = it.kind === 'contact' ? sortedUnits(project) : null
+  const setPair = (lowerUnitId, upperUnitId) => {
+    const { id, ownerId } = fix()
+    if (id) dispatch({ type: 'sc.reassign', id: ownerId, scId: id, lowerUnitId, upperUnitId })
+  }
+  const name = feature?.name || it.name
   return (
     <>
       <Head
         title={`Contorno ${z} m`}
-        sub={`${it.name}${it.block != null ? ` · bloque ${it.block}` : ''}${sc ? ' · editado' : ' · calculado'}`}
+        sub={`${name}${it.block != null ? ` · bloque ${it.block}` : ''}${sc ? ' · editado' : ' · calculado'}`}
         color={it.color}
       />
       <p className="mb-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[10.5px] leading-relaxed text-slate-600">
@@ -327,8 +342,8 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
           <>Arrastra sus extremos en el mapa para corregirlo. El motor recalcula el manteo con la curva puesta aquí.</>
         ) : (
           <>
-            Es el contorno que calcula el motor a partir de {it.n} punto{it.n === 1 ? '' : 's'}. Al moverlo o cambiarle
-            la cota pasas a mandar tú sobre esa cota.
+            Es el contorno que calcula el motor a partir de {it.n} punto{it.n === 1 ? '' : 's'}. Al moverlo, cambiarle
+            la cota o reasignarlo pasas a mandar tú sobre él.
           </>
         )}
       </p>
@@ -356,6 +371,42 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
           </button>
         </div>
       </Labeled>
+      {units && (
+        <>
+          <Labeled label="Unidades que separa aquí">
+            <div className="mb-1.5 grid grid-cols-2 gap-1.5">
+              <select
+                className={inputCls}
+                value={feature?.lowerUnitId || ''}
+                onChange={(e) => setPair(e.target.value || null, feature?.upperUnitId)}
+              >
+                <option value="">Abajo: —</option>
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={inputCls}
+                value={feature?.upperUnitId || ''}
+                onChange={(e) => setPair(feature?.lowerUnitId, e.target.value || null)}
+              >
+                <option value="">Arriba: —</option>
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </Labeled>
+          <p className="mb-2 rounded-lg bg-sky-50 px-2 py-1.5 text-[10.5px] leading-relaxed text-sky-800">
+            Cambiar cualquiera de las dos muda <b>sólo este contorno</b> al contacto de ese par —o crea uno nuevo
+            si todavía no existe—. El resto de «{name}» se queda como está.
+          </p>
+        </>
+      )}
       {!sc && (
         <Action
           icon={Ruler}
@@ -366,14 +417,14 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
       {sc && (
         <Danger
           label="Borrar este contorno"
-          onClick={done(() => dispatch({ type: 'sc.delete', kind: it.kind, id: it.featureId, scId: sc.id }))}
+          onClick={done(() => dispatch({ type: 'sc.delete', kind: it.kind, id: feature.id, scId: sc.id }))}
         />
       )}
       {feature?.structureContours?.length > 0 && (
         <Action
           icon={Layers}
           label="Restaurar los contornos calculados"
-          onClick={done(() => dispatch({ type: 'sc.clear', kind: it.kind, id: it.featureId }))}
+          onClick={done(() => dispatch({ type: 'sc.clear', kind: it.kind, id: feature.id }))}
         />
       )}
     </>
