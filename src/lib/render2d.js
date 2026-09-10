@@ -386,6 +386,28 @@ export function render(ctx, opts) {
   if (show.faults) {
     ctx.save()
     ctx.globalAlpha = alphaOf('faults')
+    // Prolongación con la que la app sella la partición en bloques: se dibuja
+    // fina y punteada para que se vea que ahí la falla ya no es un dato del
+    // mapa sino la continuación que el motor supone —y que se corrige
+    // digitalizando la traza más allá—.
+    const fw = scene?.faultWorld || []
+    for (const f of fw) {
+      ctx.strokeStyle = '#94a3b8'
+      ctx.lineWidth = 1.2
+      ctx.setLineDash([4, 4])
+      f.traces.forEach((tr, i) => {
+        const bar = f.barriers?.[i]
+        if (!bar || bar.length < 3) return
+        for (const seg of [
+          [bar[0], tr[0]],
+          [tr[tr.length - 1], bar[bar.length - 1]],
+        ]) {
+          path(ctx, view, seg.map((p) => toImage(scene.georef, p)))
+          ctx.stroke()
+        }
+      })
+      ctx.setLineDash([])
+    }
     for (const f of project.faults) {
       const kin = kinematicsOf(f.kinematics)
       const selected = selection?.kind === 'fault' && selection.id === f.id

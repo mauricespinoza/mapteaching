@@ -94,7 +94,10 @@ export function gempyData(scene) {
     // serie que la desplaza, así que el contacto es uno solo y sus puntos van
     // todos juntos. Lo que no se puede es mezclar sus *orientaciones* en una
     // media —cada panel entrega la suya, con su sitio.
-    for (const [, surf] of byBlock) {
+    // Por superficie y no por bloque: los bloques que una falla sellada no
+    // separa comparten una sola superficie y recorrerla dos veces entregaría
+    // cada punto y cada orientación repetidos.
+    for (const surf of new Set(byBlock.values())) {
       for (const p of surf.points3D) if (keep(p)) points.push(mv(p))
       for (const a of pairOrientations(surf, shift)) if (keep([a.x, a.y])) orientations.push(a)
     }

@@ -51,6 +51,20 @@ export default function HelpPanel({ project, dispatch }) {
           contornos estructurales de la falla, así que las unidades se cortan justo donde se ve la falla.
         </li>
         <li>
+          <b>Hasta cuándo se movió la falla.</b> Una falla corta toda la pila salvo que le indiques quién la
+          <b> sella</b>: en su tarjeta, «Sellada por» elige la superficie desde la cual ya no desplaza nada. Es el
+          caso de la falla truncada por una <b>discordancia angular</b> —se movió, se erosionó y la cobertura se
+          depositó encima ya sin romperse—: sellada por ese contacto, la falla sigue desplazando lo que hay debajo
+          y la cobertura cruza entera por encima, en el mapa, en el perfil y en el 3D. Sin sellar, cada unidad de
+          la cobertura se resuelve por separado a cada lado y aparece un salto que la geología no tiene.
+        </li>
+        <li>
+          Para que una falla parta el mapa de verdad su traza tiene que <b>cruzar el área de trabajo de lado a
+          lado</b>: si muere dentro, el relleno la rodea por la punta y los dos lados vuelven a ser el mismo
+          bloque. La app prolonga el trazo por sus extremos hasta salir del área y lo dibuja <b>punteado en gris</b>;
+          si esa prolongación no va por donde debe, sigue digitalizando la traza tú.
+        </li>
+        <li>
           En <b>Datos</b> tienes tres herramientas más: el <b>estereograma</b> (red de Schmidt con el polo y el
           plano de cada unidad, en su color: los polos agrupados son unidades concordantes), el <b>salto de las
           fallas</b> —ojo, la <i>separación</i> que mide el mapa cambia con cada unidad y no es el salto; el

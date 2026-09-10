@@ -391,9 +391,14 @@ export default function LayersPanel({
                 <ManualContours feature={c} kind="contact" dispatch={dispatch} />
                 {byBlock && byBlock.size > 0 && (
                   <div className="mt-1.5 space-y-0.5 text-[11px] text-slate-600">
-                    {[...byBlock.entries()].map(([b, s]) => (
-                      <div key={b}>
-                        Bloque {b}: {s.mean ? `${s.mean.quadrant} (${s.mean.dipDirNotation})` : 'sin actitud'} ·{' '}
+                    {/* Una línea por superficie, no por bloque: los bloques que
+                        una falla sellada no separa comparten superficie y
+                        listarlos por separado repetiría la misma actitud como
+                        si fueran dos paneles distintos. */}
+                    {[...groupBySurface(byBlock).entries()].map(([s, bs]) => (
+                      <div key={bs.join('-')}>
+                        Bloque{bs.length > 1 ? 's' : ''} {bs.join(' y ')}:{' '}
+                        {s.mean ? `${s.mean.quadrant} (${s.mean.dipDirNotation})` : 'sin actitud'} ·{' '}
                         {s.structureContours.filter((x) => x.fit).length} contornos
                         {s.inherited ? (
                           <span className="ml-1 text-sky-700">
@@ -458,6 +463,35 @@ export default function LayersPanel({
                     </option>
                   ))}
                 </select>
+                {/* Hasta dónde llega la falla en el tiempo. Una falla antigua
+                    truncada por una discordancia movió lo que hay bajo ella y
+                    nada de la cobertura: eligiendo aquí esa superficie, la
+                    falla deja de partir en dos los contactos desde ella hacia
+                    arriba —en el mapa, en el perfil y en el 3D—. */}
+                <Field
+                  label="Sellada por"
+                  hint="La falla no desplaza esa superficie ni nada por encima de ella."
+                >
+                  <select
+                    className={inputCls}
+                    value={f.sealedByContactId || ''}
+                    onChange={(e) =>
+                      dispatch({
+                        type: 'fault.update',
+                        id: f.id,
+                        patch: { sealedByContactId: e.target.value || null },
+                      })
+                    }
+                  >
+                    <option value="">Nada: corta toda la pila</option>
+                    {contacts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                        {c.type === 'discordante' ? ' (discordancia)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
                 <ManualAttitude
                   value={f.manual}
                   onChange={(manual) => dispatch({ type: 'fault.update', id: f.id, patch: { manual } })}
@@ -620,6 +654,17 @@ function ManualContours({ feature, kind, dispatch }) {
       </Btn>
     </p>
   )
+}
+
+/** Bloques agrupados por la superficie que comparten (ver `scene.js`). */
+function groupBySurface(byBlock) {
+  const out = new Map()
+  for (const [block, surf] of byBlock) {
+    if (!out.has(surf)) out.set(surf, [])
+    out.get(surf).push(block)
+  }
+  for (const bs of out.values()) bs.sort((a, b) => a - b)
+  return out
 }
 
 function qualityText(q) {

@@ -9,7 +9,7 @@ import { inheritContactGeometry } from './parallel.js'
 import { buildBlocks, singleBlock } from './blocks.js'
 import { buildDem } from './dem.js'
 import { polylineIntersections, dist, bboxOf } from './geom.js'
-import { sortedUnits, sortedContacts, kinematicsOf } from './model.js'
+import { sortedUnits, sortedContacts, kinematicsOf, contactOrder, faultCutsContact } from './model.js'
 
 /** Corta una polilínea allí donde la cruza una falla. */
 export function splitByFaults(pts, faultPolys) {
@@ -281,8 +281,73 @@ export function buildScene(project) {
   // margen que la grilla añade alrededor hace de exterior.
   const outsideBox = (x, y) => x < bbox.minX || x > bbox.maxX || y < bbox.minY || y > bbox.maxY
   const outside = outsideArea || outsideBox
-  const extended = faultPolys.map((pts) => extendToArea(pts, outside, side * 0.25, cell))
-  const blocks = faultPolys.length ? buildBlocks(extended, bbox, cell, outside) : singleBlock()
+  // La barrera de cada falla —su traza prolongada hasta salir del área— se
+  // guarda junto a ella: la partición se hace con la barrera, así que el mapa
+  // en planta tiene que rasterizar el muro con la misma línea. Con la traza
+  // dibujada a secas, más allá de donde el alumno soltó el lápiz el modelo
+  // cambia de bloque pero el relleno no se entera y el salto no se ve.
+  for (const fw of faultWorld) {
+    fw.barriers = fw.traces.map((pts) => extendToArea(pts, outside, side * 0.25, cell))
+  }
+  const barriers = faultWorld.flatMap((f) => f.barriers)
+  const blocks = faultPolys.length ? buildBlocks(barriers, bbox, cell, outside) : singleBlock()
+
+  /**
+   * Qué bloques separa cada falla. Se mira a un paso a cada lado de su barrera:
+   * donde a un lado y otro hay bloques distintos, esa falla los separa.
+   *
+   * Sirve para poder **volver a unirlos** en los contactos que la falla no
+   * desplaza. La partición se hace con todas las fallas a la vez —es la más
+   * fina posible— y cada contacto se queda luego con la suya: los que la falla
+   * sella ven los dos bloques como uno solo.
+   */
+  const faultBlockPairs = new Map()
+  if (faultPolys.length) {
+    const probe = Math.max(cell * 3, side * 0.004)
+    for (const fw of faultWorld) {
+      const pairs = new Set()
+      for (const tr of fw.barriers) {
+        for (let i = 1; i < tr.length; i++) {
+          const a = tr[i - 1]
+          const b = tr[i]
+          const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+          if (len < 1e-9) continue
+          const ux = -(b[1] - a[1]) / len
+          const uy = (b[0] - a[0]) / len
+          const mx = (a[0] + b[0]) / 2
+          const my = (a[1] + b[1]) / 2
+          const bp = blocks.blockAt(mx + ux * probe, my + uy * probe)
+          const bq = blocks.blockAt(mx - ux * probe, my - uy * probe)
+          if (bp > 0 && bq > 0 && bp !== bq) pairs.add(bp < bq ? `${bp}|${bq}` : `${bq}|${bp}`)
+        }
+      }
+      faultBlockPairs.set(fw.id, [...pairs].map((k) => k.split('|').map(Number)))
+    }
+  }
+
+  /**
+   * Bloques agrupados para un contacto: los que sólo separa una falla que no lo
+   * desplaza vuelven a ser uno solo. Devuelve la función que lleva cada bloque a
+   * su grupo (el menor id del grupo), y la identidad cuando todas las fallas lo
+   * cortan —que es el caso de siempre—.
+   */
+  const order = contactOrder(project)
+  const groupsForContact = (contactId) => {
+    const sealed = faultWorld.filter((fw) => !faultCutsContact(fw.fault, contactId, order))
+    if (!sealed.length) return (block) => block
+    const parent = new Map()
+    const find = (x) => {
+      while (parent.get(x) !== undefined && parent.get(x) !== x) x = parent.get(x)
+      return x
+    }
+    const union = (a, b) => {
+      const ra = find(parent.has(a) ? a : (parent.set(a, a), a))
+      const rb = find(parent.has(b) ? b : (parent.set(b, b), b))
+      if (ra !== rb) parent.set(Math.max(ra, rb), Math.min(ra, rb))
+    }
+    for (const fw of sealed) for (const [a, b] of faultBlockPairs.get(fw.id) || []) union(a, b)
+    return (block) => (parent.has(block) ? find(block) : block)
+  }
 
   // Modelo de elevación a partir de las curvas. Se agrupan por cota y se pasan
   // como polilíneas: el motor las rasteriza él mismo para que cada curva quede
@@ -318,27 +383,34 @@ export function buildScene(project) {
    * por bloque: al otro lado de una falla la superficie es otra, así que una
    * curva dibujada aquí no manda allí.
    */
-  const manualContoursByBlock = (feature) => {
+  const manualContoursByBlock = (feature, group = (b) => b) => {
     const out = new Map()
     for (const sc of feature.structureContours || []) {
       if (!sc?.pts || sc.pts.length < 2 || !Number.isFinite(sc.elevation)) continue
       const [a, b] = toWorldList(georef, [sc.pts[0], sc.pts[sc.pts.length - 1]])
       const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
-      const block = blocks.blockAt(mid[0], mid[1])
+      const block = group(blocks.blockAt(mid[0], mid[1]))
       if (!out.has(block)) out.set(block, [])
       out.get(block).push({ id: sc.id, elevation: sc.elevation, a, b })
     }
     return out
   }
 
-  // Superficies de contacto, resueltas bloque a bloque.
+  // Superficies de contacto, resueltas bloque a bloque —salvo donde una falla
+  // sellada no desplaza al contacto: allí sus bloques van juntos y comparten
+  // una sola superficie, que es lo que significa que la falla no lo corta.
   const contactSurfaces = new Map()
   for (const cw of contactWorld) {
+    const group = groupsForContact(cw.id)
+    // Sólo parten la traza las fallas que de verdad desplazan a este contacto:
+    // trocearla en una que no lo corta perdería los extremos recortados de cada
+    // pieza sin separar nada.
+    const cutting = faultWorld.filter((fw) => faultCutsContact(fw.fault, cw.id, order)).flatMap((fw) => fw.traces)
     const byBlock = new Map()
     const pieces = []
     for (const tr of cw.traces) {
-      for (const part of splitByFaults(tr, faultPolys)) {
-        pieces.push({ pts: part, block: blocks.blockOfPolyline(part) })
+      for (const part of splitByFaults(tr, cutting)) {
+        pieces.push({ pts: part, block: group(blocks.blockOfPolyline(part)) })
       }
     }
     for (const piece of pieces) {
@@ -347,7 +419,7 @@ export function buildScene(project) {
     }
     // Un contorno dibujado a mano define la superficie aunque en ese bloque no
     // haya traza: es un dato del estudiante y basta para resolverla.
-    const manualByBlock = manualContoursByBlock(cw.contact)
+    const manualByBlock = manualContoursByBlock(cw.contact, group)
     for (const block of manualByBlock.keys()) if (!byBlock.has(block)) byBlock.set(block, [])
     const surfaces = new Map()
     for (const [block, traces] of byBlock) {
@@ -363,6 +435,14 @@ export function buildScene(project) {
           tol,
         })
       )
+    }
+    // Aguas abajo todo pregunta por bloque, así que la superficie del grupo se
+    // registra en cada uno de sus bloques: los dos lados de una falla sellada
+    // devuelven **el mismo objeto** y por tanto la misma cota. Sin fallas
+    // selladas el grupo es el propio bloque y esto no cambia nada.
+    for (let b = 1; b <= blocks.count; b++) {
+      const s = surfaces.get(group(b))
+      if (s && !surfaces.has(b)) surfaces.set(b, s)
     }
     contactSurfaces.set(cw.id, surfaces)
   }

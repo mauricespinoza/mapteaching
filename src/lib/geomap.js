@@ -67,7 +67,12 @@ function rasterizeTraces(scene, bbox, nx, ny, cell) {
     }
   }
   for (const cw of scene.contactWorld) for (const tr of cw.traces) line(tr)
-  for (const fw of scene.faultWorld) for (const tr of fw.traces) line(tr)
+  // De las fallas se rasteriza la **barrera** —la traza prolongada hasta salir
+  // del área—, que es con la que se hicieron los bloques. Con la traza dibujada
+  // a secas, más allá de donde acaba el trazo el modelo ya cambia de bloque
+  // pero aquí no habría muro: la región se colaría al otro lado y el salto de
+  // la falla dejaría de verse justo donde el alumno no llegó a dibujarla.
+  for (const fw of scene.faultWorld) for (const tr of fw.barriers || fw.traces) line(tr)
   return wall
 }
 

@@ -189,10 +189,37 @@ export function newFault(project) {
     kinematics: 'normal',
     manual: null, // { dipDir, dip }
     offset: null, // separación estimada (m), sólo informativa
+    // Contacto que sella la falla: desde él hacia el techo la falla ya no
+    // desplaza nada. Es el caso de una falla antigua truncada por una
+    // discordancia —se movió, se erosionó y la cobertura se depositó encima
+    // ya sin romper—. `null` = la falla corta toda la pila.
+    sealedByContactId: null,
     structureContours: [],
     traces: [],
   }
 }
+
+/**
+ * ¿Desplaza esta falla al contacto `contactId`?
+ *
+ * Una falla sellada mueve lo que hay **bajo** la superficie que la sella y
+ * nada desde ella hacia arriba, la propia superficie incluida: si esa
+ * superficie estuviera desplazada, la falla no estaría sellada por ella. El
+ * orden es el estratigráfico, así que se compara la posición de los dos
+ * contactos en la pila (`order`, de `contactOrder`).
+ */
+export function faultCutsContact(fault, contactId, order) {
+  const seal = fault?.sealedByContactId
+  if (!seal) return true
+  const iSeal = order.get(seal)
+  const i = order.get(contactId)
+  // Un sello que ya no existe —el contacto se borró— no sella nada.
+  if (iSeal == null || i == null) return true
+  return i < iSeal
+}
+
+/** Posición de cada contacto en la pila estratigráfica, por id. */
+export const contactOrder = (project) => new Map(sortedContacts(project).map((c, i) => [c.id, i]))
 
 export function newSection(project, a, b) {
   const n = project.sections.length

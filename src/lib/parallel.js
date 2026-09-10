@@ -260,7 +260,17 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
     const contact = contacts[i]
     const byBlock = contactSurfaces.get(contact.id)
     if (!byBlock) return
+    // Los bloques que una falla sellada no separa comparten un mismo objeto de
+    // superficie: se hereda una vez por superficie —no por bloque— y el
+    // resultado se escribe en todos los suyos, o la herencia los volvería a
+    // separar con dos ajustes distintos de la misma geometría.
+    const shared = new Map()
     for (const [block, surf] of byBlock) {
+      if (!shared.has(surf)) shared.set(surf, [])
+      shared.get(surf).push(block)
+    }
+    for (const [surf, blocksOfSurf] of shared) {
+      const block = blocksOfSurf[0]
       const unresolved = needsGeometry(contact, surf)
       // Un contacto ya resuelto sólo cambia de geometría en el caso de «hay
       // manteo, pero no su variación», y sólo si el vecino está plegado.
@@ -283,17 +293,15 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
           // peor que la medida.
           if (upgrade && fit && fit.rms > foldTol) break
           if (fit) {
-            byBlock.set(
+            const heredada = parallelSurface(surf, root.surface, fit, {
+              contactId: root.contactId,
+              name: root.name,
+              root: root.surface,
               block,
-              parallelSurface(surf, root.surface, fit, {
-                contactId: root.contactId,
-                name: root.name,
-                root: root.surface,
-                block,
-                upgrade,
-                source: obs.source,
-              })
-            )
+              upgrade,
+              source: obs.source,
+            })
+            for (const b of blocksOfSurf) byBlock.set(b, heredada)
             applied.push({
               contactId: contact.id,
               block,
