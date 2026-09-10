@@ -45,6 +45,7 @@
 
 import { attitudeFromGradient } from './structure.js'
 import { resample } from './geom.js'
+import { isUnconformable } from './model.js'
 
 const RAD = Math.PI / 180
 
@@ -56,10 +57,6 @@ const MAX_K = 1 / Math.cos(MAX_DIP * RAD)
 
 /** Factor 1/cos δ a partir del gradiente de la superficie. */
 const slopeFactor = (a, b) => Math.min(MAX_K, Math.sqrt(1 + a * a + b * b))
-
-/** Contactos que interrumpen el paralelismo entre unidades sucesivas. */
-export const isUnconformable = (contact) =>
-  contact?.type === 'discordante' || contact?.type === 'intrusivo'
 
 /**
  * Ajusta el espesor verdadero que separa una superficie de referencia de un
@@ -281,6 +278,9 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
         const between = contacts[j]
         // La discordancia corta la herencia al llegar a ella: bajo una
         // inconformidad las capas están truncadas y no son paralelas a ella.
+        // Es el límite de paquete de `contactPackages`, visto desde abajo: se
+        // sube hasta él y no se pasa, así que un contacto nunca toma prestada
+        // la forma de otro paquete.
         if (isUnconformable(between)) break
         const ref = surfaceOf(between.id, block)
         if (canReference(ref)) {

@@ -13,7 +13,7 @@
 
 import { fitLine, fitPlane, polylineIntersections, dot, sub, norm, perp, clipLineToRect, STEEP_GRADIENT } from './geom.js'
 import { azimuthWorld, formatAttitude, norm360 } from './georef.js'
-import { structuralDomains, domainPlaneField, completeDomainPlanes } from './domains.js'
+import { structuralDomains, domainPlaneField, completeDomainPlanes, rebuildDomains, isLimb } from './domains.js'
 
 const RAD = Math.PI / 180
 const DEG = 180 / Math.PI
@@ -782,6 +782,109 @@ function sampleManualContour(mc) {
 }
 
 /**
+ * Retoques al reparto en dominios que no salen de la nube de puntos sino de lo
+ * que el proyecto ya sabe de ella. `structuralDomains` sólo ve coordenadas;
+ * aquí se le añade el resto.
+ *
+ * 1. **Una línea puesta a mano es una línea.** Sus puntos de muestreo son un
+ *    solo dato del estudiante, así que no pueden repartirse entre dos limbos.
+ *    Cuando el RANSAC los partía —basta con que la línea sea larga, o que vaya
+ *    algo torcida respecto del panel— el contorno dibujado salía en el mapa
+ *    cortado en dos trozos, y ninguno de los dos era el que se había dibujado.
+ *    Van todos al dominio donde cayó la mayoría.
+ *
+ * 2. **En un paquete sin pliegue no hay limbos que separar.** Un dominio que
+ *    no llega a limbo —pocos puntos, sin manteo propio— no es un panel de la
+ *    superficie: es lo que le sobró al ajuste. Donde el paquete entero no ha
+ *    dado ni una charnela, ese resto no puede ser el flanco de nada, así que se
+ *    funde con el dominio que mejor lo explica en vez de figurar como panel
+ *    aparte. Donde el paquete sí está plegado no se toca nada: allí un grupo
+ *    pequeño y apartado puede ser justamente el asomo del otro limbo.
+ *
+ *    Fundirlo no junta contornos que estén lejos: dentro de una misma cota y
+ *    limbo, `splitContourRuns` sigue partiendo por los huecos. Lo que se evita
+ *    es que la cobertura salga con paneles fantasma, con su manteo inventado y
+ *    su voto en el eje de pliegue.
+ *
+ * `packageFolded` es la respuesta de `hasFoldEvidence` para el paquete
+ * estructural de este contacto: `null` cuando no se sabe (primera pasada de
+ * `buildScene`, o una falla, que no pertenece a ningún paquete).
+ */
+function tidyDomains(dom, points3D, { manualIdOf, packageFolded }) {
+  if (!dom || dom.count < 2) return dom
+  const labels = dom.labels.slice()
+  let changed = false
+
+  if (manualIdOf?.size) {
+    const votes = new Map()
+    points3D.forEach((p, i) => {
+      const id = manualIdOf.get(p)
+      if (!id) return
+      if (!votes.has(id)) votes.set(id, new Map())
+      const v = votes.get(id)
+      v.set(labels[i], (v.get(labels[i]) || 0) + 1)
+    })
+    const winner = new Map()
+    for (const [id, v] of votes) {
+      if (v.size < 2) continue
+      let best = null
+      for (const [label, n] of v) if (!best || n > best.n) best = { label, n }
+      winner.set(id, best.label)
+    }
+    if (winner.size) {
+      points3D.forEach((p, i) => {
+        const id = manualIdOf.get(p)
+        const label = id ? winner.get(id) : undefined
+        if (label !== undefined && labels[i] !== label) {
+          labels[i] = label
+          changed = true
+        }
+      })
+    }
+  }
+
+  if (packageFolded === false) {
+    const limbs = []
+    for (let k = 0; k < dom.count; k++) if (isLimb(dom.groups[k], dom.planes[k])) limbs.push(k)
+    if (limbs.length) {
+      const centroid = (g) => [
+        g.reduce((t, p) => t + p[0], 0) / g.length,
+        g.reduce((t, p) => t + p[1], 0) / g.length,
+      ]
+      const home = new Map()
+      for (let k = 0; k < dom.count; k++) {
+        if (limbs.includes(k) || !dom.groups[k].length) continue
+        // El limbo que mejor explica el resto: el que menos se aparta de sus
+        // puntos en cota, y a igualdad de ajuste el que cae más cerca en planta.
+        const c = centroid(dom.groups[k])
+        let best = null
+        for (const m of limbs) {
+          const pl = dom.planes[m]
+          let err = 0
+          for (const p of dom.groups[k]) err += Math.abs(pl.a * p[0] + pl.b * p[1] + pl.c - p[2])
+          err /= dom.groups[k].length
+          const cm = centroid(dom.groups[m])
+          const d = Math.hypot(cm[0] - c[0], cm[1] - c[1])
+          if (!best || err < best.err || (err === best.err && d < best.d)) best = { m, err, d }
+        }
+        if (best) home.set(k, best.m)
+      }
+      if (home.size) {
+        labels.forEach((l, i) => {
+          const to = home.get(l)
+          if (to !== undefined) {
+            labels[i] = to
+            changed = true
+          }
+        })
+      }
+    }
+  }
+
+  return changed ? rebuildDomains(points3D, labels) : dom
+}
+
+/**
  * @param manualContours [{ id, elevation, a, b }] contornos puestos a mano, en
  *   coordenadas mundo. En las cotas que tocan sustituyen a los datos calculados:
  *   el estudiante toma el control de esa curva y el motor deja de discutirla.
@@ -795,6 +898,7 @@ export function buildSurface({
   name = '',
   color = '#000',
   tol = 1,
+  packageFolded = null,
 }) {
   const { points: measured, runs } = intersectWithContours(traces, contours, tol)
   const overridden = new Set(manualContours.map((m) => m.elevation))
@@ -830,7 +934,11 @@ export function buildSurface({
   // Los tramos de afloramiento sólo describen los cruces medidos. Si la
   // superficie se define además con contornos puestos a mano —que no vienen de
   // ninguna traza—, el reparto vuelve a conectar por cercanía en el mapa.
-  const dom = structuralDomains(points3D, { zTol, runs: points3D === measured ? runs : null })
+  const dom = tidyDomains(
+    structuralDomains(points3D, { zTol, runs: points3D === measured ? runs : null }),
+    points3D,
+    { manualIdOf, packageFolded }
+  )
   const index = new Map(points3D.map((p, i) => [p, dom.labels[i]]))
   const limbOf = points3D.length ? (p) => index.get(p) ?? 0 : null
   const limbCount = dom.count

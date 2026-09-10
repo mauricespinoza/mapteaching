@@ -107,6 +107,15 @@ export default function HelpPanel({ project, dispatch }) {
           su <b>línea de subafloramiento</b> bajo la discordancia.
         </li>
         <li>
+          <b>Marca la discordancia y ya está dicho todo.</b> Basta con poner «Discordante» en el primer contacto
+          que lo sea —la superficie sobre la que se apoya la cobertura— para que la pila quede partida en
+          <b>paquetes</b>: lo que hay encima es concordante entre sí y con esa superficie, y discordante con todo
+          lo de debajo. No hay que ir marcando contacto por contacto. Cada paquete se resuelve por su cuenta: no
+          hereda la geometría del otro, no vota su eje de pliegue, y el reparto en limbos de un paquete plegado no
+          llega al de encima. Si la cobertura tiene su propio pliegue, sus contornos lo dirán y se repartirá en
+          limbos con <b>su</b> eje, no con el de abajo.
+        </li>
+        <li>
           Revisa los <b>contornos estructurales</b> y la tabla de <b>rumbo y manteo</b> por pares de contornos
           consecutivos. Cuando los puntos no caben en un solo plano —una superficie plegada— se reparten antes
           en <b>limbos</b> y cada uno da su propio rumbo y manteo: nunca se une un punto de un flanco con otro

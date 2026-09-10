@@ -14,26 +14,19 @@
 // segundo paso: los candidatos con la misma orientación y la misma posición
 // en el mapa se funden en uno solo, que hereda el alcance de todos ellos.
 
-import { medianStep } from './domains.js'
+import { medianStep, MIN_LIMB_POINTS, MIN_HINGE_ANGLE, planeAngle } from './domains.js'
 import { vectorToLine } from './piercing.js'
 import { toImage } from './georef.js'
 
 const RAD = Math.PI / 180
 const DEG = 180 / Math.PI
 
-// Diferencia mínima de manteo entre dos dominios para admitir que hay una
-// charnela real entre ellos, y no dos trozos del mismo limbo separados por el
-// RANSAC de `structuralDomains` por casualidad.
-const MIN_HINGE_ANGLE = 8
-// Puntos mínimos por limbo. Un plano lo fijan tres puntos: con tres, o con
-// cuatro, el ajuste pasa por los datos haga la superficie lo que haga y su
-// manteo no está confirmado por nada. Dibujar un eje de pliegue en el mapa es
-// una afirmación fuerte —dice dónde está la charnela y hacia dónde se sumerge—,
-// así que se exige que cada limbo tenga puntos de sobra: seis, tres más de los
-// que consume el propio plano. Con menos, un trozo suelto de una serie que en
-// realidad es plana sale con un manteo cualquiera, y dos trozos así siempre
-// «se cruzan» en alguna parte: es el pliegue que no existe.
-const MIN_LIMB_POINTS = 6
+// Puntos mínimos por limbo (`MIN_LIMB_POINTS`, en domains.js): dibujar un eje
+// de pliegue es una afirmación fuerte —dice dónde está la charnela y hacia
+// dónde se sumerge—, así que se exige que cada limbo tenga puntos de sobra.
+// Con menos, un trozo suelto de una serie que en realidad es plana sale con un
+// manteo cualquiera, y dos trozos así siempre «se cruzan» en alguna parte: es
+// el pliegue que no existe.
 // La charnela calculada tiene que caer cerca de datos reales de los dos
 // limbos, en unidades de la separación típica entre contornos estructurales.
 const REACH_FACTOR = 6
@@ -66,15 +59,6 @@ function centroid(pts) {
 }
 
 /** Ángulo entre las normales de dos planos: cuánto difiere el manteo real. */
-function planeAngle(p, q) {
-  const n1 = [p.a, p.b, -1]
-  const n2 = [q.a, q.b, -1]
-  const l1 = Math.hypot(...n1)
-  const l2 = Math.hypot(...n2)
-  const dot = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2]
-  return Math.acos(Math.min(1, Math.max(-1, dot / (l1 * l2)))) * DEG
-}
-
 /**
  * Dirección 3D de la recta donde coinciden dos planos. En planta es
  * perpendicular al gradiente de su diferencia, y la pendiente a lo largo de
@@ -174,46 +158,60 @@ const alignTo = (dir, ref) =>
   dir[0] * ref[0] + dir[1] * ref[1] + dir[2] * ref[2] < 0 ? [-dir[0], -dir[1], -dir[2]] : dir.slice()
 
 /**
- * Eje β de todo el mapa: los paneles de **todas** las superficies votando
- * juntos.
+ * Eje β de cada **paquete estructural**: los paneles de todas las superficies
+ * del paquete votando juntos.
  *
- * Es como se hace con la falsilla: en el diagrama β se vuelcan los datos del
- * mapa entero, no los de un contacto cada vez. Y hay una razón para hacerlo
- * así, no es sólo costumbre: un paquete de capas concordantes se pliega junto,
- * de modo que todos sus contactos comparten el mismo eje, y una superficie a la
- * que le faltan cruces —pocos puntos, repartidos en paneles de tres o cuatro
- * que mantean cada uno a su aire— no puede arrastrar al conjunto. Sola, esa
- * superficie produce cruces en cualquier dirección y alguno pasa todos los
- * filtros; con las demás delante, queda en minoría y se descarta.
+ * Es como se hace con la falsilla: en el diagrama β se vuelcan los datos de
+ * todo un paquete, no los de un contacto cada vez. Y hay una razón para
+ * hacerlo así, no es sólo costumbre: un paquete de capas concordantes se
+ * pliega junto, de modo que todos sus contactos comparten el mismo eje, y una
+ * superficie a la que le faltan cruces —pocos puntos, repartidos en paneles de
+ * tres o cuatro que mantean cada uno a su aire— no puede arrastrar al
+ * conjunto. Sola, esa superficie produce cruces en cualquier dirección y
+ * alguno pasa todos los filtros; con las demás delante, queda en minoría y se
+ * descarta.
  *
  * Los contactos concordantes no se estorban entre sí al votar: sus paneles del
  * mismo limbo son paralelos —son la misma estructura a distinto nivel
  * estratigráfico—, y dos planos paralelos no llegan a votar, porque no
  * alcanzan el ángulo mínimo de charnela.
  *
- * Si el mapa entero no se pone de acuerdo, no se fuerza nada: cada superficie
- * vuelve a juzgarse con su propio eje. Es lo que hay que hacer en un mapa con
- * dos sistemas de pliegues de direcciones distintas, donde no existe un eje
- * único que valga para todo.
+ * Lo que sí se estorban son dos paquetes separados por una discordancia: bajo
+ * ella las capas están plegadas y sobre ella no, o lo están con otro eje. Con
+ * el mapa entero votando junto, el eje del paquete plegado —que suele ser el
+ * de abajo, con más cruces— hacía de vara para juzgar las charnelas del de
+ * arriba, que no es su pliegue. Por eso el voto va por paquete: la discordancia
+ * separa los votos igual que separa las estructuras (ver `contactPackages`).
+ *
+ * Si un paquete no se pone de acuerdo consigo mismo, no se fuerza nada: cada
+ * superficie suya vuelve a juzgarse con su propio eje. Es lo que hay que hacer
+ * en un paquete con dos sistemas de pliegues de direcciones distintas, donde
+ * no existe un eje único que valga para todo.
  */
-function sceneBeta(scene) {
-  const planes = []
-  const groups = []
+function packageBetas(scene) {
+  const byPackage = new Map()
   for (const c of scene.contacts) {
     const byBlock = scene.contactSurfaces.get(c.id)
     if (!byBlock) continue
-    for (const [, surf] of byBlock) {
+    const pkg = scene.packageOf(c.id)
+    if (!byPackage.has(pkg)) byPackage.set(pkg, { planes: [], groups: [] })
+    const acc = byPackage.get(pkg)
+    // Los bloques de falla comparten superficie cuando la falla no los separa
+    // para este contacto: se vota una vez por superficie, no una por bloque.
+    for (const surf of new Set(byBlock.values())) {
       const dom = surf.domains
       if (!dom) continue
       for (let k = 0; k < dom.count; k++) {
         if (dom.planes[k]) {
-          planes.push(dom.planes[k])
-          groups.push(dom.groups[k])
+          acc.planes.push(dom.planes[k])
+          acc.groups.push(dom.groups[k])
         }
       }
     }
   }
-  return betaAxis(planes, groups)
+  const out = new Map()
+  for (const [pkg, acc] of byPackage) out.set(pkg, betaAxis(acc.planes, acc.groups))
+  return out
 }
 
 /**
@@ -437,7 +435,7 @@ function finalizeAxis(cluster, index, georef) {
  */
 export function foldAxes(scene) {
   if (!scene?.ready) return []
-  const mapBeta = sceneBeta(scene)
+  const betas = packageBetas(scene)
   const raw = []
   for (const c of scene.contacts) {
     const byBlock = scene.contactSurfaces.get(c.id)
@@ -446,9 +444,11 @@ export function foldAxes(scene) {
       const dom = surf.domains
       if (!dom || dom.count < 2) continue
       // Vara con la que se descarta el cruce que no va con el pliegue: la del
-      // mapa entero si el mapa se pone de acuerdo, y si no la de esta
-      // superficie sola.
-      const beta = mapBeta && mapBeta !== 'disperso' ? mapBeta : betaAxis(dom.planes, dom.groups)
+      // paquete de este contacto si el paquete se pone de acuerdo, y si no la
+      // de esta superficie sola. Nunca la de un paquete al otro lado de una
+      // discordancia: ése es otro pliegue, o ninguno.
+      const pkgBeta = betas.get(scene.packageOf(c.id))
+      const beta = pkgBeta && pkgBeta !== 'disperso' ? pkgBeta : betaAxis(dom.planes, dom.groups)
       for (let i = 0; i < dom.count; i++) {
         const pi = dom.planes[i]
         if (!pi) continue

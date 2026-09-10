@@ -7,9 +7,10 @@ import { toWorldList, toWorld, toImage } from './georef.js'
 import { buildSurface, contourSegment } from './structure.js'
 import { inheritContactGeometry } from './parallel.js'
 import { buildBlocks, singleBlock } from './blocks.js'
+import { hasFoldEvidence } from './domains.js'
 import { buildDem } from './dem.js'
 import { polylineIntersections, dist, bboxOf } from './geom.js'
-import { sortedUnits, sortedContacts, kinematicsOf, contactOrder, faultCutsContact } from './model.js'
+import { sortedUnits, sortedContacts, kinematicsOf, contactOrder, faultCutsContact, contactPackages } from './model.js'
 
 /** Corta una polilínea allí donde la cruza una falla. */
 export function splitByFaults(pts, faultPolys) {
@@ -400,6 +401,12 @@ export function buildScene(project) {
   // sellada no desplaza al contacto: allí sus bloques van juntos y comparten
   // una sola superficie, que es lo que significa que la falla no lo corta.
   const contactSurfaces = new Map()
+  const packages = contactPackages(project)
+  const packageOf = (contactId) => packages.get(contactId) ?? 0
+  // Los datos de cada contacto, ya repartidos por bloque: se reúnen una vez y
+  // se usan en las dos pasadas de abajo, que sólo se diferencian en lo que ya
+  // se sabe del paquete al construir la superficie.
+  const contactData = new Map()
   for (const cw of contactWorld) {
     const group = groupsForContact(cw.id)
     // Sólo parten la traza las fallas que de verdad desplazan a este contacto:
@@ -421,6 +428,16 @@ export function buildScene(project) {
     // haya traza: es un dato del estudiante y basta para resolverla.
     const manualByBlock = manualContoursByBlock(cw.contact, group)
     for (const block of manualByBlock.keys()) if (!byBlock.has(block)) byBlock.set(block, [])
+    contactData.set(cw.id, { cw, group, byBlock, manualByBlock })
+  }
+
+  /**
+   * Construye —o reconstruye— las superficies de un contacto. `packageFolded`
+   * es lo que se sabe de su paquete estructural: en la primera pasada todavía
+   * nada, porque el veredicto sale justamente de estas superficies.
+   */
+  const resolveContact = (id, packageFolded) => {
+    const { cw, group, byBlock, manualByBlock } = contactData.get(id)
     const surfaces = new Map()
     for (const [block, traces] of byBlock) {
       surfaces.set(
@@ -433,6 +450,7 @@ export function buildScene(project) {
           scOnly: !!cw.contact.scOnly,
           name: cw.contact.name,
           tol,
+          packageFolded,
         })
       )
     }
@@ -445,6 +463,40 @@ export function buildScene(project) {
       if (s && !surfaces.has(b)) surfaces.set(b, s)
     }
     contactSurfaces.set(cw.id, surfaces)
+  }
+
+  for (const cw of contactWorld) resolveContact(cw.id, null)
+
+  /**
+   * ¿Está plegado cada paquete? Lo decide el paquete entero, no cada contacto
+   * por su cuenta: basta con que dos de sus limbos se corten en una charnela
+   * para que todos sus contactos sigan repartiéndose en dominios. Y no lo
+   * decide nunca el paquete de al lado —bajo una discordancia hay pliegue y
+   * sobre ella puede no haberlo—, que es lo que separa `contactPackages`.
+   *
+   * Al paquete sin pliegue se le reconstruyen las superficies: sus dominios
+   * sobrantes no son limbos de nada (ver `tidyDomains`).
+   */
+  const domainsByPackage = new Map()
+  for (const cw of contactWorld) {
+    const pkg = packageOf(cw.id)
+    if (!domainsByPackage.has(pkg)) domainsByPackage.set(pkg, [])
+    const byBlock = contactSurfaces.get(cw.id)
+    if (!byBlock) continue
+    // Una vez por superficie y no por bloque: los bloques que una falla sellada
+    // no separa comparten una sola, y contarla dos veces no la hace más cierta.
+    for (const surf of new Set(byBlock.values())) {
+      if (surf.domains) domainsByPackage.get(pkg).push(surf.domains)
+    }
+  }
+  const foldedPackage = new Map()
+  for (const [pkg, doms] of domainsByPackage) foldedPackage.set(pkg, hasFoldEvidence(doms))
+  for (const cw of contactWorld) {
+    const pkg = packageOf(cw.id)
+    if (foldedPackage.get(pkg)) continue
+    const byBlock = contactSurfaces.get(cw.id)
+    const parted = byBlock && [...new Set(byBlock.values())].some((s) => s.limbCount > 1)
+    if (parted) resolveContact(cw.id, false)
   }
 
   // Superficies de falla: se resuelven con todas sus trazas juntas.
@@ -662,6 +714,10 @@ export function buildScene(project) {
     tol,
     mpp,
     blocks,
+    /** Paquete estructural de cada contacto y si está plegado (ver model.js). */
+    packages,
+    packageOf,
+    foldedPackage,
     /** Fallas que cortan bloques, con su superficie: el corte en profundidad. */
     faultCuts,
     /** Lado de cada falla (+1 encima, −1 debajo) en que queda cada bloque. */

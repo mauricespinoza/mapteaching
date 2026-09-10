@@ -616,6 +616,74 @@ function bestPlane(pts, pool, zTol, R, adj) {
   return best
 }
 
+/**
+ * Puntos mínimos por limbo. Un plano lo fijan tres puntos: con tres, o con
+ * cuatro, el ajuste pasa por los datos haga la superficie lo que haga y su
+ * actitud no está confirmada por nada. Seis es el primer número con el que un
+ * dominio sostiene un manteo propio, y es también el listón con el que se
+ * admite una charnela entre dos de ellos (ver `folds.js`).
+ */
+export const MIN_LIMB_POINTS = 6
+
+/**
+ * Diferencia mínima entre dos planos para admitir que entre ellos hay una
+ * charnela real, y no dos trozos del mismo limbo que el RANSAC separó por
+ * casualidad. En grados.
+ */
+export const MIN_HINGE_ANGLE = 8
+
+/** Ángulo entre dos planos z = a·x + b·y + c, en grados. */
+export function planeAngle(p, q) {
+  const n1 = [p.a, p.b, -1]
+  const n2 = [q.a, q.b, -1]
+  const l1 = Math.hypot(n1[0], n1[1], n1[2])
+  const l2 = Math.hypot(n2[0], n2[1], n2[2])
+  const d = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2]
+  return (Math.acos(Math.min(1, Math.max(-1, d / (l1 * l2)))) * 180) / Math.PI
+}
+
+/**
+ * ¿Hay pliegue aquí? Lo hay cuando dos limbos —los dos con puntos de sobra y
+ * manteo propio— difieren lo bastante como para que entre ellos haya una
+ * charnela. Es el mismo listón con el que se acepta un eje de pliegue
+ * (`folds.js`), y se le pregunta a un paquete estructural entero: un contacto
+ * suelto con pocos cruces no decide si su paquete está plegado, lo deciden
+ * todos sus contactos juntos.
+ *
+ * @param list [{ groups, planes, count }] repartos de las superficies del paquete
+ */
+export function hasFoldEvidence(list) {
+  for (const dom of list) {
+    if (!dom || dom.count < 2) continue
+    for (let i = 0; i < dom.count; i++) {
+      if (!isLimb(dom.groups[i], dom.planes[i])) continue
+      for (let j = i + 1; j < dom.count; j++) {
+        if (!isLimb(dom.groups[j], dom.planes[j])) continue
+        if (planeAngle(dom.planes[i], dom.planes[j]) >= MIN_HINGE_ANGLE) return true
+      }
+    }
+  }
+  return false
+}
+
+/**
+ * ¿Es este dominio un **limbo** —un panel de la superficie con manteo propio—
+ * o sólo lo que le sobró al reparto? Un limbo tiene puntos de sobra y un plano
+ * resuelto; lo demás son restos: una traza suelta, un par de cruces
+ * tangenciales, el rabo de un contorno que se salió de su panel.
+ */
+export const isLimb = (group, plane) => Boolean(plane) && (group?.length || 0) >= MIN_LIMB_POINTS
+
+/**
+ * Rehace el reparto a partir de unas etiquetas ya decididas: compacta los
+ * índices, reagrupa los puntos y reajusta el plano de cada dominio. Es lo que
+ * usa `structuralDomains` al terminar, y lo que necesita quien retoque las
+ * etiquetas después (ver `tidyDomains` en structure.js).
+ */
+export function rebuildDomains(points3D, labels) {
+  return finish(points3D, labels)
+}
+
 function finish(points3D, labels) {
   const seen = new Map()
   const compact = labels.map((l) => {

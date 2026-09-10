@@ -230,6 +230,43 @@ export function faultCutsContact(fault, contactId, order) {
 /** Posición de cada contacto en la pila estratigráfica, por id. */
 export const contactOrder = (project) => new Map(sortedContacts(project).map((c, i) => [c.id, i]))
 
+/** Contactos que interrumpen el paralelismo entre unidades sucesivas. */
+export const isUnconformable = (contact) =>
+  contact?.type === 'discordante' || contact?.type === 'intrusivo'
+
+/**
+ * **Paquetes estructurales**: la pila partida por sus discordancias.
+ *
+ * Basta con marcar como discordante el primer contacto que lo sea —la
+ * superficie sobre la que se apoya la cobertura— para que quede dicho todo lo
+ * demás: lo que hay por encima es concordante entre sí y con esa superficie,
+ * y discordante con todo lo que hay por debajo. No hay que ir marcando
+ * contacto por contacto, ni existe tal cosa como una capa «discordante» ella
+ * sola: la discordancia es el límite, y lo que define es a qué paquete
+ * pertenece cada capa.
+ *
+ * Cada discordancia abre un paquete nuevo, así que una pila con dos
+ * inconformidades tiene tres. La superficie discordante entra en el paquete de
+ * **arriba**: se labró y se cubrió con él, y es paralela a sus capas, no a las
+ * truncadas de debajo.
+ *
+ * De ahí cuelga todo lo que separa a un paquete del otro: no se hereda
+ * geometría a través del límite (`parallel.js`), el eje de pliegue se vota
+ * dentro de cada paquete y no entre paquetes (`folds.js`), y el reparto en
+ * dominios de un paquete plegado no llega al de encima (`scene.js`).
+ *
+ * @returns Map(contactId → índice de paquete, 0 el más antiguo)
+ */
+export function contactPackages(project) {
+  const out = new Map()
+  let pkg = 0
+  for (const c of sortedContacts(project)) {
+    if (isUnconformable(c)) pkg++
+    out.set(c.id, pkg)
+  }
+  return out
+}
+
 export function newSection(project, a, b) {
   const n = project.sections.length
   const letter = String.fromCharCode(65 + (n % 26))
