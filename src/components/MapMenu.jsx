@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Trash2, Layers, Ruler, Plus } from 'lucide-react'
 import { inputCls, ColorSwatch } from './ui.jsx'
-import { CONTACT_TYPES, KINEMATICS, reassignContact, sortedUnits } from '../lib/model.js'
+import { CONTACT_TYPES, KINEMATICS, reassignContact, sortedUnits, newStructureContour } from '../lib/model.js'
 
 /**
  * Menú de una pulsación larga sobre el mapa. En tablet no hay clic derecho ni
@@ -343,7 +343,8 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
         ) : (
           <>
             Es el contorno que calcula el motor a partir de {it.n} punto{it.n === 1 ? '' : 's'}. Al moverlo, cambiarle
-            la cota o reasignarlo pasas a mandar tú sobre él.
+            la cota o reasignarlo pasas a mandar tú sobre él; «Borrar este contorno» lo quita del todo, sin dejar uno
+            a mano en su lugar.
           </>
         )}
       </p>
@@ -414,10 +415,25 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
           onClick={done(() => setScId(onSelect?.(it)))}
         />
       )}
-      {sc && (
+      {sc ? (
         <Danger
           label="Borrar este contorno"
           onClick={done(() => dispatch({ type: 'sc.delete', kind: it.kind, id: feature.id, scId: sc.id }))}
+        />
+      ) : (
+        // El calculado no se quita: se excluye. Su cota queda fuera del
+        // ajuste —igual que si se hubiera fijado y borrado— pero sin dejar un
+        // contorno a mano en su lugar, así que el motor no lo vuelve a poner.
+        <Danger
+          label="Borrar este contorno"
+          onClick={done(() =>
+            dispatch({
+              type: 'sc.add',
+              kind: it.kind,
+              id: it.featureId,
+              items: [newStructureContour(it.elevation, [it.a, it.b], { excluded: true })],
+            })
+          )}
         />
       )}
       {feature?.structureContours?.length > 0 && (

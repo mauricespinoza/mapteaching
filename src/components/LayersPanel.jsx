@@ -640,11 +640,19 @@ function ManualAttitude({ value, onChange }) {
  * ver cuántos hay y poder devolver el mando al cálculo.
  */
 function ManualContours({ feature, kind, dispatch }) {
-  const n = feature.structureContours?.length || 0
-  if (!n) return null
+  const all = feature.structureContours || []
+  if (!all.length) return null
+  // Un contorno «excluido» no es uno puesto a mano: es la marca de que ahí se
+  // borró el que calculaba el motor (ver `App.jsx: deleteSelection`). Se
+  // cuentan aparte para que el mensaje diga lo que de verdad hay.
+  const excluded = all.filter((s) => s.excluded).length
+  const manual = all.length - excluded
+  const parts = []
+  if (manual) parts.push(`${manual} contorno${manual === 1 ? '' : 's'} estructural${manual === 1 ? '' : 'es'} a mano`)
+  if (excluded) parts.push(`${excluded} calculado${excluded === 1 ? '' : 's'} borrado${excluded === 1 ? '' : 's'}`)
   return (
     <p className="mt-1.5 flex items-center gap-1 rounded-lg bg-sky-50 px-1.5 py-1 text-[11px] text-sky-800">
-      {n} contorno{n === 1 ? '' : 's'} estructural{n === 1 ? '' : 'es'} a mano
+      {parts.join(' · ')}
       <Btn
         variant="ghost"
         title="Restaurar los contornos que calcula la app"

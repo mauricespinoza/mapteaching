@@ -391,7 +391,7 @@ export function buildScene(project) {
       const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
       const block = group(blocks.blockAt(mid[0], mid[1]))
       if (!out.has(block)) out.set(block, [])
-      out.get(block).push({ id: sc.id, elevation: sc.elevation, a, b })
+      out.get(block).push({ id: sc.id, elevation: sc.elevation, a, b, excluded: !!sc.excluded })
     }
     return out
   }

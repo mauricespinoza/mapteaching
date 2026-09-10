@@ -123,6 +123,12 @@ export default function HelpPanel({ project, dispatch }) {
           momento; «Restaurar los contornos calculados» devuelve el mando al motor.
         </li>
         <li>
+          <b>Supr / Del</b> borra el contorno estructural seleccionado, sea puesto a mano o calculado por el
+          motor —«Borrar este contorno» en su menú hace lo mismo—. En uno calculado no queda un hueco vacío en su
+          lugar: la cota se excluye del ajuste, así que el motor no la vuelve a proponer en el siguiente
+          repintado; «Restaurar los contornos calculados», en la ficha del contacto o la falla, la trae de vuelta.
+        </li>
+        <li>
           Si una unidad <b>no cruza suficientes curvas de nivel</b> para dar dos contornos estructurales, no se
           queda sin geometría: <b>hereda la de la unidad concordante de encima</b>, <b>manteniendo el espesor
           constante</b>. Así, bajo un pliegue, las capas inferiores se pliegan igual en vez de aplanarse. El

@@ -801,6 +801,10 @@ export function buildSurface({
   const manualIdOf = new Map()
   const drawn = []
   for (const mc of manualContours) {
+    // Un contorno excluido no sustituye al calculado por otro: lo borra. Su
+    // cota ya queda fuera del ajuste por estar en `overridden`; lo único que
+    // no hace es aportarle puntos propios, así que ahí no vuelve a salir nada.
+    if (mc.excluded) continue
     for (const p of sampleManualContour(mc)) {
       manualIdOf.set(p, mc.id)
       drawn.push(p)

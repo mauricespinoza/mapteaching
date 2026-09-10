@@ -177,8 +177,17 @@ export function reassignContact(project, contact, lowerUnitId, upperUnitId) {
 }
 
 /** Contorno estructural puesto a mano: un segmento de cota conocida. */
-export function newStructureContour(elevation, pts) {
-  return { id: uid('sc'), elevation, pts: [pts[0], pts[pts.length - 1]] }
+export function newStructureContour(elevation, pts, { excluded = false } = {}) {
+  const sc = { id: uid('sc'), elevation, pts: [pts[0], pts[pts.length - 1]] }
+  // `excluded` no describe una geometría: es la marca de «aquí no va nada»,
+  // puesta donde el motor calculaba un contorno que el estudiante quitó. La
+  // cota queda igual excluida del ajuste que con un contorno a mano normal
+  // —ver `overridden` en `buildSurface`—, pero sin aportarle puntos propios:
+  // el resultado es que ese contorno calculado deja de existir, en vez de
+  // sustituirlo por otro. `pts` guarda dónde estaba, por si hace falta migrar
+  // el proyecto o depurarlo; no se dibuja ni se usa para nada más.
+  if (excluded) sc.excluded = true
+  return sc
 }
 
 

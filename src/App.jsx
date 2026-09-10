@@ -234,8 +234,11 @@ export default function App() {
   /**
    * Borra el rasgo seleccionado. De un contacto o una falla borra la traza
    * elegida, no el rasgo entero: es lo que se ha seleccionado en el mapa, y el
-   * menú de opciones sigue estando para borrarlo completo. Devuelve si hubo
-   * algo que borrar.
+   * menú de opciones sigue estando para borrarlo completo. De un contorno
+   * estructural borra la línea, sea puesta a mano o calculada por el motor
+   * —lo calculado se excluye en vez de quitarse, que es la única forma de que
+   * no vuelva a aparecer en el próximo repintado—. Devuelve si hubo algo que
+   * borrar.
    */
   const deleteSelection = useCallback(() => {
     const sel = selection
@@ -249,10 +252,23 @@ export default function App() {
     else if (sel.kind === 'well') dispatch({ type: 'well.delete', id: sel.id })
     else if (sel.kind === 'model') dispatch({ type: 'model.delete', id: sel.id })
     else if (sel.kind === 'sc') {
-      // Un contorno calculado no es un dato que borrar, sino el resultado del
-      // ajuste: sólo se quitan los puestos a mano.
-      if (!sel.manualId) return false
-      dispatch({ type: 'sc.delete', kind: sel.featureKind, id: sel.id, scId: sel.manualId })
+      if (sel.manualId) {
+        dispatch({ type: 'sc.delete', kind: sel.featureKind, id: sel.id, scId: sel.manualId })
+      } else {
+        // Un contorno calculado no es un dato que borrar sin más: es el
+        // resultado del ajuste, y el ajuste lo vuelve a poner en cuanto se
+        // repinte si no se le dice lo contrario. Se marca su cota como
+        // excluida —«aquí no va nada», no «aquí va esto otro»— para que deje
+        // de calcularse. Es el mismo Supr que ya borra un contorno a mano,
+        // sólo que aquí primero anota qué había que borrar.
+        if (!sel.it?.a || !sel.it?.b || !Number.isFinite(sel.elevation)) return false
+        dispatch({
+          type: 'sc.add',
+          kind: sel.featureKind,
+          id: sel.id,
+          items: [newStructureContour(sel.elevation, [sel.it.a, sel.it.b], { excluded: true })],
+        })
+      }
     } else return false
     setSelection(null)
     return true

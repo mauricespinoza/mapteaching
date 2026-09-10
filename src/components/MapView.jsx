@@ -601,11 +601,22 @@ export default function MapView({
 
     if (tool === 'erase') {
       const hit = hitTest(p, touchTol(ev, 16))
-      // Sólo se borran los contornos puestos a mano: los calculados no son un
-      // dato que quitar, sino el resultado del ajuste.
       const sc = scHit(p, touchTol(ev, 14))
-      if (sc?.it.manualId && (!hit || sc.d < hit.d)) {
-        dispatch({ type: 'sc.delete', kind: sc.it.kind, id: sc.it.featureId, scId: sc.it.manualId })
+      if (sc && (!hit || sc.d < hit.d)) {
+        if (sc.it.manualId) {
+          dispatch({ type: 'sc.delete', kind: sc.it.kind, id: sc.it.featureId, scId: sc.it.manualId })
+        } else {
+          // Un contorno calculado no es un dato que quitar sin más: es el
+          // resultado del ajuste, y reaparece en cuanto se repinte si no se le
+          // dice lo contrario. Se excluye su cota —«aquí no va nada»— en vez
+          // de sustituirla, que es la única forma de que la goma se note.
+          dispatch({
+            type: 'sc.add',
+            kind: sc.it.kind,
+            id: sc.it.featureId,
+            items: [newStructureContour(sc.it.elevation, [sc.it.a, sc.it.b], { excluded: true })],
+          })
+        }
         return
       }
       if (hit && hit.kind !== 'image') deleteHit(hit, dispatch)
