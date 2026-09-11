@@ -39,7 +39,7 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | **Contornos estructurales** | Se trazan a mano cuando hace falta corregir o completar lo que calcula la app: una recta de cota constante sobre una superficie. También se editan arrastrando los que la app dibuja. |
 | **Trazas de perfil** | Línea A–A′ que abre la vista de perfil. |
 | **Pozos** | Un toque sobre el mapa; luego profundidad medida, *trend* y *plunge*. |
-| **Regla** | Mide distancias sobre el mapa. Con el **imán** activo los extremos se pegan a las trazas digitalizadas y la medida se toma **perpendicular** a la traza en la que se ancla; si el manteo de ese contacto está resuelto, añade el espesor verdadero `e = L·sen δ`. |
+| **Espesor** | Mide distancias sobre el mapa. Con el **imán** activo los extremos se pegan a las trazas digitalizadas y la medida se toma **perpendicular** a la traza en la que se ancla; si el manteo de ese contacto está resuelto, añade el espesor verdadero `e = L·sen δ`. |
 | **Cortar línea** | Parte en dos la línea tocada por el punto más cercano al toque: contactos, fallas y curvas de nivel. Los dos trozos comparten el punto de corte —el mapa no queda con un hueco— y a partir de ahí son líneas independientes, cada una con sus vértices y, en un contacto, con su propio par de unidades. Es el paso previo natural a la digitalización automática, que entrega tramos largos que en realidad recorren varios contactos. |
 | **Área de trabajo** | Rectángulo que acota el ejercicio: los polígonos del mapa geológico, el modelo 3D, las trazas drapeadas y los planos de falla y de perfil se recortan a él. Se dibuja arrastrando y se quita desde el panel de capas. |
 
@@ -346,12 +346,15 @@ haciendo. Un contorno suelto se queda como está.
 
 #### Estereograma
 
-En **Datos → Estereograma**: red de Schmidt equiareal, hemisferio inferior, con
-el plano (círculo máximo) y el **polo** de cada unidad en el color de su unidad,
-y las fallas punteadas. Los limbos de una superficie plegada van por separado.
-Es la forma de ver de un vistazo qué es concordante —polos agrupados— y qué no:
-un polo apartado del racimo es una discordancia, y polos repartidos a lo largo de
-un círculo máximo delatan un pliegue cuyo eje es el polo de ese círculo.
+En la pestaña **Estereograma**, aparte de **Datos**: red de Schmidt equiareal,
+hemisferio inferior, con el plano (círculo máximo) y el **polo** de cada unidad
+en el color de su unidad, y las fallas punteadas. Los limbos de una superficie
+plegada van por separado. Es la forma de ver de un vistazo qué es concordante
+—polos agrupados— y qué no: un polo apartado del racimo es una discordancia, y
+polos repartidos a lo largo de un círculo máximo delatan un pliegue. Si hay
+pliegue, se plotea además el **eje β** (un rombo): la intersección de los
+círculos máximos de los distintos limbos, el mismo eje que ya se dibuja sobre
+el mapa.
 
 #### Corregir y añadir contornos estructurales
 
@@ -460,14 +463,6 @@ contactos intrusivos** (bajo una inconformidad las capas están truncadas, así
 que no son paralelas a ella; sobre ella, en cambio, sí), y **no cruza una
 falla** — cada bloque ajusta su propio espesor con sus propios datos. Un
 contacto con la actitud impuesta a mano tampoco se toca.
-
-El panel **Datos** incluye además una sección didáctica que dibuja, para cada
-par de contornos, el **triángulo rectángulo** del que sale el manteo —la
-diferencia de cotas Δh como cateto vertical y la separación horizontal d como
-cateto horizontal, con la fórmula `tan δ = Δh / d` resuelta con los números del
-ejercicio— y explica cómo se pasa de la distancia medida en el mapa al espesor
-real (`e = L·sen δ` o `e = V·cos δ`). Sin escala horizontal calibrada avisa de
-que el triángulo no se puede resolver.
 
 ### 5. Bloques de falla
 
@@ -728,6 +723,8 @@ La casilla **«Sobre el terreno»**, con su control de opacidad, dibuja además 
 prolongación de cada superficie por encima del relieve: lo que ya se erosionó, y
 lo que enseña hacia dónde seguía el pliegue. Sale del mismo recorte exacto, con
 el criterio de la topografía invertido y con un techo para que no se dispare.
+Por defecto la vista 3D abre con esta casilla activada y con la opacidad de las
+unidades, tanto bajo como sobre el terreno, al 70 %.
 
 La casilla **«Falla hasta el techo»** hace lo propio con el plano de cada falla:
 por defecto sube desde la traza sólo hasta la cota del terreno en ese punto —que
@@ -798,10 +795,10 @@ estudiantes, y un campo de **enunciado** para escribir las instrucciones del
 ejercicio. El botón **Ejemplos** abre el catálogo de modelos de prueba listos
 para usar, que se abren siempre como copia nueva:
 
-- **Modelo de prueba — Falla normal y serie inclinada**: proyecto real
-  digitalizado sobre una imagen de mapa (curvas de nivel, siete unidades, seis
-  contactos, una falla normal, dos perfiles, tres pozos y un par de puntos de
-  perforación), con la escala ya calibrada.
+- **Fold & inclined normal fault**: proyecto real digitalizado sobre una
+  imagen de mapa (curvas de nivel, siete unidades, seis contactos, una falla
+  normal, dos perfiles, tres pozos y un par de puntos de perforación), con la
+  escala ya calibrada.
 
 Los modelos de prueba son proyectos exportados de la propia app que viven en
 `public/examples/` y se descargan sólo al elegirlos; para añadir otro basta con
@@ -817,7 +814,7 @@ comprobar que el método recupera la geometría original.
 ## Atajos
 
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
-`G` contorno estructural · `R` escala · `D` medir · `N` norte · `S` perfil ·
+`G` contorno estructural · `R` escala · `D` espesor · `N` norte · `S` perfil ·
 `W` pozo · `M` modelo · `B` área de trabajo · `K` cortar línea · `E` borrar ·
 `Supr` borrar lo seleccionado · `←↑→↓` desplazar el mapa (con `Mayús`, a
 zancadas) · `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo ·

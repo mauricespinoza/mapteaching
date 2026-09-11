@@ -55,7 +55,7 @@ const EN = {
   Falla: 'Fault',
   'Contorno estr.': 'Structure cont.',
   'Escala gráfica': 'Graphic scale',
-  Medir: 'Measure',
+  Espesor: 'Thickness',
   Norte: 'North',
   'Área de trabajo': 'Work area',
   'Traza de perfil': 'Section line',
@@ -173,6 +173,7 @@ const EN = {
   Capas: 'Layers',
   Modelos: 'Models',
   Datos: 'Data',
+  Estereograma: 'Stereonet',
   'Salir del modo enfoque (Esc)': 'Exit focus mode (Esc)',
   Salir: 'Exit',
 

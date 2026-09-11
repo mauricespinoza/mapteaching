@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Download, Compass, Move3d, Ruler, Rows3, Target, Trash2 } from 'lucide-react'
+import { Download, Move3d, Ruler, Rows3, Target, Trash2 } from 'lucide-react'
 import { surfaceSummary } from '../lib/scene.js'
 import { fmtDistance } from '../lib/georef.js'
 import { kinematicsOf } from '../lib/model.js'
@@ -9,15 +9,16 @@ import { frameTest } from '../lib/models.js'
 import { piercingSlip, projectableContacts, buildProjections } from '../lib/piercing.js'
 import { downloadText } from '../lib/exportFile.js'
 import { Btn, inputCls } from './ui.jsx'
-import ThicknessPanel from './ThicknessPanel.jsx'
-import Stereonet from './Stereonet.jsx'
 
 /** Rumbo y manteo por pares de contornos estructurales consecutivos. */
 export default function ResultsPanel({ scene, project, dispatch }) {
   if (!scene?.ready) {
     return (
       <div className="h-full overflow-y-auto p-3">
-        <ThicknessPanel scene={scene} project={project} />
+        <p className="text-xs text-slate-500">
+          Todavía no hay resultados: falta la escala del mapa, o las curvas de nivel y los contactos con los que
+          resolver alguna superficie.
+        </p>
       </div>
     )
   }
@@ -148,14 +149,8 @@ export default function ResultsPanel({ scene, project, dispatch }) {
       </div>
 
       <RegularSection scene={scene} dispatch={dispatch} />
-      <StereonetSection scene={scene} />
       <PiercingSection scene={scene} project={project} dispatch={dispatch} />
       <SlipSection scene={scene} project={project} />
-
-      <h3 className="mb-2 mt-6 border-t border-slate-200 pt-4 text-sm font-semibold text-slate-700">
-        Cómo se obtienen manteo y espesor
-      </h3>
-      <ThicknessPanel scene={scene} project={project} />
 
       <div className="mt-4 rounded-xl bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
         <p className="mb-1 font-semibold text-slate-700">Cómo se calcula</p>
@@ -330,29 +325,6 @@ function RegularSection({ scene, dispatch }) {
         digitalización. Estos botones los sustituyen por otros paralelos y equiespaciados con el rumbo y la
         separación medios, y pueden además prolongar ese patrón a las cotas donde la traza no llegó a cortar.
       </p>
-    </div>
-  )
-}
-
-/** Estereograma, detrás de un botón: ocupa sitio y no siempre hace falta. */
-function StereonetSection({ scene }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="mt-4 border-t border-slate-200 pt-4">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">Estereograma</h3>
-        <Btn onClick={() => setOpen((o) => !o)} variant={open ? 'dark' : 'default'}>
-          <Compass size={13} /> {open ? 'Ocultar' : 'Ver estereograma'}
-        </Btn>
-      </div>
-      {open ? (
-        <Stereonet scene={scene} />
-      ) : (
-        <p className="text-[11px] text-slate-500">
-          Polos y planos de cada unidad en una red de Schmidt, con el color de la unidad: enseña de un vistazo
-          qué es concordante y qué no.
-        </p>
-      )}
     </div>
   )
 }

@@ -4,14 +4,13 @@ import {
   PenLine,
   Ruler,
   Compass,
-  Spline,
   Crosshair,
   Eraser,
   Layers3,
   Frame,
   MoveHorizontal,
 } from 'lucide-react'
-import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, CutLineIcon } from './icons.jsx'
+import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, CutLineIcon, SectionLineIcon } from './icons.jsx'
 import { useLang } from '../lib/i18n.jsx'
 
 export const TOOLS = [
@@ -22,10 +21,10 @@ export const TOOLS = [
   { id: 'fault', label: 'Falla', icon: FaultIcon, key: 'F' },
   { id: 'scontour', label: 'Contorno estr.', icon: StructureContourIcon, key: 'G' },
   { id: 'scale', label: 'Escala gráfica', icon: Ruler, key: 'R' },
-  { id: 'measure', label: 'Medir', icon: MoveHorizontal, key: 'D' },
+  { id: 'measure', label: 'Espesor', icon: MoveHorizontal, key: 'D' },
   { id: 'north', label: 'Norte', icon: Compass, key: 'N' },
   { id: 'frame', label: 'Área de trabajo', icon: Frame, key: 'B' },
-  { id: 'section', label: 'Traza de perfil', icon: Spline, key: 'S' },
+  { id: 'section', label: 'Traza de perfil', icon: SectionLineIcon, key: 'S' },
   { id: 'well', label: 'Pozo', icon: Crosshair, key: 'W' },
   { id: 'piercing', label: 'Piercing Points', icon: PiercingIcon, key: 'P' },
   { id: 'model', label: 'Modelo', icon: Layers3, key: 'M' },

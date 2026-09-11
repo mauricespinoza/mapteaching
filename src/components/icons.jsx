@@ -82,6 +82,54 @@ export function PiercingIcon({ size = 24, strokeWidth = 2, className = '', ...re
 }
 
 /**
+ * Traza de perfil: una recta —no una curva— entre sus dos extremos, rotulados
+ * A y A′ como se rotula cualquier perfil geológico. Antes se usaba el icono
+ * genérico «spline», que sugiere una curva y no dice nada de los extremos.
+ */
+export function SectionLineIcon({ size = 24, strokeWidth = 2, className = '', ...rest }) {
+  return (
+    <svg width={size} height={size} strokeWidth={strokeWidth} className={className} {...base} {...rest}>
+      <path d="M4 20 20 6" />
+      <circle cx="4" cy="20" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="20" cy="6" r="1.6" fill="currentColor" stroke="none" />
+      <text x="0.5" y="23.5" fontSize="7.5" fontFamily="system-ui, sans-serif" fill="currentColor" stroke="none">
+        A
+      </text>
+      <text x="14.3" y="5" fontSize="7.5" fontFamily="system-ui, sans-serif" fill="currentColor" stroke="none">
+        A′
+      </text>
+    </svg>
+  )
+}
+
+/**
+ * Logo de la app: un mapa geológico esquemático, no un icono genérico. Tres
+ * unidades de colores distintos en franjas onduladas —capas inclinadas, como
+ * las que se digitalizan en la propia app— cortadas por una falla.
+ */
+export function GeoMapLogo({ size = 24, className = '', ...rest }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      {...rest}
+    >
+      <rect width="24" height="24" rx="6" fill="#e0f2fe" />
+      <path d="M0 7 Q6 3.5 12 7 T24 6.5 V0 H0 Z" fill="#fde68a" />
+      <path d="M0 7 Q6 3.5 12 7 T24 6.5 V12 Q18 9 12 12 T0 11.5 Z" fill="#86efac" />
+      <path d="M0 11.5 Q6 8.5 12 12 T24 12 V18 Q18 15 12 18 T0 17.5 Z" fill="#fca5a5" />
+      <path d="M0 17.5 Q6 14.5 12 18 T24 18 V24 H0 Z" fill="#93c5fd" />
+      <path d="M3 24 L15 0" stroke="#1e293b" strokeWidth="1.5" fill="none" />
+      <rect x="0.5" y="0.5" width="23" height="23" rx="5.5" fill="none" stroke="#1e293b" strokeOpacity="0.25" />
+    </svg>
+  )
+}
+
+/**
  * Cortar una línea en un punto: el trazo partido en dos, con la marca del
  * corte —la recta segmentada perpendicular— y un extremo nuevo a cada lado.
  * Se lee de un vistazo qué deja la herramienta (dos líneas donde había una),

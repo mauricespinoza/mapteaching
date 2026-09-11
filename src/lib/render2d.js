@@ -1015,10 +1015,15 @@ function drawStructureContourLabel(ctx, view, it, { selected = false, taken = []
   const manual = Boolean(it.manualId)
   const lines = it.lines?.length ? it.lines : [`${it.elevation} m`, shortName(it.name)]
   const box = blockSize(ctx, lines, 10)
-  // Extremos primero y luego puntos a lo largo de la recta: el rótulo busca
-  // sitio sin dejar de tocar su propia curva.
-  const along = [0.5, 0.25, 0.75].map((t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
-  const spot = placeLabel(ctx, taken, [b, a, ...along], lines[0], 10, selected || manual, box)
+  // El centro primero y luego puntos cada vez más cerca de los extremos, pero
+  // sin llegar a ellos: ahí el rótulo se confunde con el de la línea vecina
+  // que arranca del mismo punto. Si el centro ya está ocupado por otro
+  // rótulo, se corre hacia uno u otro lado buscando el hueco más cercano.
+  const along = [0.5, 0.4, 0.6, 0.3, 0.7, 0.18, 0.82].map((t) => [
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+  ])
+  const spot = placeLabel(ctx, taken, along, lines[0], 10, selected || manual, box)
   if (spot) {
     labelBlock(ctx, spot[0], spot[1], lines, {
       color: it.color,

@@ -12,7 +12,7 @@ const asset = (file) => `${import.meta.env.BASE_URL}examples/${file}`
 export const EXAMPLES = [
   {
     id: 'falla-normal-serie-inclinada',
-    name: 'Modelo de prueba — Falla normal y serie inclinada',
+    name: 'Fold & inclined normal fault',
     summary: 'Proyecto de prueba digitalizado sobre una imagen de mapa: curvas de nivel, siete unidades, seis contactos, una falla normal, dos perfiles y tres pozos.',
     detail: 'Trae la imagen base, la escala calibrada, el marco de trabajo y un par de puntos de perforación para el salto de falla.',
     url: asset('falla-normal-serie-inclinada.mapteaching.json'),

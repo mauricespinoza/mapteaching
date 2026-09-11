@@ -20,8 +20,8 @@ export default function ThreeView({ project, scene, image, dispatch }) {
   const mountRef = useRef(null)
   const stateRef = useRef(null)
   const [vExag, setVExag] = useState(1)
-  const [unitsOpacity, setUnitsOpacity] = useState(0.62)
-  const [aerialOpacity, setAerialOpacity] = useState(0.28)
+  const [unitsOpacity, setUnitsOpacity] = useState(0.7)
+  const [aerialOpacity, setAerialOpacity] = useState(0.7)
   const [picked, setPicked] = useState(null)
   const [panelOpen, setPanelOpen] = useState(true)
   // Traslación y escala con las que se manipula cada superficie en el 3D. Es
@@ -34,7 +34,7 @@ export default function ThreeView({ project, scene, image, dispatch }) {
     contours: true,
     traces: true,
     surfaces: true,
-    aerial: false,
+    aerial: true,
     faults: true,
     faultTop: false,
     wells: true,

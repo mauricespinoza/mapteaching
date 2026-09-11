@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { kinematicsOf } from '../lib/model.js'
 import { surfaceSummary } from '../lib/scene.js'
+import { foldAxes } from '../lib/folds.js'
 
 // Estereograma equiareal (red de Schmidt), hemisferio inferior.
 //
@@ -8,6 +9,10 @@ import { surfaceSummary } from '../lib/scene.js'
 // se agrupan. Un polo apartado del racimo delata una discordancia; polos
 // repartidos en un círculo máximo delatan un pliegue, y ese círculo es el perfil
 // del pliegue —su polo es el eje—.
+//
+// Si hay un pliegue, además de los planos y los polos de cada limbo se plotea
+// el eje β: la recta donde se cortan los círculos máximos de los limbos, que
+// es el mismo eje que ya calcula `folds.js` para dibujarlo sobre el mapa.
 //
 // Proyección equiareal y no equiangular a propósito: es la que no deforma las
 // densidades, así que un racimo apretado se ve apretado.
@@ -91,10 +96,17 @@ function collect(scene) {
 
 const contactUpper = (scene, contactId) => scene.contacts.find((c) => c.id === contactId)?.upperUnitId
 
+/** Un rombo, para distinguir a simple vista el eje β de un polo (círculo). */
+function diamondPath(x, y, r) {
+  return `M ${x} ${y - r} L ${x + r} ${y} L ${x} ${y + r} L ${x - r} ${y} Z`
+}
+
 export default function Stereonet({ scene }) {
   const data = useMemo(() => (scene?.ready ? collect(scene) : []), [scene])
+  const axes = useMemo(() => (scene?.ready ? foldAxes(scene) : []), [scene])
   const [showPlanes, setShowPlanes] = useState(true)
   const [showPoles, setShowPoles] = useState(true)
+  const [showAxes, setShowAxes] = useState(true)
   const [hover, setHover] = useState(null)
 
   if (!data.length) {
@@ -119,6 +131,12 @@ export default function Stereonet({ scene }) {
           <input type="checkbox" checked={showPoles} onChange={(e) => setShowPoles(e.target.checked)} />
           Polos
         </label>
+        {axes.length > 0 && (
+          <label className="flex items-center gap-1.5">
+            <input type="checkbox" checked={showAxes} onChange={(e) => setShowAxes(e.target.checked)} />
+            Eje(s) β del pliegue
+          </label>
+        )}
       </div>
       <svg viewBox={`${-S} ${-S} ${2 * S} ${2 * S}`} width="100%" style={{ maxWidth: 380 }}>
         <circle cx="0" cy="0" r={R} fill="#ffffff" stroke="#334155" strokeWidth="1.6" />
@@ -178,6 +196,25 @@ export default function Stereonet({ scene }) {
               </g>
             )
           })}
+        {showAxes &&
+          axes.map((ax) => {
+            const [x, y] = project(ax.trend, ax.plunge)
+            const key = ax.id
+            return (
+              <g key={`ax-${key}`} onMouseEnter={() => setHover(key)} onMouseLeave={() => setHover(null)}>
+                <path
+                  d={diamondPath(x, y, hover === key ? 7.5 : 5.5)}
+                  fill="#dc2626"
+                  stroke="#fff"
+                  strokeWidth="1.4"
+                  opacity={hover && hover !== key ? 0.35 : 1}
+                />
+                <title>
+                  Eje β · {ax.type} — {ax.trend.toFixed(0)}°/{ax.plunge.toFixed(0)}°
+                </title>
+              </g>
+            )
+          })}
       </svg>
       <ul className="mt-2 space-y-0.5 text-[11px]">
         {data.map((d) => (
@@ -194,12 +231,28 @@ export default function Stereonet({ scene }) {
             <span className="ml-auto font-mono text-slate-600">{d.dipDirNotation}</span>
           </li>
         ))}
+        {axes.map((ax) => (
+          <li
+            key={`l-${ax.id}`}
+            className={`flex items-center gap-1.5 rounded px-1 ${hover === ax.id ? 'bg-slate-100' : ''}`}
+            onMouseEnter={() => setHover(ax.id)}
+            onMouseLeave={() => setHover(null)}
+          >
+            <span className="inline-block h-2.5 w-2.5 shrink-0 rotate-45 bg-rose-600" />
+            <span className="text-slate-700">Eje β ({ax.type})</span>
+            <span className="ml-auto font-mono text-slate-600">
+              {ax.trend.toFixed(0)}°/{ax.plunge.toFixed(0)}°
+            </span>
+          </li>
+        ))}
       </ul>
       <p className="mt-2 rounded-lg bg-slate-50 p-2 text-[11px] leading-relaxed text-slate-600">
         Red de Schmidt (equiareal), hemisferio inferior. Cada plano es un círculo máximo y su <b>polo</b> el punto
         que lo representa. Unidades concordantes tienen polos agrupados; un polo apartado del racimo es una
         discordancia. Si los polos de un mismo contacto se reparten a lo largo de un círculo máximo, la superficie
-        está plegada y el polo de ese círculo es el eje del pliegue.
+        está plegada. El <b>rombo rojo</b> es el <b>eje β</b>: la intersección de los planos de los distintos
+        limbos, calculada del mismo modo que en la falsilla —cortando los círculos máximos de cada limbo—, y es
+        la misma recta que ya se dibuja en el mapa como eje del pliegue.
       </p>
     </div>
   )

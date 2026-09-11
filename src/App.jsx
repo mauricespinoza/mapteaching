@@ -46,8 +46,9 @@ import ResultsPanel from './components/ResultsPanel.jsx'
 import HelpPanel from './components/HelpPanel.jsx'
 import ModelPanel from './components/ModelPanel.jsx'
 import DigitizePanel from './components/DigitizePanel.jsx'
+import Stereonet from './components/Stereonet.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
-import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon } from './components/icons.jsx'
+import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, GeoMapLogo } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
 import { newProject, newSection, newWell, newPiercingPair, newStructureContour, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
@@ -569,11 +570,15 @@ export default function App() {
         className={`${fullscreen ? 'hidden' : 'flex'} flex-wrap items-center gap-2 border-b border-slate-800/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-3 py-2 text-slate-100 shadow-sm`}
       >
         <div className="flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-emerald-400 text-slate-900 shadow">
-            <Mountain size={18} strokeWidth={2.4} />
+          <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl shadow">
+            <GeoMapLogo size={36} />
           </span>
-          <span className="hidden text-[15px] font-bold tracking-tight sm:block">
-            Map<span className="text-sky-400">Teaching</span>
+          <span className="hidden flex-col leading-tight sm:flex">
+            <span className="text-[15px] font-bold tracking-tight">
+              Map<span className="text-sky-400">Teaching</span>
+            </span>
+            <span className="text-[9.5px] font-medium text-slate-400">by Mauricio Espinoza - 2026</span>
+            <span className="text-[9.5px] font-medium text-slate-400">Universidad de Concepción</span>
           </span>
         </div>
         <input
@@ -882,6 +887,7 @@ export default function App() {
                 ['capas', 'Capas', Layers],
                 ['modelos', 'Modelos', Layers3],
                 ['resultados', 'Datos', Table],
+                ['estereograma', 'Estereograma', Compass],
                 ['ayuda', 'Guía', BookOpen],
               ].map(([id, label, Icon]) => (
                 <button
@@ -931,6 +937,12 @@ export default function App() {
                 </div>
               )}
               {panel === 'resultados' && <ResultsPanel scene={scene} project={project} dispatch={dispatch} />}
+              {panel === 'estereograma' && (
+                <div className="h-full overflow-y-auto bg-white p-3">
+                  <h3 className="mb-2 text-sm font-semibold text-slate-700">{t('Estereograma')}</h3>
+                  <Stereonet scene={scene} />
+                </div>
+              )}
               {panel === 'ayuda' && <HelpPanel project={project} dispatch={dispatch} />}
             </div>
           )}
