@@ -799,6 +799,10 @@ para usar, que se abren siempre como copia nueva:
   imagen de mapa (curvas de nivel, siete unidades, seis contactos, una falla
   normal, dos perfiles, tres pozos y un par de puntos de perforación), con la
   escala ya calibrada.
+- **Fold, fault & unconformity**: proyecto real digitalizado sobre una imagen
+  de mapa (curvas de nivel, diez unidades plegadas, nueve contactos —uno
+  discordante—, dos fallas normales y dos perfiles), con la escala ya
+  calibrada.
 
 Los modelos de prueba son proyectos exportados de la propia app que viven en
 `public/examples/` y se descargan sólo al elegirlos; para añadir otro basta con

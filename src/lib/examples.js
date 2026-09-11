@@ -17,6 +17,13 @@ export const EXAMPLES = [
     detail: 'Trae la imagen base, la escala calibrada, el marco de trabajo y un par de puntos de perforación para el salto de falla.',
     url: asset('falla-normal-serie-inclinada.mapteaching.json'),
   },
+  {
+    id: 'fold-fault-unconformity',
+    name: 'Fold, fault & unconformity',
+    summary: 'Proyecto de prueba digitalizado sobre una imagen de mapa: curvas de nivel, diez unidades plegadas, nueve contactos —uno discordante—, dos fallas normales y dos perfiles.',
+    detail: 'Trae la imagen base y la escala calibrada. La discordancia trunca el pliegue de la serie inferior, y las dos fallas normales cortan el conjunto.',
+    url: asset('fold-fault-unconformity.mapteaching.json'),
+  },
 ]
 
 export const findExample = (id) => EXAMPLES.find((e) => e.id === id) || EXAMPLES[0]
