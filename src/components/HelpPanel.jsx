@@ -51,12 +51,15 @@ export default function HelpPanel({ project, dispatch }) {
           contornos estructurales de la falla, así que las unidades se cortan justo donde se ve la falla.
         </li>
         <li>
-          <b>Hasta cuándo se movió la falla.</b> Una falla corta toda la pila salvo que le indiques quién la
-          <b> sella</b>: en su tarjeta, «Sellada por» elige la superficie desde la cual ya no desplaza nada. Es el
-          caso de la falla truncada por una <b>discordancia angular</b> —se movió, se erosionó y la cobertura se
-          depositó encima ya sin romperse—: sellada por ese contacto, la falla sigue desplazando lo que hay debajo
-          y la cobertura cruza entera por encima, en el mapa, en el perfil y en el 3D. Sin sellar, cada unidad de
-          la cobertura se resuelve por separado a cada lado y aparece un salto que la geología no tiene.
+          <b>Hasta cuándo se movió la falla.</b> Una falla truncada por una <b>discordancia angular</b> —se movió,
+          se erosionó y la cobertura se depositó encima ya sin romperse— desplaza lo que hay debajo y nada de lo
+          que hay encima. Con la discordancia marcada <b>no hay que decírselo</b>: lo lee del mapa. Una falla
+          decapitada sólo puede dibujarse donde afloran las rocas de debajo, así que se recorre su traza y se
+          mira si la discordancia queda bajo el terreno —la cobertura sigue ahí y la falla la corta— o sobre él
+          —ya erosionada—. Si no la cruza con claridad, la falla se sella ahí: la cobertura cruza entera por
+          encima y sus contactos se resuelven <b>como si no hubiera fallas</b>, sin partirse en bloques. En el 3D
+          su plano deja de subir justo en la discordancia, en vez de atravesar la cobertura hasta el techo del
+          modelo. «Sellada por», en su tarjeta, deja imponerlo a mano cuando el mapa no basta.
         </li>
         <li>
           Para que una falla parta el mapa de verdad su traza tiene que <b>cruzar el área de trabajo de lado a

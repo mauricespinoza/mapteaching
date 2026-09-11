@@ -383,11 +383,27 @@ export default function ThreeView({ project, scene, image, dispatch }) {
       for (const fw of scene.faultWorld) {
         const surf = scene.faultSurfaces.get(fw.id)
         const color = new THREE.Color(kinematicsOf(fw.fault.kinematics).color)
+        // Hasta dónde sube el plano. Una falla sellada por una discordancia se
+        // detiene en ella: se movió antes, la erosión la decapitó y la
+        // cobertura se depositó encima sin romperse, así que por arriba no hay
+        // plano que dibujar. La discordancia no está a una cota fija, de modo
+        // que el techo va como función del punto. Una falla que sí corta la
+        // cobertura —lo dice su traza sobre el mapa, ver `inferFaultSeals`— no
+        // se sella, y sigue subiendo hasta el techo del modelo.
+        const sealId = scene.faultSeal?.(fw.id)
+        const sealByBlock = sealId ? scene.contactSurfaces.get(sealId) : null
+        const ceiling = sealByBlock
+          ? (x, y) => {
+              const sealSurf = sealByBlock.get(scene.blocks.blockAt(x, y))
+              const z = sealSurf?.defined ? sealSurf.elevationAt(x, y) : null
+              return Number.isFinite(z) ? Math.min(modelTop, z) : modelTop
+            }
+          : modelTop
         for (const tr of fw.traces) {
           for (const run of clipRuns(tr, inFrame)) {
             const tris = faultSheetMesh(run, surf, dem, {
               zBottom,
-              zTop: show.faultTop ? modelTop : null,
+              zTop: show.faultTop ? ceiling : null,
               inFrame,
               side: scene.side,
               rows: show.faultTop ? 22 : 14,

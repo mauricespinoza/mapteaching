@@ -483,7 +483,7 @@ export default function LayersPanel({
                       })
                     }
                   >
-                    <option value="">Nada: corta toda la pila</option>
+                    <option value="">Automático: lo decide el mapa</option>
                     {contacts.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -492,6 +492,21 @@ export default function LayersPanel({
                     ))}
                   </select>
                 </Field>
+                {/* Qué decidió el mapa, cuando no se eligió a mano: la traza de
+                    una falla truncada por una discordancia sólo corre sobre las
+                    rocas de debajo, y de ahí se deduce hasta dónde llega. */}
+                {!f.sealedByContactId && scene?.faultSeal && (
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {scene.faultSeal(f.id) ? (
+                      <>
+                        Su traza no cruza la cobertura: se sella en{' '}
+                        <b>{contacts.find((c) => c.id === scene.faultSeal(f.id))?.name}</b>.
+                      </>
+                    ) : (
+                      'Su traza corta todo el mapa: desplaza la pila entera.'
+                    )}
+                  </p>
+                )}
                 <ManualAttitude
                   value={f.manual}
                   onChange={(manual) => dispatch({ type: 'fault.update', id: f.id, patch: { manual } })}

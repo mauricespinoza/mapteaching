@@ -184,6 +184,13 @@ export function contactMeshes(
  * la traza—. No se reajusta nada al arrancar: la superficie ya viene anclada a
  * la traza (ver `anchorToTrace`), y retocarla aquí volvería a separar el plano
  * que se ve del que corta.
+ *
+ * `zTop` puede ser una **función de (x, y)** y no una cota fija. Es lo que hace
+ * falta para detener el plano en la superficie que sella la falla: una
+ * discordancia no está a una cota, está a la que tenga en cada punto, y por
+ * encima de ella la falla no existe —se movió antes y quedó truncada—. Con el
+ * techo así, la hoja sube justo hasta la discordancia y se para, en vez de
+ * atravesar la cobertura hasta el borde del modelo.
  */
 export function faultSheetMesh(trace, surf, dem, { zBottom, zTop = null, inFrame = null, side, rows = 14 } = {}) {
   if (!trace || trace.length < 2 || !surf?.defined) return null
@@ -217,6 +224,7 @@ export function faultSheetMesh(trace, surf, dem, { zBottom, zTop = null, inFrame
   // definición, donde el plano corta el terreno, y el terreno mismo —no la
   // superficie del modelo— es lo que da esa cota sin ambigüedad.
   const walk = (p, dir, limit) => {
+    const limitAt = typeof limit === 'function' ? limit : () => limit
     const z0 = dem?.valid ? dem.elevationAt(p[0], p[1]) : surf.elevationAt(p[0], p[1])
     if (!Number.isFinite(z0)) return null
     const path = [[p[0], p[1], z0]]
@@ -229,7 +237,12 @@ export function faultSheetMesh(trace, surf, dem, { zBottom, zTop = null, inFrame
     // trivial: cada paso es una evaluación de un plano o de un pliegue con
     // pocos puntos.
     for (let n = 0; n < 4000; n++) {
-      if (dir > 0 ? z <= limit : z >= limit) break
+      // El techo se pregunta en el punto donde se está, no una vez al salir:
+      // una superficie que sella cambia de cota a lo largo de la traza, y una
+      // falla inclinada se aparta de ella mientras sube.
+      const stop = limitAt(x, y)
+      if (!Number.isFinite(stop)) break
+      if (dir > 0 ? z <= stop : z >= stop) break
       const s = surf.sampleAt(x, y)
       const g = Math.hypot(s.a, s.b)
       if (!(g > 1e-9)) break

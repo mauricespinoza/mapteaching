@@ -10,7 +10,15 @@ import { buildBlocks, singleBlock } from './blocks.js'
 import { hasFoldEvidence } from './domains.js'
 import { buildDem } from './dem.js'
 import { polylineIntersections, dist, bboxOf } from './geom.js'
-import { sortedUnits, sortedContacts, kinematicsOf, contactOrder, faultCutsContact, contactPackages } from './model.js'
+import {
+  sortedUnits,
+  sortedContacts,
+  kinematicsOf,
+  contactOrder,
+  faultCutsContact,
+  contactPackages,
+  isUnconformable,
+} from './model.js'
 
 /** Corta una polilínea allí donde la cruza una falla. */
 export function splitByFaults(pts, faultPolys) {
@@ -333,8 +341,19 @@ export function buildScene(project) {
    * cortan —que es el caso de siempre—.
    */
   const order = contactOrder(project)
+  /**
+   * Quién sella cada falla: el contacto desde el cual ya no desplaza nada.
+   *
+   * Empieza por lo que diga la ficha de la falla —si el estudiante lo eligió a
+   * mano, manda él— y más abajo, cuando ya hay superficies con las que mirar el
+   * mapa, se completa con lo que el propio mapa enseña (ver `inferFaultSeals`).
+   */
+  const sealOf = new Map(faultWorld.map((fw) => [fw.id, fw.fault.sealedByContactId || null]))
+  const cutsContact = (fw, contactId) =>
+    faultCutsContact({ sealedByContactId: sealOf.get(fw.id) }, contactId, order)
+
   const groupsForContact = (contactId) => {
-    const sealed = faultWorld.filter((fw) => !faultCutsContact(fw.fault, contactId, order))
+    const sealed = faultWorld.filter((fw) => !cutsContact(fw, contactId))
     if (!sealed.length) return (block) => block
     const parent = new Map()
     const find = (x) => {
@@ -397,6 +416,11 @@ export function buildScene(project) {
     return out
   }
 
+  const units = sortedUnits(project)
+  const contacts = sortedContacts(project)
+  /** Equidistancia de las curvas: la precisión con que el mapa sitúa una cota. */
+  const zStep = contourSpacing(worldContours)
+
   // Superficies de contacto, resueltas bloque a bloque —salvo donde una falla
   // sellada no desplaza al contacto: allí sus bloques van juntos y comparten
   // una sola superficie, que es lo que significa que la falla no lo corta.
@@ -407,12 +431,12 @@ export function buildScene(project) {
   // se usan en las dos pasadas de abajo, que sólo se diferencian en lo que ya
   // se sabe del paquete al construir la superficie.
   const contactData = new Map()
-  for (const cw of contactWorld) {
+  const gatherContact = (cw) => {
     const group = groupsForContact(cw.id)
     // Sólo parten la traza las fallas que de verdad desplazan a este contacto:
     // trocearla en una que no lo corta perdería los extremos recortados de cada
     // pieza sin separar nada.
-    const cutting = faultWorld.filter((fw) => faultCutsContact(fw.fault, cw.id, order)).flatMap((fw) => fw.traces)
+    const cutting = faultWorld.filter((fw) => cutsContact(fw, cw.id)).flatMap((fw) => fw.traces)
     const byBlock = new Map()
     const pieces = []
     for (const tr of cw.traces) {
@@ -430,6 +454,7 @@ export function buildScene(project) {
     for (const block of manualByBlock.keys()) if (!byBlock.has(block)) byBlock.set(block, [])
     contactData.set(cw.id, { cw, group, byBlock, manualByBlock })
   }
+  for (const cw of contactWorld) gatherContact(cw)
 
   /**
    * Construye —o reconstruye— las superficies de un contacto. `packageFolded`
@@ -466,6 +491,84 @@ export function buildScene(project) {
   }
 
   for (const cw of contactWorld) resolveContact(cw.id, null)
+
+  /**
+   * Quién sella cada falla, leído del mapa.
+   *
+   * Una falla que se movió antes de la discordancia quedó truncada por ella:
+   * por encima no hay falla, y en el mapa su traza sólo puede dibujarse donde
+   * afloran las rocas de debajo —donde la cobertura tapa la zona no hay nada
+   * que cartografiar—. Así que la pregunta «¿corta esta falla al paquete de
+   * encima?» tiene respuesta en el propio mapa, y no hace falta pedírsela al
+   * estudiante: se recorre la traza y se mira, punto a punto, si la
+   * discordancia está **bajo** el terreno —la cobertura sigue ahí, y una falla
+   * dibujada encima la corta— o **sobre** él —ya erosionada, y entonces lo que
+   * aflora es el paquete de debajo—.
+   *
+   * Hace falta que la corte *claramente*: junto a la traza de la discordancia
+   * las dos cotas se rozan y el signo lo decide el pulso del dibujo, así que
+   * ahí no se cuenta nada, y un puñado de puntos sueltos tampoco basta. Si la
+   * falla se queda corta, la sella la discordancia más baja que no atraviesa.
+   *
+   * Lo que el estudiante haya elegido a mano en la ficha manda siempre: esto
+   * sólo rellena lo que no dijo.
+   */
+  const inferFaultSeals = () => {
+    const unconformities = contacts.filter((c) => isUnconformable(c) && contactSurfaces.has(c.id))
+    if (!unconformities.length || !dem?.valid) return false
+    // Franja de duda en cota: media equidistancia de las curvas, que es con la
+    // precisión con la que el mapa sitúa una superficie (y nunca menos que la
+    // tolerancia de digitalización).
+    const band = Math.max(zStep * 0.5, tol * 2)
+    const step = Math.max(side * 0.004, 1)
+    let changed = false
+    for (const fw of faultWorld) {
+      if (fw.fault.sealedByContactId) continue
+      let seal = null
+      for (const u of unconformities) {
+        const byBlock = contactSurfaces.get(u.id)
+        let over = 0
+        let under = 0
+        for (const tr of fw.traces) {
+          let acc = Infinity
+          for (let i = 0; i < tr.length; i++) {
+            if (i > 0) acc += dist(tr[i - 1], tr[i])
+            if (acc < step) continue
+            acc = 0
+            const [x, y] = tr[i]
+            const surf = byBlock?.get(blocks.blockAt(x, y))
+            if (!surf?.defined) continue
+            const zu = surf.elevationAt(x, y)
+            const zt = dem.elevationAt(x, y)
+            if (!Number.isFinite(zu) || !Number.isFinite(zt)) continue
+            if (zt - zu > band) over++
+            else if (zu - zt > band) under++
+          }
+        }
+        const total = over + under
+        // Corta el paquete de encima cuando una parte apreciable de su traza
+        // corre sobre él. Con pocos datos no se afirma nada: se deja sin sellar.
+        const cortaLaCobertura = !total || (over >= 3 && over >= total * 0.2)
+        if (!cortaLaCobertura) {
+          seal = u.id
+          break
+        }
+      }
+      if (sealOf.get(fw.id) !== seal) {
+        sealOf.set(fw.id, seal)
+        changed = true
+      }
+    }
+    return changed
+  }
+
+  // Con el sello inferido cambian los bloques que cada contacto ve, así que sus
+  // superficies se rehacen: un contacto de la cobertura que ninguna falla corta
+  // se resuelve entonces con todas sus trazas juntas, como si no hubiera fallas.
+  if (inferFaultSeals()) {
+    for (const cw of contactWorld) gatherContact(cw)
+    for (const cw of contactWorld) resolveContact(cw.id, null)
+  }
 
   /**
    * ¿Está plegado cada paquete? Lo decide el paquete entero, no cada contacto
@@ -603,14 +706,10 @@ export function buildScene(project) {
     return true
   }
 
-  const units = sortedUnits(project)
-  const contacts = sortedContacts(project)
-
   // Unidades sin datos propios: heredan el pliegue de la unidad de encima con
   // espesor constante. Va después del modelo de elevación porque, cuando un
   // contacto no cruza ninguna curva de nivel, el espesor se ajusta leyendo su
   // traza sobre el relieve.
-  const zStep = contourSpacing(worldContours)
   const inherited = inheritContactGeometry({ contacts, contactSurfaces, dem, tol, side, zStep })
 
   /**
@@ -718,6 +817,12 @@ export function buildScene(project) {
     packages,
     packageOf,
     foldedPackage,
+    /**
+     * Contacto que sella cada falla: desde él hacia el techo no desplaza nada y
+     * en el 3D su plano se detiene ahí. Lo elige el estudiante en la ficha o,
+     * si no dijo nada, lo infiere el mapa (`inferFaultSeals`).
+     */
+    faultSeal: (faultId) => sealOf.get(faultId) || null,
     /** Fallas que cortan bloques, con su superficie: el corte en profundidad. */
     faultCuts,
     /** Lado de cada falla (+1 encima, −1 debajo) en que queda cada bloque. */
