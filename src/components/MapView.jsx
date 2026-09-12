@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { render, toImagePt, renderHillshade } from '../lib/render2d.js'
+import { SvgCanvasContext } from '../lib/svgCanvas.js'
 import { structureContourItems } from '../lib/scene.js'
 import { foldAxes as computeFoldAxes } from '../lib/folds.js'
 import { newStructureContour } from '../lib/model.js'
@@ -46,6 +47,7 @@ export default function MapView({
   unitRaster,
   projected,
   canvasRef: externalCanvasRef,
+  svgExportRef,
 }) {
   const innerRef = useRef(null)
   const canvasRef = externalCanvasRef || innerRef
@@ -344,6 +346,44 @@ export default function MapView({
       dpr,
     })
   }, [view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, projected, foldAxes, edit, editPreview, scDrawn])
+
+  // --- Exportación a SVG ---
+  //
+  // Mismo `render()` que pinta la pantalla, pero con un contexto que en vez de
+  // píxeles arma nodos SVG (`SvgCanvasContext`): así el mapa exportado es
+  // exactamente el que se ve —mismo encuadre, mismos rótulos, mismas capas
+  // encendidas— y no puede desincronizarse de él. `svgExportRef` es la misma
+  // idea que `canvasRef`: quien monta este componente deja aquí una función
+  // para pedir el SVG cuando haga falta, sin volver a levantar el dibujo cada
+  // vez que algo cambia.
+  useEffect(() => {
+    if (!svgExportRef) return
+    svgExportRef.current = () => {
+      const svgCtx = new SvgCanvasContext(size.width, size.height)
+      render(svgCtx, {
+        view,
+        project,
+        scene,
+        image,
+        hillshade,
+        show,
+        selection,
+        draft,
+        measure,
+        hover: cursor,
+        modelViews,
+        unitRaster,
+        projected,
+        foldAxes,
+        edit: edit ? { ...edit, preview: editPreview } : null,
+        scItems: scDrawn,
+        width: size.width,
+        height: size.height,
+        dpr: 1,
+      })
+      return svgCtx.svg
+    }
+  }, [svgExportRef, view, project, scene, image, hillshade, show, selection, draft, measure, cursor, size, modelViews, unitRaster, projected, foldAxes, edit, editPreview, scDrawn])
 
   const toImg = useCallback((ev) => {
     const rect = canvasRef.current.getBoundingClientRect()

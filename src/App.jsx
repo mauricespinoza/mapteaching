@@ -57,7 +57,7 @@ import { buildProjections } from './lib/piercing.js'
 import { buildUnitRaster } from './lib/geomap.js'
 import { dist, norm, sub } from './lib/geom.js'
 import * as db from './lib/db.js'
-import { downloadText, downloadCanvasPng } from './lib/exportFile.js'
+import { downloadText, downloadCanvasPng, downloadSvg } from './lib/exportFile.js'
 import { fmtDistance } from './lib/georef.js'
 
 /**
@@ -178,6 +178,7 @@ export default function App() {
   const [projects, setProjects] = useState([])
   const [booted, setBooted] = useState(false)
   const mapCanvasRef = useRef(null)
+  const mapSvgExportRef = useRef(null)
   const fileRef = useRef(null)
   const projectFileRef = useRef(null)
 
@@ -768,6 +769,17 @@ export default function App() {
                   <span className="hidden xl:inline">{t('Encuadrar')}</span>
                 </button>
                 <button
+                  onClick={() => {
+                    const svg = mapSvgExportRef.current?.()
+                    if (svg) downloadSvg(svg, `${project.name}-mapa.svg`)
+                  }}
+                  title={t('Exportar el mapa como SVG (vectorial, editable)')}
+                  className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  <Download size={15} />
+                  <span className="hidden xl:inline">SVG</span>
+                </button>
+                <button
                   onClick={() =>
                     mapCanvasRef.current && downloadCanvasPng(mapCanvasRef.current, `${project.name}-mapa.png`)
                   }
@@ -858,6 +870,7 @@ export default function App() {
                   unitRaster={unitRaster}
                   projected={projected}
                   canvasRef={mapCanvasRef}
+                  svgExportRef={mapSvgExportRef}
                 />
               </div>
             </>

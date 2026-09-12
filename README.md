@@ -146,6 +146,15 @@ qué líneas quedan por reasignar. Se enciende y se apaga con el interruptor
 «Unidades de los contactos» de la barra de capas. El rótulo busca sitio a lo
 largo de su propia línea y se queda sin escribir antes que apilarse sobre otro.
 
+**Exportar el mapa**: los botones **SVG** y **PNG** de la barra de herramientas
+vuelcan exactamente lo que se ve en el lienzo, con el encuadre y las capas
+encendidas en ese momento. El PNG es una foto del canvas; el SVG es vectorial
+de verdad —el mismo motor de dibujo del mapa arma, en vez de píxeles, trazos,
+texto y círculos como nodos SVG—, así que se puede reescalar sin perder nitidez
+y editar en Illustrator o Inkscape. La imagen base y los rellenos rasterizados
+(unidades, modelos, sombreado del relieve) van incrustados dentro del SVG como
+`<image>`, para que el archivo quede autónomo.
+
 ### 3. Modelos sintéticos
 
 El panel **Modelos** tiene dos mitades, que responden a preguntas distintas: en
