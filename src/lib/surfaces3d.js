@@ -34,6 +34,91 @@ export function clipBy(poly, c) {
 const mixVertex = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t)
 
 /**
+ * Tapas del cuerpo de un dique: el techo, donde aflora entre sus dos paredes,
+ * y el piso, donde el modelo lo corta en profundidad si no se acuñó antes.
+ *
+ * Sin ellas el cuerpo se ve hueco: las dos paredes se dibujan como dos láminas
+ * sueltas (`faultSheetMesh`, una por pared) y entre medio, mirando hacia
+ * abajo por donde el dique aflora, no hay nada —se ve el vacío del modelo a
+ * través del cuerpo—. Estas dos tapas son lo que falta para que sea un
+ * volumen cerrado y no dos hojas.
+ *
+ * El techo sigue el **terreno**, no una cota fija —un dique aflora en la
+ * superficie, allí donde el relieve corta su cuerpo— y sólo existe donde de
+ * verdad lo corta: `low(x,y) ≤ terreno ≤ high(x,y)`. El piso es plano, en
+ * `zBottom` —el mismo fondo que usan las fallas—, y sólo existe donde el
+ * dique sigue abierto a esa profundidad: `high(x,y) > low(x,y)`. Donde el
+ * dique se acuña antes de llegar al terreno o al piso, las dos paredes ya se
+ * han juntado y el volumen cierra solo, sin tapa: por eso ninguna de las dos
+ * hace falta en la punta.
+ */
+export function dikeCapMeshes(dikeRes, scene, { zBottom, inFrame = null, resolution = 70 } = {}) {
+  const { low, high } = dikeRes || {}
+  const { bbox, dem } = scene
+  if (!low?.defined || !high?.defined || !dem?.valid) return { roof: null, floor: null }
+  const N = resolution
+  const dx = (bbox.maxX - bbox.minX) / N
+  const dy = (bbox.maxY - bbox.minY) / N
+  const nn = (N + 1) * (N + 1)
+  const gx = new Float64Array(nn)
+  const gy = new Float64Array(nn)
+  const gz = new Float64Array(nn).fill(NaN) // terreno
+  const zl = new Float64Array(nn).fill(NaN)
+  const zh = new Float64Array(nn).fill(NaN)
+  const inside = new Uint8Array(nn)
+  for (let j = 0; j <= N; j++) {
+    for (let i = 0; i <= N; i++) {
+      const k = j * (N + 1) + i
+      const x = bbox.minX + i * dx
+      const y = bbox.minY + j * dy
+      gx[k] = x
+      gy[k] = y
+      if (inFrame && !inFrame(x, y)) continue
+      inside[k] = 1
+      gz[k] = dem.elevationAt(x, y)
+      zl[k] = low.elevationAt(x, y)
+      zh[k] = high.elevationAt(x, y)
+    }
+  }
+  // Fuera del cuerpo, con holgura: igual que en `contactMeshes`, un criterio
+  // negativo y grande de sobra para que el recorte caiga junto al vértice que
+  // sí lo incumple.
+  const LOOSE = -Math.max(1, dem.zmax - dem.zmin) * 100
+  const roofCrit = (k) => {
+    if (!inside[k] || !Number.isFinite(gz[k]) || !Number.isFinite(zl[k]) || !Number.isFinite(zh[k])) return LOOSE
+    return Math.min(gz[k] - zl[k], zh[k] - gz[k])
+  }
+  const floorCrit = (k) => {
+    if (!inside[k] || !Number.isFinite(zl[k]) || !Number.isFinite(zh[k])) return LOOSE
+    return zh[k] - zl[k]
+  }
+  const buildCap = (zAt, crit) => {
+    const tris = []
+    const corners = [0, 0, 0, 0]
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        corners[0] = j * (N + 1) + i
+        corners[1] = corners[0] + 1
+        corners[2] = (j + 1) * (N + 1) + i + 1
+        corners[3] = (j + 1) * (N + 1) + i
+        let poly = corners.map((k) => [gx[k], gy[k], zAt(k), crit(k)])
+        poly = clipBy(poly, 0)
+        if (poly.length < 3) continue
+        const v0 = poly[0]
+        for (let t = 1; t + 1 < poly.length; t++) {
+          for (const v of [v0, poly[t], poly[t + 1]]) tris.push(v[0], v[1], v[2])
+        }
+      }
+    }
+    return tris.length ? tris : null
+  }
+  return {
+    roof: buildCap((k) => gz[k], roofCrit),
+    floor: buildCap(() => zBottom, floorCrit),
+  }
+}
+
+/**
  * Superficies de contacto, todas de una pasada.
  *
  * En cada nodo se pide la **pila estratigráfica completa** (`scene.stackAt`), no

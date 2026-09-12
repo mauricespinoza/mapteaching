@@ -7,7 +7,7 @@ import { kinematicsOf, newStructureContour, isHidden } from '../lib/model.js'
 import { contourSegment } from '../lib/structure.js'
 import { frameTest, modelExtent } from '../lib/models.js'
 import { buildWellModel } from '../lib/wells.js'
-import { contactMeshes, faultSheetMesh } from '../lib/surfaces3d.js'
+import { contactMeshes, faultSheetMesh, dikeCapMeshes } from '../lib/surfaces3d.js'
 import { buildGempyBundle, safeName } from '../lib/gempy.js'
 import { zipBlob } from '../lib/zip.js'
 import { download } from '../lib/exportFile.js'
@@ -472,6 +472,30 @@ export default function ThreeView({ project, scene, image, dispatch }) {
               }
             }
           }
+        }
+        // Tapas: el techo (donde aflora) y el piso (donde el modelo lo corta
+        // en profundidad). Sin ellas las dos paredes se ven como dos láminas
+        // sueltas, con el hueco del cuerpo a la vista entre medio.
+        const caps = dikeCapMeshes(d, scene, { zBottom, inFrame, resolution: 70 })
+        for (const cap of ['roof', 'floor']) {
+          const tris = caps[cap]
+          if (!tris) continue
+          const geo = new THREE.BufferGeometry()
+          geo.setAttribute('position', new THREE.Float32BufferAttribute(toScene(tris, P), 3))
+          geo.computeVertexNormals()
+          const mesh = new THREE.Mesh(
+            geo,
+            new THREE.MeshStandardMaterial({
+              color,
+              transparent: true,
+              opacity: 0.92,
+              side: THREE.DoubleSide,
+              roughness: 0.7,
+            })
+          )
+          const key = surfaceKey('dike', d.id, cap)
+          mesh.userData = { kind: 'dike', id: d.id, wallId: null, name: d.name, block: null, eroded: false, key }
+          addTransformed(mesh, key)
         }
       }
     }
