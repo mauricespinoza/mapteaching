@@ -358,6 +358,19 @@ pliegue, se plotea además el **eje β** (un rombo): la intersección de los
 círculos máximos de los distintos limbos, el mismo eje que ya se dibuja sobre
 el mapa.
 
+#### Símbolos
+
+La pestaña **Símbolos** es la leyenda del mapa hecha ajustable: el color de
+cada cinemática de falla, el color del eje de pliegue y el grosor de línea de
+cada capa (contactos, fallas, diques, ejes de pliegue, contornos estructurales,
+curvas de nivel), como un multiplicador sobre el grosor de siempre —útil para
+que un mapa se lea bien al proyectar en clase o al imprimirlo—. Sólo cambia el
+dibujo, en el mapa, el perfil, el 3D, el estereograma y la columna de un pozo;
+la geología no se entera de qué color se pintó una falla normal. Un proyecto
+guardado antes de que existiera esta pestaña se ve exactamente igual: sólo se
+guardan las excepciones al color y al grosor de toda la vida, y cada fila (o
+«Restablecer toda la simbología») los devuelve a como estaban.
+
 #### Corregir y añadir contornos estructurales
 
 Los contornos que salen del ajuste son una **hipótesis**, no un dato: con tres
