@@ -37,6 +37,7 @@ export default function ThreeView({ project, scene, image, dispatch }) {
     aerial: true,
     faults: true,
     faultTop: false,
+    dikes: true,
     wells: true,
     sections: true,
     texture: true,
@@ -430,6 +431,51 @@ export default function ThreeView({ project, scene, image, dispatch }) {
       }
     }
 
+    // Diques: una losa entre sus dos paredes. Se dibuja como dos láminas —una
+    // por pared—, cada una detenida donde el dique se acuña: allí las dos se
+    // han cruzado, el espesor es cero y del cuerpo no queda nada que enseñar.
+    if (show.dikes) {
+      for (const d of scene.dikes?.list || []) {
+        if (isHidden(d.dike)) continue
+        const color = new THREE.Color(d.color || '#b91c1c')
+        for (const dw of scene.dikeWorld) {
+          if (dw.id !== d.id) continue
+          for (const w of dw.walls) {
+            const surf = scene.dikeWallSurfaces.get(w.id)
+            if (!surf?.defined) continue
+            for (const tr of w.traces) {
+              for (const run of clipRuns(tr, inFrame)) {
+                const tris = faultSheetMesh(run, surf, dem, {
+                  // Suelo variable: donde el dique ya se cerró no se baja nada.
+                  zBottom: (x, y) => (d.spanAt(x, y) ? zBottom : Infinity),
+                  inFrame,
+                  side: scene.side,
+                  rows: 16,
+                })
+                if (!tris) continue
+                const geo = new THREE.BufferGeometry()
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(toScene(tris, P), 3))
+                geo.computeVertexNormals()
+                const mesh = new THREE.Mesh(
+                  geo,
+                  new THREE.MeshStandardMaterial({
+                    color,
+                    transparent: true,
+                    opacity: 0.92,
+                    side: THREE.DoubleSide,
+                    roughness: 0.7,
+                  })
+                )
+                const key = surfaceKey('dike', w.id, null)
+                mesh.userData = { kind: 'dike', id: d.id, wallId: w.id, name: d.name, block: null, eroded: false, key }
+                addTransformed(mesh, key)
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Pozos
     if (show.wells) {
       for (const w of project.wells) {
@@ -628,6 +674,7 @@ export default function ThreeView({ project, scene, image, dispatch }) {
                 ['traces', 'Trazas'],
                 ['surfaces', 'Unidades'],
                 ['faults', 'Fallas'],
+                ['dikes', 'Diques'],
                 ['wells', 'Pozos'],
                 ['sections', 'Perfiles'],
                 ['aerial', 'Sobre el terreno'],

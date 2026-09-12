@@ -89,6 +89,28 @@ export function buildWellModel(well, scene) {
     }
   }
   for (const c of scene.contacts) crossFor(c.id, 'contacto', { name: c.name, color: c.color, contact: c })
+  // Paredes de dique: el pozo entra y sale del cuerpo intrusivo, y cada paso
+  // es un contacto que el sondaje cortaría de verdad.
+  for (const d of scene.dikes?.list || []) {
+    let prev = null
+    for (const s of path) {
+      const inside = d.contains(s.x, s.y, s.z)
+      if (prev && prev.inside !== inside) {
+        markers.push({
+          kind: 'dique',
+          id: d.id,
+          md: (prev.md + s.md) / 2,
+          z: (prev.z + s.z) / 2,
+          tvd: z0 - (prev.z + s.z) / 2,
+          attitude: (inside ? d.high : d.low)?.mean || null,
+          name: `${d.name} (${inside ? 'techo' : 'muro'})`,
+          color: d.color,
+          dike: d.dike,
+        })
+      }
+      prev = { inside, md: s.md, z: s.z }
+    }
+  }
   for (const f of scene.project.faults) {
     if (scene.faultSurfaces.has(f.id)) crossFor(f.id, 'falla', { name: f.name, kinematics: f.kinematics, fault: f })
   }
@@ -98,17 +120,22 @@ export function buildWellModel(well, scene) {
   const column = []
   let current = null
   for (const s of path) {
-    const elevs = contactElevationsAt(scene, s.x, s.y)
-    const unit = unitAt(scene, elevs, s.z)
-    const key = unit ? unit.id : '∅'
+    // El dique manda sobre la pila: donde el sondaje lo atraviesa, la roca es
+    // la del dique y no la unidad que la estratigrafía diría, porque el dique
+    // la cortó.
+    const dike = scene.dikeAt ? scene.dikeAt(s.x, s.y, s.z) : null
+    const elevs = dike ? null : contactElevationsAt(scene, s.x, s.y)
+    const unit = dike ? null : unitAt(scene, elevs, s.z)
+    const key = dike ? `dk:${dike.id}` : unit ? unit.id : '∅'
     if (!current || current.key !== key) {
       if (current) current.mdBot = s.md
       current = {
         key,
         unitId: unit?.id || null,
-        name: unit?.name || 'Sin unidad definida',
-        color: unit?.color || '#94a3b8',
-        lithology: unit?.lithology || '',
+        dikeId: dike?.id || null,
+        name: dike?.name || unit?.name || 'Sin unidad definida',
+        color: dike?.color || unit?.color || '#94a3b8',
+        lithology: dike?.dike?.lithology || unit?.lithology || '',
         mdTop: s.md,
         mdBot: depth,
       }

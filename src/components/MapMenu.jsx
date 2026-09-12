@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Trash2, Layers, Ruler, Plus } from 'lucide-react'
+import { Trash2, Layers, Ruler, Plus, FlipHorizontal2, ArrowLeftRight } from 'lucide-react'
 import { inputCls, ColorSwatch } from './ui.jsx'
 import { CONTACT_TYPES, KINEMATICS, reassignContact, sortedUnits, newStructureContour } from '../lib/model.js'
 
@@ -51,6 +51,7 @@ export default function MapMenu({ at, hit, project, dispatch, size, onClose, onA
 function Body({ hit, project, dispatch, done, onAddSc, onSelect }) {
   if (hit.kind === 'contact') return <ContactMenu hit={hit} project={project} dispatch={dispatch} done={done} onAddSc={onAddSc} />
   if (hit.kind === 'fault') return <FaultMenu hit={hit} project={project} dispatch={dispatch} done={done} onAddSc={onAddSc} />
+  if (hit.kind === 'dike') return <DikeMenu hit={hit} project={project} dispatch={dispatch} done={done} onAddSc={onAddSc} />
   if (hit.kind === 'contour') return <ContourMenu hit={hit} project={project} dispatch={dispatch} done={done} />
   if (hit.kind === 'sc') return <ScMenu hit={hit} project={project} dispatch={dispatch} done={done} onSelect={onSelect} />
   if (hit.kind === 'section') {
@@ -255,6 +256,80 @@ function FaultMenu({ hit, project, dispatch, done, onAddSc }) {
   )
 }
 
+/**
+ * Menú de un dique. Lo propio de un dique es que la traza tocada pertenece a
+ * **una de sus dos paredes**: de ahí que aquí se pueda mudar de pared —el
+ * remedio cuando un trazo fue a parar al borde equivocado— y que el contorno
+ * estructural se añada a la pared tocada y no al cuerpo.
+ */
+function DikeMenu({ hit, project, dispatch, done, onAddSc }) {
+  const d = (project.dikes || []).find((x) => x.id === hit.id)
+  if (!d) return null
+  const wall = d.walls.find((w) => w.id === hit.wallId) || d.walls[0]
+  const other = d.walls.find((w) => w.id !== wall.id)
+  const nSc = (wall.structureContours || []).length
+  return (
+    <>
+      <Head
+        title={d.name}
+        sub={`dique · ${wall.name} · ${d.walls.map((w) => w.traces.length).join(' + ')} trazas`}
+        color={d.color}
+      />
+      <div className="mb-2 flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5">
+        <ColorSwatch
+          value={d.color}
+          onChange={(color) => dispatch({ type: 'dike.update', id: d.id, patch: { color } })}
+          title="Color del dique"
+          label={`Color del dique ${d.name}`}
+          size={26}
+        />
+        <span className="text-[10.5px] leading-tight text-slate-600">Color del cuerpo</span>
+      </div>
+      <Labeled label="Litología">
+        <input
+          className={`${inputCls} mb-2`}
+          placeholder="Andesita, pórfido…"
+          value={d.lithology || ''}
+          onChange={(e) => dispatch({ type: 'dike.update', id: d.id, patch: { lithology: e.target.value } })}
+        />
+      </Labeled>
+      {hit.traceId && other && (
+        <Action
+          icon={ArrowLeftRight}
+          label={`Mover esta línea a «${other.name}»`}
+          onClick={done(() => dispatch({ type: 'dike.moveTrace', id: d.id, traceId: hit.traceId }))}
+        />
+      )}
+      <Action
+        icon={FlipHorizontal2}
+        label="Intercambiar las dos paredes"
+        onClick={done(() => dispatch({ type: 'dike.swapWalls', id: d.id }))}
+      />
+      <Action
+        icon={Plus}
+        label={`Añadir contorno estructural a ${wall.name}`}
+        onClick={done(() => onAddSc?.({ kind: 'dike', id: d.id, wallId: wall.id }))}
+      />
+      {nSc > 0 && (
+        <Action
+          icon={Layers}
+          label={`Restaurar los ${nSc} contornos calculados`}
+          onClick={done(() => dispatch({ type: 'sc.clear', kind: 'dike', id: d.id, wallId: wall.id }))}
+        />
+      )}
+      {hit.traceId && (
+        <Danger
+          label="Borrar esta traza"
+          onClick={done(() =>
+            dispatch({ type: 'trace.delete', kind: 'dike', id: d.id, wallId: wall.id, traceId: hit.traceId })
+          )}
+        />
+      )}
+      <Danger label="Borrar el dique completo" onClick={done(() => dispatch({ type: 'dike.delete', id: d.id }))} />
+    </>
+  )
+}
+
 function ContourMenu({ hit, project, dispatch, done }) {
   const c = project.contours.find((x) => x.id === hit.id)
   if (!c) return null
@@ -300,14 +375,18 @@ function ContourMenu({ hit, project, dispatch, done }) {
  */
 function ScMenu({ hit, project, dispatch, done, onSelect }) {
   const it = hit.it
-  const key = it.kind === 'fault' ? 'faults' : 'contacts'
+  // Dónde vive el contorno: en el contacto, en la falla o —en un dique— en una
+  // de sus dos paredes, que es la que de verdad guarda sus contornos.
+  const dike = it.kind === 'dike' ? (project.dikes || []).find((d) => d.id === it.featureId) : null
+  const owners = dike ? dike.walls : it.kind === 'fault' ? project.faults : project.contacts
+  const wallId = it.wallId || null
   // El contorno puede fijarse desde este mismo menú, y puede mudarse a otro
   // contacto al reasignarlo: el dueño se busca por el id vivo del contorno, no
   // por el `featureId` con el que se abrió el menú, que se queda atrás en
   // cuanto se reasigna —igual que la traza en ContactMenu.
   const [scId, setScId] = useState(it.manualId)
-  const owner = scId ? project[key].find((x) => (x.structureContours || []).some((s) => s.id === scId)) : null
-  const feature = owner || project[key].find((x) => x.id === it.featureId)
+  const owner = scId ? owners.find((x) => (x.structureContours || []).some((s) => s.id === scId)) : null
+  const feature = owner || owners.find((x) => x.id === (wallId || it.featureId))
   const sc = scId ? (feature?.structureContours || []).find((x) => x.id === scId) : null
   const z = sc ? sc.elevation : it.elevation
   const step = project.settings.contourInterval || 100
@@ -315,16 +394,17 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
   // vivo y el del contacto que lo tiene en ese momento: lo necesitan tanto
   // `setZ` como `setPair` antes de despachar su cambio.
   const fix = () => {
-    if (sc) return { id: sc.id, ownerId: feature.id }
+    if (sc) return { id: sc.id, ownerId: dike ? dike.id : feature.id }
     const id = onSelect?.(it)
     setScId(id)
     return { id, ownerId: it.featureId }
   }
   const setZ = (elevation) => {
     const { id, ownerId } = fix()
-    if (id) dispatch({ type: 'sc.update', kind: it.kind, id: ownerId, scId: id, patch: { elevation } })
+    if (id) dispatch({ type: 'sc.update', kind: it.kind, id: ownerId, wallId, scId: id, patch: { elevation } })
   }
   const units = it.kind === 'contact' ? sortedUnits(project) : null
+  const ownerId = dike ? dike.id : feature?.id
   const setPair = (lowerUnitId, upperUnitId) => {
     const { id, ownerId } = fix()
     if (id) dispatch({ type: 'sc.reassign', id: ownerId, scId: id, lowerUnitId, upperUnitId })
@@ -418,7 +498,7 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
       {sc ? (
         <Danger
           label="Borrar este contorno"
-          onClick={done(() => dispatch({ type: 'sc.delete', kind: it.kind, id: feature.id, scId: sc.id }))}
+          onClick={done(() => dispatch({ type: 'sc.delete', kind: it.kind, id: ownerId, wallId, scId: sc.id }))}
         />
       ) : (
         // El calculado no se quita: se excluye. Su cota queda fuera del
@@ -431,6 +511,7 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
               type: 'sc.add',
               kind: it.kind,
               id: it.featureId,
+              wallId,
               items: [newStructureContour(it.elevation, [it.a, it.b], { excluded: true })],
             })
           )}
@@ -440,7 +521,7 @@ function ScMenu({ hit, project, dispatch, done, onSelect }) {
         <Action
           icon={Layers}
           label="Restaurar los contornos calculados"
-          onClick={done(() => dispatch({ type: 'sc.clear', kind: it.kind, id: feature.id }))}
+          onClick={done(() => dispatch({ type: 'sc.clear', kind: it.kind, id: ownerId, wallId }))}
         />
       )}
     </>

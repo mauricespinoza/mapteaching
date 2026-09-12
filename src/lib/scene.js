@@ -7,6 +7,7 @@ import { toWorldList, toWorld, toImage } from './georef.js'
 import { buildSurface, contourSegment } from './structure.js'
 import { inheritContactGeometry } from './parallel.js'
 import { buildBlocks, singleBlock } from './blocks.js'
+import { resolveDike, dikeIndex } from './dikes.js'
 import { hasFoldEvidence } from './domains.js'
 import { buildDem } from './dem.js'
 import { polylineIntersections, dist, bboxOf } from './geom.js'
@@ -257,11 +258,23 @@ export function buildScene(project) {
     traces: c.traces.filter((t) => t.pts.length >= 2).map((t) => toWorldList(georef, t.pts)),
   }))
 
+  // Diques: cada pared por separado, que es como se resuelven (ver dikes.js).
+  const dikeWorld = (project.dikes || []).map((d) => ({
+    id: d.id,
+    dike: d,
+    walls: d.walls.map((w) => ({
+      id: w.id,
+      wall: w,
+      traces: w.traces.filter((t) => t.pts.length >= 2).map((t) => toWorldList(georef, t.pts)),
+    })),
+  }))
+
   // Extensión de trabajo: imagen completa (si la hay) + toda la geometría.
   const lists = [
     ...worldContours.map((c) => c.pts),
     ...faultPolys,
     ...contactWorld.flatMap((c) => c.traces),
+    ...dikeWorld.flatMap((d) => d.walls.flatMap((w) => w.traces)),
   ]
   const mapRect = project.image || project.virtualSize
   if (mapRect) {
@@ -619,6 +632,40 @@ export function buildScene(project) {
     faultSurfaces.set(fw.id, anchorToTrace(surf, fw.traces, dem, side))
   }
 
+  // ---- Diques ----
+  //
+  // Cada pared se resuelve con todas sus trazas juntas, como una falla: un
+  // dique corta la pila en vez de formar parte de ella, así que no se reparte
+  // por bloques ni entra en la regla de superposición. El cuerpo —y con él su
+  // acuñamiento— sale de las dos paredes en `dikes.js`.
+  const dikeWallSurfaces = new Map()
+  for (const dw of dikeWorld) {
+    for (const w of dw.walls) {
+      const manualSc = [...manualContoursByBlock(w.wall).values()].flat()
+      if (!w.traces.length && !manualSc.length) continue
+      const surf = buildSurface({
+        traces: w.traces,
+        contours: worldContours,
+        manual: w.wall.manual,
+        manualContours: manualSc,
+        scOnly: !!w.wall.scOnly,
+        name: `${dw.dike.name} · ${w.wall.name}`,
+        color: dw.dike.color,
+        tol,
+      })
+      dikeWallSurfaces.set(w.id, anchorToTrace(surf, w.traces, dem, side))
+    }
+  }
+  const dikes = dikeIndex(
+    dikeWorld.map((dw) =>
+      resolveDike(
+        dw.dike,
+        dw.walls.map((w) => dikeWallSurfaces.get(w.id) || null),
+        { dem, tol, side, zStep }
+      )
+    )
+  )
+
   // ---- Con qué falla y de qué lado limita cada bloque ----
   //
   // Los bloques se etiquetan en planta, sobre la traza de la falla, y eso vale
@@ -835,6 +882,14 @@ export function buildScene(project) {
     faultSurfaces,
     faultWorld,
     contactWorld,
+    /** Diques resueltos y el buscador «¿qué dique ocupa este punto?». */
+    dikes,
+    dikeWorld,
+    dikeWallSurfaces,
+    /** El dique que ocupa un punto del espacio, o `null`. */
+    dikeAt: (x, y, z) => dikes.at(x, y, z),
+    /** El dique que aflora en un punto del mapa, o `null`. */
+    dikeOutcropAt: (x, y) => dikes.outcropAt(x, y),
     units,
     contacts,
     project,
@@ -873,7 +928,7 @@ export function structureContourItems(scene) {
   if (!scene?.ready) return []
   const out = []
   const unitName = (id) => scene.units.find((u) => u.id === id)?.name || null
-  const collect = (kind, feature, color, block, surf) => {
+  const collect = (kind, feature, color, block, surf, wallId = null) => {
     // Rótulo en tres renglones: la cota arriba —que es lo que identifica al
     // contorno— y debajo las dos unidades que el contacto separa, la de encima
     // primero. Puesto así se lee como una columna estratigráfica en miniatura y
@@ -890,9 +945,13 @@ export function structureContourItems(scene) {
       const seg = contourSegment(sc, null, sc.manualId ? 0 : 0.15)
       if (!seg) continue
       out.push({
-        key: `${kind}:${feature.id}:${block}:${sc.elevation}:${sc.limb}:${sc.part}:${sc.manualId || ''}`,
+        key: `${kind}:${feature.id}:${wallId || ''}:${block}:${sc.elevation}:${sc.limb}:${sc.part}:${sc.manualId || ''}`,
         kind,
         featureId: feature.id,
+        // Un dique no es la superficie sino el cuerpo entre dos: el contorno
+        // pertenece a una de sus paredes, y sin saber a cuál no se puede ni
+        // dibujar su rótulo ni editarlo.
+        wallId,
         name: feature.name,
         color,
         block,
@@ -920,6 +979,21 @@ export function structureContourItems(scene) {
     const surf = scene.faultSurfaces.get(f.id)
     if (surf) collect('fault', f, kinematicsOf(f.kinematics).color, null, surf)
   }
+  for (const dw of scene.dikeWorld || []) {
+    for (const w of dw.walls) {
+      const surf = scene.dikeWallSurfaces.get(w.id)
+      if (surf) {
+        collect(
+          'dike',
+          { id: dw.id, name: `${dw.dike.name} · ${w.wall.name}` },
+          dw.dike.color || '#b91c1c',
+          null,
+          surf,
+          w.id
+        )
+      }
+    }
+  }
   return out
 }
 
@@ -942,6 +1016,23 @@ export function surfaceSummary(scene) {
   for (const f of scene.project.faults) {
     const surf = scene.faultSurfaces.get(f.id)
     if (surf) rows.push({ kind: 'falla', id: f.id, block: null, name: f.name, kinematics: f.kinematics, surf })
+  }
+  for (const dw of scene.dikeWorld || []) {
+    const body = (scene.dikes?.list || []).find((d) => d.id === dw.id) || null
+    for (const w of dw.walls) {
+      const surf = scene.dikeWallSurfaces.get(w.id)
+      if (!surf) continue
+      rows.push({
+        kind: 'dique',
+        id: dw.id,
+        wallId: w.id,
+        block: null,
+        name: `${dw.dike.name} · ${w.wall.name}`,
+        color: dw.dike.color,
+        body,
+        surf,
+      })
+    }
   }
   return rows
 }

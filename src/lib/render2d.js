@@ -251,6 +251,7 @@ export function render(ctx, opts) {
   // dibujarse: el modelo se calculó con ellos y el relleno de las unidades
   // sigue partido por sus trazas.
   const hiddenFeatures = new Set(project.contacts.filter(isHidden).map((c) => c.id))
+  for (const d of project.dikes || []) if (isHidden(d)) hiddenFeatures.add(d.id)
   // Rótulos callados sin apagar la línea: en un mapa con varios contactos, los
   // de los contornos estructurales son lo primero que satura la vista, y el
   // contorno sin su cota sigue diciendo hacia dónde se hunde la superficie.
@@ -424,6 +425,37 @@ export function render(ctx, opts) {
         path(ctx, view, live)
         ctx.stroke()
         drawFaultSymbols(ctx, view, scene, live, f, kin, surf)
+      }
+    }
+    ctx.restore()
+  }
+
+  // --- Diques ---
+  //
+  // Las dos paredes se dibujan con el color del dique, y entre ellas va el
+  // relleno: lo pone el mapa geológico (`geomap.js`), que ya sabe dónde aflora
+  // el cuerpo y dónde se acuñó. Aquí van las líneas, que son el dato.
+  if (show.dikes) {
+    ctx.save()
+    ctx.globalAlpha = alphaOf('dikes')
+    for (const d of project.dikes || []) {
+      if (isHidden(d)) continue
+      const selected = selection?.kind === 'dike' && selection.id === d.id
+      for (const w of d.walls) {
+        for (const tr of w.traces) {
+          const live =
+            edit?.preview && edit.id === d.id && edit.traceId === tr.id ? edit.preview : tr.pts
+          ctx.strokeStyle = '#1f2937'
+          ctx.lineWidth = selected ? 5.2 : 3.8
+          ctx.lineJoin = 'round'
+          ctx.lineCap = 'round'
+          path(ctx, view, live)
+          ctx.stroke()
+          ctx.strokeStyle = d.color || '#b91c1c'
+          ctx.lineWidth = selected ? 3.2 : 2.2
+          path(ctx, view, live)
+          ctx.stroke()
+        }
       }
     }
     ctx.restore()
@@ -726,6 +758,24 @@ export function render(ctx, opts) {
         const spot = placeLabel(ctx, taken, spots, rows[0].text, TAG_SIZE, false, box)
         if (spot) drawUnitsTag(ctx, spot[0], spot[1], rows, { size: TAG_SIZE, border: c.color || '#0f172a' })
       }
+    }
+  }
+
+  // --- Rótulo del dique ---
+  // Un dique se reconoce por su nombre y su litología, no por qué separa: no
+  // separa nada, corta. Va sobre una de sus paredes, con el color del cuerpo.
+  if (show.dikes && show.contactLabels) {
+    for (const d of project.dikes || []) {
+      if (isLabelHidden(d)) continue
+      const pts = d.walls.flatMap((w) => w.traces).find((t) => t.pts?.length >= 2)?.pts
+      if (!pts) continue
+      const spots = TAG_STOPS.map((t) => toScreen(view, pts[Math.round(t * (pts.length - 1))])).filter(
+        (q) => q[0] > -60 && q[1] > -30 && q[0] < width + 60 && q[1] < height + 30
+      )
+      if (!spots.length) continue
+      const text = shortName(d.name, 18)
+      const spot = placeLabel(ctx, taken, spots, text, TAG_SIZE)
+      if (spot) label(ctx, spot[0], spot[1], text, { color: d.color || '#b91c1c', size: TAG_SIZE })
     }
   }
 

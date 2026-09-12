@@ -30,6 +30,8 @@ export default function SectionView({ project, scene, section, dispatch }) {
   const hiddenContacts = new Set(project.contacts.filter(isHidden).map((c) => c.id))
   const visibleUnits = model.units.filter((u) => !hiddenUnits.has(u.id))
   const visibleContacts = model.contacts.filter((c) => !hiddenContacts.has(c.id))
+  const hiddenDikes = new Set((project.dikes || []).filter(isHidden).map((d) => d.id))
+  const visibleDikes = (model.dikes || []).filter((d) => !hiddenDikes.has(d.id))
 
   const W = 980
   const plotW = W - M.left - M.right
@@ -233,6 +235,17 @@ export default function SectionView({ project, scene, section, dispatch }) {
                 />
               ))
             )}
+            {/* Diques: encima de las unidades, porque las cortan */}
+            {visibleDikes.map((d) => (
+              <g key={d.id}>
+                {d.polys.map((p, i) => (
+                  <polygon key={`p-${i}`} points={poly(p)} fill={d.color} fillOpacity="0.92" stroke="none" />
+                ))}
+                {d.walls.map((w, i) => (
+                  <polyline key={`w-${i}`} points={poly(w)} fill="none" stroke="#0f172a" strokeWidth="1.4" strokeDasharray="3 3" />
+                ))}
+              </g>
+            ))}
             {/* Fallas */}
             {model.faults.map((f, i) => {
               const kin = kinematicsOf(f.kinematics)
@@ -362,6 +375,13 @@ export default function SectionView({ project, scene, section, dispatch }) {
                 <span key={u.id} className="flex items-center gap-1.5">
                   <span className="inline-block h-3 w-5 rounded-sm" style={{ background: u.color }} />
                   {u.name}
+                </span>
+              ))}
+              {visibleDikes.map((d) => (
+                <span key={d.id} className="flex items-center gap-1.5">
+                  <span className="inline-block h-3 w-5 rounded-sm" style={{ background: d.color }} />
+                  {d.name}
+                  {d.tapered && <span className="text-slate-400">(se acuña)</span>}
                 </span>
               ))}
             </div>

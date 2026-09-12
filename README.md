@@ -6,7 +6,8 @@ App web de **docencia en geología estructural**: digitaliza un mapa geológico 
 topográfico escaneado y resuelve, con los mismos pasos que se hacen a mano en el
 papel, los **contornos estructurales**, el **rumbo y manteo** de cada contacto,
 los **perfiles estructurales**, un **modelo 3D** y la **columna esperada en un
-pozo**.
+pozo**. También resuelve **diques**: cuerpos tabulares definidos por sus dos
+paredes, que se acuñan donde el mapa dice que sus trazas convergen.
 
 Está pensada para trabajar con **lápiz sobre tablet** (Apple Pencil: el lápiz
 dibuja, los dedos navegan) y también con **ratón y teclado** en el computador.
@@ -36,6 +37,7 @@ Todo corre en el navegador: las imágenes y los proyectos nunca salen del equipo
 | **Curvas de nivel** | Se traza la curva y se indica su cota. La equidistancia se autocompleta y la siguiente curva propone la cota siguiente. |
 | **Contactos geológicos** | Se definen primero las **unidades** de base a techo; entre unidades consecutivas se crea un contacto (concordante, discordante, intrusivo o inferido) cuya traza se digitaliza, en tantos tramos como haga falta. Con **«+ Contacto»** se crea además uno entre **cualquier par de unidades**, no sólo consecutivas —el par se elige a mano con las selects «Abajo»/«Arriba» de su tarjeta—, que es como se digitaliza una discordancia que salta varias unidades de una vez. |
 | **Fallas** | Traza + **cinemática** (normal, inversa, dextral, sinestral y sus combinaciones oblicuas). Se dibujan con su simbología (garrapatas en el bloque colgante, triángulos en las inversas, medias flechas en las de rumbo). |
+| **Diques** | Se digitalizan por sus **dos paredes**: una línea por borde, alternando de pared en cada trazo. El cuerpo es lo que queda entre ellas; no tiene base ni techo y **corta** la pila en vez de formar parte de ella. Donde las dos trazas convergen, el dique **se acuña** solo (ver §6). |
 | **Contornos estructurales** | Se trazan a mano cuando hace falta corregir o completar lo que calcula la app: una recta de cota constante sobre una superficie. También se editan arrastrando los que la app dibuja. |
 | **Trazas de perfil** | Línea A–A′ que abre la vista de perfil. |
 | **Pozos** | Un toque sobre el mapa; luego profundidad medida, *trend* y *plunge*. |
@@ -614,7 +616,56 @@ puede editar, para que no se confunda nunca lo predicho con lo observado.
 Sobre el ejemplo incorporado, cuyo salto vertical real es 320 m, la componente
 vertical del salto neto sale 342 m.
 
-### 6. Perfil estructural
+### 6. Diques
+
+Un **dique** es un cuerpo tabular intrusivo: no es una unidad de la columna ni
+un contacto entre dos, sino algo que **corta** la pila. Por eso no entra en la
+regla de superposición ni en la pila estratigráfica, y manda sobre las unidades
+allí donde está —en el mapa, en el perfil, en el 3D y en la columna de un pozo—.
+
+Se digitaliza por sus **dos paredes** (herramienta *Dique*, `Q`): una línea por
+borde, y cada trazo va alternando de pared. Cada pared es una superficie como
+cualquier otra —sus cruces con las curvas de nivel dan sus contornos
+estructurales, su rumbo y su manteo, exactamente como en una falla—, y el dique
+es lo que queda **entre** las dos. De comparar una con otra sale el **espesor
+verdadero**, medido perpendicular a las paredes.
+
+#### El dique se acuña
+
+De ese modelo sale gratis lo que un dique hace de verdad en un mapa y una banda
+de ancho fijo no sabría hacer. Donde las dos trazas convergen, las dos
+superficies convergen; donde se cruzan, el espesor es cero y **el dique deja de
+existir**. La punta no se declara en ninguna parte: se lee del mapa, igual que
+todo lo demás. Y como el cruce puede caer en profundidad y no en la superficie,
+un dique puede aflorar con espesor y acuñarse hacia abajo, que es justamente lo
+que hace al acercarse a su terminación.
+
+Contra ese mismo mecanismo hay que protegerse: **dos planos ajustados por
+separado se cortan siempre en alguna parte**, así que un acuñamiento lejos de
+los datos sería un artefacto del ajuste y no un dato del mapa. La regla es la de
+siempre en esta app —el espesor constante es la hipótesis por defecto y sólo el
+mapa la desmiente—: se prueba si los cruces de la segunda pared encajan con un
+espesor constante respecto de la primera y, si encajan, se adopta la superficie
+**paralela**, que por construcción no se cruza nunca. Si no encajan, manda lo
+medido y el dique se acuña donde el mapa dice. El desajuste se mide
+**perpendicular a las paredes** y no en cota: a 81° de manteo, el grosor del
+trazo son cincuenta metros de cota, y comparar eso con media equidistancia daría
+siempre «no encaja». El panel de **Resultados** publica cuál de las dos
+respuestas se tomó, con el espesor y su desajuste.
+
+Con **una sola pared** digitalizada —un dique fino se dibuja con una línea— la
+otra se construye paralela a ella, al espesor y del lado que diga la ficha. Eso
+ya no es una medida sino un dato declarado, y así queda marcado.
+
+Tres límites, todos deliberados: un dique **desplazado por una falla** se
+resuelve con todas sus trazas juntas, así que ahí conviene digitalizar un dique
+por bloque; los diques **no viajan en la exportación a GemPy**, que sigue
+llevando sólo la pila y las fallas; y los **plutones** no están: su forma en
+profundidad no se puede leer de un mapa, y esta app no dibuja lo que no puede
+justificar. Un contacto intrusivo de plutón se digitaliza, eso sí, como
+cualquier otro contacto marcándolo de tipo *intrusivo*.
+
+### 7. Perfil estructural
 
 Para cada traza A–A′: topografía, relleno de las unidades entre sus contactos,
 horizontes ya erosionados proyectados sobre la topografía (punteados), líneas de
@@ -660,7 +711,7 @@ Los toques se imantan a los contactos, las fallas y la topografía, y cuando los
 dos caen sobre el mismo contacto lo dice — ése es el gesto con el que se lee el
 salto de una falla en un perfil.
 
-### 7. El relieve a partir de las curvas
+### 8. El relieve a partir de las curvas
 
 Casi todo lo demás se apoya en saber la cota del terreno en cualquier punto: el
 mapa geológico en planta, la topografía del perfil, el drapeado en 3D y la
@@ -735,7 +786,7 @@ modelo de elevación (sol al NO, 45° de altura), que multiplica la imagen del
 mapa cuando está drapeada: con la luz de la escena sola, un escaneo claro deja
 la superficie lavada y el relieve no se lee.
 
-### 8. Vista 3D
+### 9. Vista 3D
 
 Topografía reconstruida desde las curvas (con la imagen del mapa drapeada como
 textura si la hay), curvas y trazas sobre el terreno, superficies de contacto por
@@ -802,7 +853,7 @@ al tamaño de la celda. Medido sobre el ejercicio de prueba: ningún vértice se
 sale de la topografía más de 0,7 m ni del plano de falla más de 0,6 m, sobre un
 relieve de 942 m.
 
-### 9. Pozos
+### 10. Pozos
 
 Con la posición, la profundidad medida (MD), el *trend* y el *plunge* la app
 calcula la trayectoria en 3D, sus intersecciones con contactos y fallas
@@ -810,7 +861,7 @@ calcula la trayectoria en 3D, sus intersecciones con contactos y fallas
 **espesor real** de cada unidad, corregido por el ángulo entre el pozo y el polo
 del contacto.
 
-### 10. Proyectos
+### 11. Proyectos
 
 Autoguardado en el navegador, varios proyectos, **exportar/importar** el ejercicio
 completo (`.mapteaching.json`, con la imagen embebida) para repartirlo a los
@@ -841,7 +892,7 @@ comprobar que el método recupera la geometría original.
 ## Atajos
 
 `H` navegar · `V` seleccionar · `C` curva de nivel · `X` contacto · `F` falla ·
-`G` contorno estructural · `R` escala · `D` espesor · `N` norte · `S` perfil ·
+`Q` dique · `G` contorno estructural · `R` escala · `D` espesor · `N` norte · `S` perfil ·
 `W` pozo · `M` modelo · `B` área de trabajo · `K` cortar línea · `E` borrar ·
 `Supr` borrar lo seleccionado · `←↑→↓` desplazar el mapa (con `Mayús`, a
 zancadas) · `Ctrl+Z` / `Ctrl+Y` deshacer/rehacer · `Enter` cerrar trazo ·
@@ -868,6 +919,7 @@ src/lib/
   db.js          IndexedDB (proyectos e imágenes)
   domains.js     reparto de una superficie en limbos y ondas (RANSAC)
   parallel.js    geometría heredada: superficies paralelas de espesor constante
+  dikes.js       diques: cuerpo entre dos paredes, espesor y acuñamiento
   measure.js     regla del mapa: imán a las trazas y medida ortogonal
   structure.js   contornos estructurales, rumbo/manteo y modelo de superficie
   blocks.js      partición en bloques por las fallas

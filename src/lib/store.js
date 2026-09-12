@@ -12,6 +12,28 @@ const touch = (p) => ({ ...p, updatedAt: new Date().toISOString() })
 
 const replaceIn = (arr, id, fn) => arr.map((it) => (it.id === id ? fn(it) : it))
 
+/**
+ * Rasgo al que va una acción de traza o de contorno estructural.
+ *
+ * Un contacto y una falla **son** la superficie, así que la acción cae sobre
+ * ellos. Un dique no: es un cuerpo con dos paredes, y cada pared es una
+ * superficie propia con sus trazas y sus contornos. Por eso las acciones de
+ * dique traen además `wallId`, y aquí se resuelve a cuál de las dos van.
+ */
+const editFeature = (p, action, fn) => {
+  if (action.kind === 'dike') {
+    return {
+      ...p,
+      dikes: replaceIn(p.dikes || [], action.id, (d) => ({
+        ...d,
+        walls: replaceIn(d.walls, action.wallId, fn),
+      })),
+    }
+  }
+  const key = action.kind === 'fault' ? 'faults' : 'contacts'
+  return { ...p, [key]: replaceIn(p[key], action.id, fn) }
+}
+
 function apply(project, action) {
   const p = project
   switch (action.type) {
@@ -114,23 +136,48 @@ function apply(project, action) {
     case 'fault.delete':
       return { ...p, faults: p.faults.filter((f) => f.id !== action.id) }
 
-    case 'trace.add': {
-      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+    case 'dike.add':
+      return { ...p, dikes: [...(p.dikes || []), action.dike] }
+    case 'dike.update':
+      return { ...p, dikes: replaceIn(p.dikes || [], action.id, (d) => ({ ...d, ...action.patch })) }
+    case 'dike.delete':
+      return { ...p, dikes: (p.dikes || []).filter((d) => d.id !== action.id) }
+    /** Intercambia las dos paredes: es la forma de corregir de qué lado quedó el cuerpo. */
+    case 'dike.swapWalls':
       return {
         ...p,
-        [key]: replaceIn(p[key], action.id, (it) => ({
-          ...it,
-          traces: [...it.traces, { id: uid('tr'), pts: action.pts }],
-        })),
+        dikes: replaceIn(p.dikes || [], action.id, (d) => ({ ...d, walls: [d.walls[1], d.walls[0]] })),
       }
-    }
-    case 'trace.delete': {
-      const key = action.kind === 'fault' ? 'faults' : 'contacts'
+    /** Muda una traza de una pared del dique a la otra. */
+    case 'dike.moveTrace':
       return {
         ...p,
-        [key]: replaceIn(p[key], action.id, (it) => ({ ...it, traces: it.traces.filter((t) => t.id !== action.traceId) })),
+        dikes: replaceIn(p.dikes || [], action.id, (d) => {
+          const from = d.walls.find((w) => w.traces.some((t) => t.id === action.traceId))
+          const to = d.walls.find((w) => w.id !== from?.id)
+          const tr = from?.traces.find((t) => t.id === action.traceId)
+          if (!from || !to || !tr) return d
+          return {
+            ...d,
+            walls: d.walls.map((w) =>
+              w.id === from.id
+                ? { ...w, traces: w.traces.filter((t) => t.id !== tr.id) }
+                : { ...w, traces: [...w.traces, tr] }
+            ),
+          }
+        }),
       }
-    }
+
+    case 'trace.add':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        traces: [...it.traces, { id: uid('tr'), pts: action.pts }],
+      }))
+    case 'trace.delete':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        traces: it.traces.filter((t) => t.id !== action.traceId),
+      }))
     /**
      * Cambio del par de unidades de UNA traza, sin tocar a sus compañeras.
      * Un contacto agrupa todas las trazas que separan el mismo par, así que
@@ -183,26 +230,21 @@ function apply(project, action) {
      * repartir en contactos distintos lo que la digitalización automática trajo
      * como un solo trazo largo.
      */
-    case 'trace.split': {
-      const key = action.kind === 'fault' ? 'faults' : 'contacts'
-      return {
-        ...p,
-        [key]: replaceIn(p[key], action.id, (it) => ({
-          ...it,
-          // Los trozos se quedan sin `nodes`: la curva de Bézier del trazo
-          // original ya no describe ninguno de los dos, y se rehace del
-          // polígono al volver a editarlo.
-          traces: it.traces.flatMap((t) =>
-            t.id === action.traceId
-              ? [
-                  { id: uid('tr'), pts: action.a },
-                  { id: uid('tr'), pts: action.b },
-                ]
-              : [t]
-          ),
-        })),
-      }
-    }
+    case 'trace.split':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        // Los trozos se quedan sin `nodes`: la curva de Bézier del trazo
+        // original ya no describe ninguno de los dos, y se rehace del
+        // polígono al volver a editarlo.
+        traces: it.traces.flatMap((t) =>
+          t.id === action.traceId
+            ? [
+                { id: uid('tr'), pts: action.a },
+                { id: uid('tr'), pts: action.b },
+              ]
+            : [t]
+        ),
+      }))
     case 'contour.split':
       return {
         ...p,
@@ -216,56 +258,36 @@ function apply(project, action) {
         ),
       }
 
-    case 'trace.update': {
-      const key = action.kind === 'fault' ? 'faults' : 'contacts'
-      return {
-        ...p,
-        [key]: replaceIn(p[key], action.id, (it) => ({
-          ...it,
-          traces: replaceIn(it.traces, action.traceId, (t) => ({
-            ...t,
-            ...(action.patch || { pts: action.pts }),
-          })),
+    case 'trace.update':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        traces: replaceIn(it.traces, action.traceId, (t) => ({
+          ...t,
+          ...(action.patch || { pts: action.pts }),
         })),
-      }
-    }
+      }))
 
     // --- Contornos estructurales puestos a mano ---
     // Viven en el rasgo (contacto o falla) y sustituyen a los que calcula el
     // motor en esa cota: el estudiante toma el control de esa curva.
-    case 'sc.add': {
-      const key = action.kind === 'fault' ? 'faults' : 'contacts'
-      return {
-        ...p,
-        [key]: replaceIn(p[key], action.id, (it) => ({
-          ...it,
-          structureContours: [...(it.structureContours || []), ...action.items],
+    case 'sc.add':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        structureContours: [...(it.structureContours || []), ...action.items],
+      }))
+    case 'sc.update':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        structureContours: replaceIn(it.structureContours || [], action.scId, (sc) => ({
+          ...sc,
+          ...action.patch,
         })),
-      }
-    }
-    case 'sc.update': {
-      const key = action.kind === 'fault' ? 'faults' : 'contacts'
-      return {
-        ...p,
-        [key]: replaceIn(p[key], action.id, (it) => ({
-          ...it,
-          structureContours: replaceIn(it.structureContours || [], action.scId, (sc) => ({
-            ...sc,
-            ...action.patch,
-          })),
-        })),
-      }
-    }
-    case 'sc.delete': {
-      const key = action.kind === 'fault' ? 'faults' : 'contacts'
-      return {
-        ...p,
-        [key]: replaceIn(p[key], action.id, (it) => ({
-          ...it,
-          structureContours: (it.structureContours || []).filter((sc) => sc.id !== action.scId),
-        })),
-      }
-    }
+      }))
+    case 'sc.delete':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        structureContours: (it.structureContours || []).filter((sc) => sc.id !== action.scId),
+      }))
     /**
      * Cambio del par de unidades de UN contorno estructural puesto a mano, sin
      * tocar a las trazas del contacto ni a sus demás contornos. Es el mismo
@@ -348,21 +370,16 @@ function apply(project, action) {
       }
       return next
     }
-    case 'sc.clear': {
-      const key = action.kind === 'fault' ? 'faults' : 'contacts'
-      return {
-        ...p,
-        [key]: replaceIn(p[key], action.id, (it) => ({
-          ...it,
-          structureContours: action.elevation == null
-            ? []
-            : (it.structureContours || []).filter((sc) => sc.elevation !== action.elevation),
-          // Sin contornos a mano no hay nada que pueda definir la superficie por
-          // su cuenta: vuelve a mandar lo medido sobre el mapa.
-          ...(action.elevation == null ? { scOnly: false } : {}),
-        })),
-      }
-    }
+    case 'sc.clear':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        structureContours: action.elevation == null
+          ? []
+          : (it.structureContours || []).filter((sc) => sc.elevation !== action.elevation),
+        // Sin contornos a mano no hay nada que pueda definir la superficie por
+        // su cuenta: vuelve a mandar lo medido sobre el mapa.
+        ...(action.elevation == null ? { scOnly: false } : {}),
+      }))
 
     case 'section.add':
       return { ...p, sections: [...p.sections, action.section] }
@@ -426,13 +443,14 @@ function apply(project, action) {
         units: [],
         contacts: [],
         faults: [],
+        dikes: [],
         sections: [],
         wells: [],
         piercings: [],
         models: [],
       }
     case 'clear.drawing':
-      return { ...p, contours: [], units: [], contacts: [], faults: [] }
+      return { ...p, contours: [], units: [], contacts: [], faults: [], dikes: [] }
 
     default:
       return p

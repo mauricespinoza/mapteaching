@@ -192,6 +192,13 @@ export function contactMeshes(
  * techo así, la hoja sube justo hasta la discordancia y se para, en vez de
  * atravesar la cobertura hasta el borde del modelo.
  */
+/**
+ * Lámina de una superficie que corta la pila: el plano de una falla, o una de
+ * las dos paredes de un dique. `zBottom` y `zTop` acotan por dónde se recorta,
+ * y los dos aceptan una función `(x, y) → z` para un techo o un suelo que
+ * cambian de sitio a lo largo de la traza —una discordancia que sella la
+ * falla, o la punta donde un dique se acuña—.
+ */
 export function faultSheetMesh(trace, surf, dem, { zBottom, zTop = null, inFrame = null, side, rows = 14 } = {}) {
   if (!trace || trace.length < 2 || !surf?.defined) return null
   // Paso «de referencia»: una distancia en el mapa mientras la superficie es
@@ -281,8 +288,12 @@ export function faultSheetMesh(trace, surf, dem, { zBottom, zTop = null, inFrame
     }
     if (path.length < 2) return null
     // Se remuestrea a cotas equiespaciadas para que dos columnas vecinas casen.
+    // El suelo puede venir como función del punto —así se detiene la lámina de
+    // una pared de dique donde el cuerpo ya se acuñó—, y entonces se pregunta
+    // donde arranca la columna.
+    const floor = typeof zBottom === 'function' ? zBottom(p[0], p[1]) : zBottom
     const zHigh = path[0][2]
-    const zLow = Math.max(zBottom, path[path.length - 1][2])
+    const zLow = Number.isFinite(floor) ? Math.max(floor, path[path.length - 1][2]) : path[path.length - 1][2]
     const col = []
     for (let r = 0; r < rows; r++) {
       const zt = zHigh + ((zLow - zHigh) * r) / (rows - 1)

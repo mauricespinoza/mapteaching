@@ -78,6 +78,8 @@ export function newProject(name = 'Ejercicio sin título') {
     units: [], // { id, name, color, order, lithology, notes, hidden }
     contacts: [], // { id, name, color, type, lowerUnitId, upperUnitId, manual, traces, hidden, labelHidden }
     faults: [], // { id, name, kinematics, dipManual, traces }
+    // Cuerpos tabulares intrusivos: cada uno con sus dos paredes (ver newDike).
+    dikes: [], // { id, name, color, lithology, thickness, side, walls: [ {…}, {…} ] }
     sections: [], // { id, name, a, b, vExag, depth }
     wells: [], // { id, name, at, depth, trend, plunge }
     // Pares de puntos de perforación: el mismo rasgo lineal reconocido a los
@@ -99,6 +101,7 @@ export function newProject(name = 'Ejercicio sin título') {
         units: { opacity: 0.6, locked: false },
         contacts: { opacity: 1, locked: false },
         faults: { opacity: 1, locked: false },
+        dikes: { opacity: 1, locked: false },
         models: { opacity: 1, locked: false },
       },
       blockCell: 0, // 0 = automático
@@ -206,6 +209,71 @@ export function newFault(project) {
     structureContours: [],
     traces: [],
   }
+}
+
+/**
+ * Colores de los diques. No salen de la tabla cronoestratigráfica —un dique no
+ * es una unidad de la columna— sino de la gama con la que se dibujan las rocas
+ * ígneas intrusivas en un mapa geológico: rojos, violetas y verdes saturados,
+ * que además destacan sobre los tonos pastel de las unidades.
+ */
+export const DIKE_COLORS = ['#b91c1c', '#7c3aed', '#047857', '#a16207', '#be185d', '#1d4ed8']
+
+/**
+ * Una pared del dique: el contacto entre el dique y la roca de caja de ese
+ * lado. Es una superficie como cualquier otra —su traza corta curvas de nivel
+ * y de ahí salen sus contornos estructurales—, así que lleva lo mismo que una
+ * falla: trazas, contornos a mano y la posibilidad de imponerle la actitud.
+ */
+export function newDikeWall(name) {
+  return { id: uid('dw'), name, manual: null, structureContours: [], traces: [] }
+}
+
+/**
+ * Dique: un cuerpo tabular intrusivo, limitado por **dos paredes** y sin base
+ * ni techo. No entra en la pila estratigráfica —no separa dos unidades, las
+ * corta—, y por eso no es un contacto ni una unidad más.
+ *
+ * Las dos paredes son la clave de todo lo demás. Cada una se resuelve por su
+ * cuenta con los cruces de su traza con las curvas de nivel, y el dique es lo
+ * que queda **entre** ellas. De ahí sale gratis lo que un dique hace en un mapa
+ * de verdad y una banda de espesor fijo no sabría hacer: **acuñarse**. Donde
+ * las dos trazas convergen, las dos superficies convergen, y en el punto en que
+ * se cruzan el dique deja de existir —en el mapa, en el perfil y en el 3D—. No
+ * hay que declarar la punta en ninguna parte: se lee del mapa, igual que todo
+ * lo demás en esta app.
+ *
+ * `thickness` y `side` son para el caso pobre, el de quien sólo digitalizó una
+ * pared —un dique fino se dibuja con una línea—: entonces la otra se construye
+ * paralela a la que hay, a ese espesor y de ese lado. Es un dato declarado y no
+ * medido, y el panel de resultados lo dice.
+ */
+export function newDike(project) {
+  const n = (project.dikes || []).length
+  return {
+    id: uid('dk'),
+    name: `Dique ${n + 1}`,
+    color: DIKE_COLORS[n % DIKE_COLORS.length],
+    lithology: '',
+    thickness: 40, // espesor verdadero declarado (m), si sólo hay una pared
+    side: 1, // +1 el cuerpo queda sobre esa pared; −1, bajo ella
+    walls: [newDikeWall('Pared 1'), newDikeWall('Pared 2')],
+  }
+}
+
+/** La pared de un dique, por id. */
+export const dikeWallOf = (dike, wallId) => (dike?.walls || []).find((w) => w.id === wallId) || null
+
+/**
+ * Pared a la que va el próximo trazo: la que menos trazas tenga. Un dique se
+ * digitaliza dibujando sus dos bordes, así que alternar solo es lo que espera
+ * la mano; el panel deja elegir otra cosa cuando haga falta.
+ */
+export function nextDikeWall(dike) {
+  const [a, b] = dike?.walls || []
+  if (!a) return null
+  if (!b) return a
+  return b.traces.length < a.traces.length ? b : a
 }
 
 /**
@@ -427,5 +495,6 @@ export function countVertices(project) {
   for (const c of project.contours) n += c.pts.length
   for (const c of project.contacts) for (const t of c.traces) n += t.pts.length
   for (const f of project.faults) for (const t of f.traces) n += t.pts.length
+  for (const d of project.dikes || []) for (const w of d.walls) for (const t of w.traces) n += t.pts.length
   return n
 }

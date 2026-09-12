@@ -10,7 +10,7 @@ import {
   Frame,
   MoveHorizontal,
 } from 'lucide-react'
-import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, CutLineIcon, SectionLineIcon } from './icons.jsx'
+import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, CutLineIcon, SectionLineIcon, DikeIcon } from './icons.jsx'
 import { useLang } from '../lib/i18n.jsx'
 
 export const TOOLS = [
@@ -19,6 +19,7 @@ export const TOOLS = [
   { id: 'contour', label: 'Curva de nivel', icon: ContourIcon, key: 'C' },
   { id: 'contact', label: 'Contacto', icon: PenLine, key: 'X' },
   { id: 'fault', label: 'Falla', icon: FaultIcon, key: 'F' },
+  { id: 'dike', label: 'Dique', icon: DikeIcon, key: 'Q' },
   { id: 'scontour', label: 'Contorno estr.', icon: StructureContourIcon, key: 'G' },
   { id: 'scale', label: 'Escala gráfica', icon: Ruler, key: 'R' },
   { id: 'measure', label: 'Espesor', icon: MoveHorizontal, key: 'D' },

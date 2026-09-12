@@ -346,6 +346,58 @@ export function buildSectionModel(section, scene) {
     }
   })
 
+  // ---- Diques ----
+  //
+  // Un dique no está en la pila estratigráfica: no se recorta contra los
+  // bloques ni contra la superposición, se dibuja **encima** de las unidades,
+  // que es exactamente lo que hace en el terreno. Su banda va entre las dos
+  // paredes, cortada por la topografía y por el fondo del perfil, y se parte
+  // allí donde el dique se acuña —donde `spanAt` deja de existir—.
+  const dikesOut = []
+  for (const d of scene.dikes?.list || []) {
+    const DN = 320
+    const polys = []
+    const walls = [[], []]
+    let run = []
+    const flush = () => {
+      if (run.length >= 2) {
+        polys.push([...run.map((r) => r.top), ...run.map((r) => r.bot).reverse()])
+      }
+      run = []
+    }
+    for (let i = 0; i < DN; i++) {
+      const dd = (L * i) / (DN - 1)
+      const p = at(dd)
+      const span = d.spanAt(p[0], p[1])
+      const zt = scene.dem.elevationAt(p[0], p[1])
+      if (!span || !Number.isFinite(zt)) {
+        flush()
+        continue
+      }
+      const zTop = Math.min(span[1], zt)
+      const zBot = Math.max(span[0], bottom)
+      if (!(zTop > zBot)) {
+        flush()
+        continue
+      }
+      run.push({ top: [dd, zTop], bot: [dd, zBot] })
+      // Las dos paredes, sólo donde están bajo el terreno: son los contactos
+      // del dique con la roca de caja y se dibujan como tales.
+      if (span[1] <= zt) walls[1].push([dd, span[1]])
+      if (span[0] <= zt) walls[0].push([dd, span[0]])
+    }
+    flush()
+    if (!polys.length) continue
+    dikesOut.push({
+      id: d.id,
+      name: d.name,
+      color: d.color || '#b91c1c',
+      tapered: Boolean(d.tapered),
+      polys,
+      walls: walls.filter((w) => w.length >= 2),
+    })
+  }
+
   // ---- Pozos cercanos al perfil ----
   const corridor = section.corridor || L * 0.12
   const wellsOut = []
@@ -375,6 +427,7 @@ export function buildSectionModel(section, scene) {
     units: unitsOut,
     contacts: contactsOut,
     faults: faultsOut,
+    dikes: dikesOut,
     wells: wellsOut,
     depth: section.depth,
     vExag: section.vExag || 1,

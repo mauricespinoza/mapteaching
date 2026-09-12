@@ -97,6 +97,24 @@ export default function HelpPanel({ project, dispatch }) {
           no, el panel dice a qué profundidad quedó <b>enterrado</b>.
         </li>
         <li>
+          Un <b>dique</b> (herramienta <b>Dique</b>, <code>Q</code>) se digitaliza por sus <b>dos paredes</b>:
+          una línea por borde, alternando de pared en cada trazo. El cuerpo es lo que queda entre ellas, no
+          tiene base ni techo, y <b>corta</b> la pila en vez de formar parte de ella: manda sobre las unidades
+          en el mapa, en el perfil, en el 3D y en la columna de un pozo. Cada pared se resuelve como cualquier
+          otra superficie —sus cruces con las curvas de nivel dan sus contornos estructurales y su actitud—, y
+          de comparar las dos sale el <b>espesor verdadero</b>.
+        </li>
+        <li>
+          Y de ahí sale también el <b>acuñamiento</b>: donde las dos trazas convergen, las dos superficies
+          convergen, y donde se cruzan el dique <b>deja de existir</b>. La punta no se declara en ninguna
+          parte, se lee del mapa. Para que eso no pase por accidente —dos planos ajustados por separado se
+          cortan siempre en alguna parte— la app prueba primero si los datos de la segunda pared encajan con un
+          <b>espesor constante</b>: si encajan, la construye paralela a la primera y el dique no se acuña; sólo
+          si la contradicen manda lo medido. El panel de <b>Resultados</b> dice cuál de las dos cosas ocurrió.
+          Si sólo digitalizas una pared, la otra se construye paralela al espesor que pongas en la ficha, y
+          queda marcado como <b>declarado</b> y no medido.
+        </li>
+        <li>
           La capa <b>Fold axes</b> dibuja el eje de cada antiforme y sinforme con su simbología clásica
           —espigas que se abren hacia fuera del trazo si los limbos bajan alejándose del eje, y se cierran hacia
           dentro si bajan hacia él, más una flecha de inmersión cuando el pliegue se hunde—, calculado

@@ -95,6 +95,12 @@ export default function MapView({
       const c = project.contours.find((x) => x.id === selection.id)
       return c ? { kind: 'contour', id: c.id, traceId: null, trace: c } : null
     }
+    if (selection.kind === 'dike' && selection.traceId) {
+      const d = (project.dikes || []).find((x) => x.id === selection.id)
+      const w = d?.walls.find((x) => x.traces.some((t) => t.id === selection.traceId))
+      const tr = w?.traces.find((t) => t.id === selection.traceId)
+      return tr ? { kind: 'dike', id: d.id, wallId: w.id, traceId: tr.id, trace: tr } : null
+    }
     if ((selection.kind === 'contact' || selection.kind === 'fault') && selection.traceId) {
       const list = selection.kind === 'fault' ? project.faults : project.contacts
       // Se busca también por la traza: reasignar una línea a otro par de
@@ -120,6 +126,7 @@ export default function MapView({
         : {
             kind: editable.kind,
             id: editable.id,
+            wallId: editable.wallId || null,
             traceId: editable.traceId,
             nodes: nodesOf(editable.trace),
             activeIndex: -1,
@@ -136,7 +143,7 @@ export default function MapView({
     [edit]
   )
 
-  const isDrawTool = ['contour', 'contact', 'fault'].includes(tool)
+  const isDrawTool = ['contour', 'contact', 'fault', 'dike'].includes(tool)
   const isTwoPointTool = ['scale', 'north', 'section', 'frame', 'scontour'].includes(tool)
 
   // Contornos estructurales dibujables: la misma lista alimenta el dibujo y la
@@ -208,6 +215,7 @@ export default function MapView({
         (s) =>
           s.kind === it.kind &&
           s.featureId === it.featureId &&
+          s.wallId === it.wallId &&
           s.block === it.block &&
           s.elevation === it.elevation &&
           !s.manualId
@@ -223,7 +231,8 @@ export default function MapView({
   const materializeSc = useCallback(
     (it, pts = null) => {
       const update = (scId) => {
-        if (pts) dispatch({ type: 'sc.update', kind: it.kind, id: it.featureId, scId, patch: { pts } })
+        if (pts)
+          dispatch({ type: 'sc.update', kind: it.kind, id: it.featureId, wallId: it.wallId, scId, patch: { pts } })
         return scId
       }
       if (it.manualId) return update(it.manualId)
@@ -231,10 +240,9 @@ export default function MapView({
       // render anterior (dos toques seguidos en «+100», por ejemplo). Antes de
       // crear otro se busca el que ya ocupa su sitio: uno de la misma cota y
       // prácticamente encima, que sólo puede ser él.
-      const list = it.kind === 'fault' ? project.faults : project.contacts
-      const same = (list.find((f) => f.id === it.featureId)?.structureContours || []).filter(
-        (x) => x.elevation === it.elevation
-      )
+      const same = (
+        ownerOf({ kind: it.kind, id: it.featureId, wallId: it.wallId }, project)?.structureContours || []
+      ).filter((x) => x.elevation === it.elevation)
       if (same.length) {
         const mid = (q) => [(q[0][0] + q[1][0]) / 2, (q[0][1] + q[1][1]) / 2]
         const here = mid([it.a, it.b])
@@ -254,7 +262,7 @@ export default function MapView({
       const items = family.map((s, k) =>
         newStructureContour(s.elevation, k === i && pts ? pts : [s.a, s.b])
       )
-      dispatch({ type: 'sc.add', kind: it.kind, id: it.featureId, items })
+      dispatch({ type: 'sc.add', kind: it.kind, id: it.featureId, wallId: it.wallId, items })
       return items[i].id
     },
     [scFamily, dispatch, project, view.scale]
@@ -365,6 +373,11 @@ export default function MapView({
       if (!locked('contacts'))
         for (const c of project.contacts)
           for (const tr of c.traces) consider({ kind: 'contact', id: c.id, traceId: tr.id }, pointPolyline(p, tr.pts).d)
+      if (!locked('dikes'))
+        for (const d of project.dikes || [])
+          for (const w of d.walls)
+            for (const tr of w.traces)
+              consider({ kind: 'dike', id: d.id, wallId: w.id, traceId: tr.id }, pointPolyline(p, tr.pts).d)
       if (!locked('contours'))
         for (const c of project.contours) consider({ kind: 'contour', id: c.id }, pointPolyline(p, c.pts).d)
       // La imagen base va al final: sólo se selecciona si no hay nada encima.
@@ -416,6 +429,7 @@ export default function MapView({
         dispatch({ type: 'contour.update', id: target.id, patch: { pts, nodes } })
       } else {
         dispatch({
+          wallId: target.wallId || undefined,
           type: 'trace.update',
           kind: target.kind,
           id: target.id,
@@ -509,7 +523,7 @@ export default function MapView({
     (target, at) => {
       openingMenu.current = true
       if (target.kind === 'sc') onEditRequest?.(scSelection(target.it))
-      else if (['contact', 'fault', 'contour'].includes(target.kind)) onEditRequest?.(target)
+      else if (['contact', 'fault', 'dike', 'contour'].includes(target.kind)) onEditRequest?.(target)
       setMenu({ at, hit: target })
     },
     [onEditRequest]
@@ -600,7 +614,13 @@ export default function MapView({
       const sc = scHit(p, touchTol(ev, 14))
       if (sc && (!hit || sc.d < hit.d)) {
         if (sc.it.manualId) {
-          dispatch({ type: 'sc.delete', kind: sc.it.kind, id: sc.it.featureId, scId: sc.it.manualId })
+          dispatch({
+            type: 'sc.delete',
+            kind: sc.it.kind,
+            id: sc.it.featureId,
+            wallId: sc.it.wallId,
+            scId: sc.it.manualId,
+          })
         } else {
           // Un contorno calculado no es un dato que quitar sin más: es el
           // resultado del ajuste, y reaparece en cuanto se repinte si no se le
@@ -610,6 +630,7 @@ export default function MapView({
             type: 'sc.add',
             kind: sc.it.kind,
             id: sc.it.featureId,
+            wallId: sc.it.wallId,
             items: [newStructureContour(sc.it.elevation, [sc.it.a, sc.it.b], { excluded: true })],
           })
         }
@@ -1043,7 +1064,7 @@ export default function MapView({
 }
 
 /** Rasgos que abren menú con una pulsación larga. */
-const MENU_KINDS = ['contact', 'fault', 'contour', 'section', 'well', 'model', 'sc']
+const MENU_KINDS = ['contact', 'fault', 'dike', 'contour', 'section', 'well', 'model', 'sc']
 
 /** Selección de un contorno estructural, con lo justo para volver a encontrarlo. */
 function scSelection(it) {
@@ -1052,6 +1073,9 @@ function scSelection(it) {
     key: it.key,
     id: it.featureId,
     featureKind: it.kind,
+    // Los contornos de un dique cuelgan de una de sus dos paredes, no del
+    // cuerpo: sin el id de la pared no se puede editar el que se ha tocado.
+    wallId: it.wallId || null,
     elevation: it.elevation,
     manualId: it.manualId,
     it,
@@ -1101,22 +1125,44 @@ function splitHit(hit, p, project, dispatch) {
     dispatch({ type: 'contour.split', id: c.id, a: cut.a, b: cut.b })
     return true
   }
-  if (hit.kind === 'contact' || hit.kind === 'fault') {
-    const list = hit.kind === 'fault' ? project.faults : project.contacts
-    const owner = list.find((x) => x.id === hit.id)
+  if (hit.kind === 'contact' || hit.kind === 'fault' || hit.kind === 'dike') {
+    const owner = ownerOf(hit, project)
     const tr = owner?.traces.find((t) => t.id === hit.traceId)
     const cut = tr && splitPolyline(tr.pts, p)
     if (!cut) return false
-    dispatch({ type: 'trace.split', kind: hit.kind, id: owner.id, traceId: tr.id, a: cut.a, b: cut.b })
+    dispatch({
+      type: 'trace.split',
+      kind: hit.kind,
+      id: hit.id,
+      wallId: hit.wallId,
+      traceId: tr.id,
+      a: cut.a,
+      b: cut.b,
+    })
     return true
   }
   return false
+}
+
+/**
+ * Dueño de la traza tocada: el contacto, la falla o —en un dique— la **pared**,
+ * que es quien de verdad guarda las trazas y los contornos.
+ */
+function ownerOf(hit, project) {
+  if (hit.kind === 'dike') {
+    const d = (project.dikes || []).find((x) => x.id === hit.id)
+    return d?.walls.find((w) => w.id === hit.wallId) || null
+  }
+  const list = hit.kind === 'fault' ? project.faults : project.contacts
+  return list.find((x) => x.id === hit.id) || null
 }
 
 function deleteHit(hit, dispatch) {
   if (hit.kind === 'contour') dispatch({ type: 'contour.delete', id: hit.id })
   else if (hit.kind === 'contact') dispatch({ type: 'trace.delete', kind: 'contact', id: hit.id, traceId: hit.traceId })
   else if (hit.kind === 'fault') dispatch({ type: 'trace.delete', kind: 'fault', id: hit.id, traceId: hit.traceId })
+  else if (hit.kind === 'dike')
+    dispatch({ type: 'trace.delete', kind: 'dike', id: hit.id, wallId: hit.wallId, traceId: hit.traceId })
   else if (hit.kind === 'section') dispatch({ type: 'section.delete', id: hit.id })
   else if (hit.kind === 'well') dispatch({ type: 'well.delete', id: hit.id })
   else if (hit.kind === 'model') dispatch({ type: 'model.delete', id: hit.id })

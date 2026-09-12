@@ -19,6 +19,7 @@ import { Collapsible, Field, inputCls, Btn, ColorSwatch } from './ui.jsx'
 import {
   CONTACT_TYPES,
   KINEMATICS,
+  newDike,
   newFault,
   reassignContact,
   sortedUnits,
@@ -127,6 +128,7 @@ export default function LayersPanel({
             ['units', 'Relleno de unidades', `${project.units.length}`],
             ['contacts', 'Contactos', `${project.contacts.length}`],
             ['faults', 'Fallas', `${project.faults.length}`],
+            ['dikes', 'Diques', `${(project.dikes || []).length}`],
             ['models', 'Modelos', `${(project.models || []).length}`],
           ].map(([key, label, hint]) => {
             const st = layers[key] || { opacity: 1, locked: false }
@@ -525,6 +527,38 @@ export default function LayersPanel({
         </ul>
       </Collapsible>
 
+      <Collapsible
+        title="Diques"
+        badge={(project.dikes || []).length}
+        defaultOpen={false}
+        action={
+          <Btn variant="dark" onClick={() => dispatch({ type: 'dike.add', dike: newDike(project) })}>
+            <Plus size={13} /> Dique
+          </Btn>
+        }
+      >
+        {!(project.dikes || []).length && (
+          <p className="text-xs leading-relaxed text-slate-500">
+            Un dique se digitaliza por sus <b>dos paredes</b>: una línea por borde. El cuerpo es lo que queda
+            entre ellas, y donde las dos trazas convergen el dique se acuña solo.
+          </p>
+        )}
+        <ul className="space-y-2">
+          {(project.dikes || []).map((d) => (
+            <DikeCard
+              key={d.id}
+              dike={d}
+              scene={scene}
+              dispatch={dispatch}
+              selection={selection}
+              setTool={setTool}
+              setActiveIds={setActiveIds}
+              onSelect={onSelect}
+            />
+          ))}
+        </ul>
+      </Collapsible>
+
       <Collapsible title="Curvas de nivel" badge={project.contours.length} defaultOpen={false}>
         <div className="mb-2 grid grid-cols-2 gap-2">
           <Field label="Equidistancia (m)">
@@ -614,6 +648,141 @@ export default function LayersPanel({
   )
 }
 
+/**
+ * Ficha de un dique. Lo que la distingue de la de una falla es que un dique
+ * tiene **dos** superficies —sus paredes— y que el espesor entre ellas es un
+ * resultado, no un ajuste: sale de comparar las dos, y es lo que se acuña.
+ */
+function DikeCard({ dike, scene, dispatch, selection, setTool, setActiveIds, onSelect }) {
+  const body = (scene?.dikes?.list || []).find((x) => x.id === dike.id) || null
+  const selected = selection?.kind === 'dike' && selection.id === dike.id
+  const set = (patch) => dispatch({ type: 'dike.update', id: dike.id, patch })
+  const draw = (wallId) => {
+    setActiveIds((st) => ({ ...st, dike: dike.id, dikeWall: wallId }))
+    setTool('dike')
+    onSelect({ kind: 'dike', id: dike.id, wallId })
+  }
+  return (
+    <li className={`rounded-lg border p-2 ${selected ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}>
+      <div className="flex items-center gap-2">
+        <ColorSwatch
+          value={dike.color}
+          onChange={(color) => set({ color })}
+          title={`Color de «${dike.name}» en el mapa, el perfil y el 3D`}
+          label={`Color del dique ${dike.name}`}
+          size={28}
+        />
+        <input
+          className={`flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300 ${
+            isHidden(dike) ? 'text-slate-400 line-through decoration-slate-300' : ''
+          }`}
+          value={dike.name}
+          onChange={(e) => set({ name: e.target.value })}
+        />
+        <EyeToggle visible={!isHidden(dike)} what={`«${dike.name}»`} onToggle={() => set({ hidden: !isHidden(dike) })} />
+        <Btn variant="ghost" title="Borrar el dique" onClick={() => dispatch({ type: 'dike.delete', id: dike.id })}>
+          <Trash2 size={13} />
+        </Btn>
+      </div>
+      <input
+        className="mt-1 w-full rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600"
+        placeholder="Litología (andesita, pórfido…)"
+        value={dike.lithology || ''}
+        onChange={(e) => set({ lithology: e.target.value })}
+      />
+      {/* Una pared por botón: el trazo va a la que se elija aquí. */}
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        {dike.walls.map((w) => (
+          <Btn key={w.id} variant="primary" onClick={() => draw(w.id)}>
+            <Pencil size={13} /> {w.name} ({w.traces.length})
+          </Btn>
+        ))}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        <Btn
+          variant="ghost"
+          title="Intercambia las dos paredes: corrige de qué lado queda el cuerpo cuando sólo hay una digitalizada"
+          onClick={() => dispatch({ type: 'dike.swapWalls', id: dike.id })}
+        >
+          <RotateCcw size={12} /> Cambiar paredes
+        </Btn>
+        {dike.walls.some((w) => w.traces.length) && (
+          <Btn
+            variant="ghost"
+            title="Borrar todas las trazas del dique"
+            onClick={() =>
+              dike.walls.forEach((w) =>
+                w.traces.forEach((t) =>
+                  dispatch({ type: 'trace.delete', kind: 'dike', id: dike.id, wallId: w.id, traceId: t.id })
+                )
+              )
+            }
+          >
+            <Eraser size={13} />
+          </Btn>
+        )}
+      </div>
+      {/* Espesor declarado: sólo hace algo mientras falte una pared por
+          digitalizar. Con las dos en el mapa, el espesor lo mide el mapa. */}
+      {dike.walls.filter((w) => w.traces.length).length < 2 && (
+        <div className="mt-1.5 grid grid-cols-2 gap-2">
+          <Field label="Espesor declarado (m)" hint="Se usa mientras falte una pared por digitalizar.">
+            <input
+              type="number"
+              className={inputCls}
+              value={dike.thickness ?? 40}
+              onChange={(e) => set({ thickness: Math.max(0, Number(e.target.value) || 0) })}
+            />
+          </Field>
+          <Field label="Lado del cuerpo">
+            <select className={inputCls} value={dike.side ?? 1} onChange={(e) => set({ side: Number(e.target.value) })}>
+              <option value={1}>Sobre la pared trazada</option>
+              <option value={-1}>Bajo la pared trazada</option>
+            </select>
+          </Field>
+        </div>
+      )}
+      {body ? (
+        <p className="mt-1.5 rounded-lg bg-slate-50 px-1.5 py-1 text-[11px] leading-relaxed text-slate-600">
+          {!Number.isFinite(body.thickness) ? (
+            <>
+              Las dos paredes están en el mapa, pero ninguna cruza curvas de nivel donde poder medir el espesor
+              entre ellas.
+            </>
+          ) : body.declared ? (
+            <>
+              Espesor <b>declarado</b> de {fmtDistance(body.thickness)}: falta digitalizar la otra pared para
+              medirlo.
+            </>
+          ) : body.tapered ? (
+            <>
+              <b>Se acuña.</b> Sus dos paredes convergen de verdad —el desajuste con un espesor constante es de{' '}
+              {fmtDistance(body.fit?.rms || 0)}—, así que manda lo medido y el dique termina donde se cruzan.
+            </>
+          ) : (
+            <>
+              Espesor <b>constante</b> de {fmtDistance(body.thickness)}, medido entre sus dos paredes
+              (desajuste {fmtDistance(body.fit?.rms || 0)}).
+            </>
+          )}
+          {body.low?.mean && (
+            <span className="ml-1 text-slate-500">
+              · {body.low.mean.quadrant} ({body.low.mean.dipDirNotation})
+            </span>
+          )}
+        </p>
+      ) : (
+        <p className="mt-1.5 text-[11px] text-amber-700">
+          ⚠ Sin resolver: hace falta al menos una pared que corte curvas de nivel.
+        </p>
+      )}
+      {dike.walls.map((w) => (
+        <ManualContours key={w.id} feature={w} kind="dike" dikeId={dike.id} dispatch={dispatch} />
+      ))}
+    </li>
+  )
+}
+
 function ManualAttitude({ value, onChange }) {
   const on = Boolean(value)
   return (
@@ -654,7 +823,7 @@ function ManualAttitude({ value, onChange }) {
  * las cotas que tocan sustituyen a los que calcula el motor, así que conviene
  * ver cuántos hay y poder devolver el mando al cálculo.
  */
-function ManualContours({ feature, kind, dispatch }) {
+function ManualContours({ feature, kind, dispatch, dikeId = null }) {
   const all = feature.structureContours || []
   if (!all.length) return null
   // Un contorno «excluido» no es uno puesto a mano: es la marca de que ahí se
@@ -671,7 +840,7 @@ function ManualContours({ feature, kind, dispatch }) {
       <Btn
         variant="ghost"
         title="Restaurar los contornos que calcula la app"
-        onClick={() => dispatch({ type: 'sc.clear', kind, id: feature.id })}
+        onClick={() => dispatch({ type: 'sc.clear', kind, id: dikeId || feature.id, wallId: dikeId ? feature.id : undefined })}
       >
         <RotateCcw size={12} />
       </Btn>

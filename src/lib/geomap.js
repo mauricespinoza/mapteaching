@@ -73,6 +73,9 @@ function rasterizeTraces(scene, bbox, nx, ny, cell) {
   // pero aquí no habría muro: la región se colaría al otro lado y el salto de
   // la falla dejaría de verse justo donde el alumno no llegó a dibujarla.
   for (const fw of scene.faultWorld) for (const tr of fw.barriers || fw.traces) line(tr)
+  // Las paredes de un dique son contactos como cualquier otro: separan el
+  // cuerpo intrusivo de la roca de caja, y el color no puede cruzarlas.
+  for (const dw of scene.dikeWorld || []) for (const w of dw.walls) for (const tr of w.traces) line(tr)
   return wall
 }
 
@@ -107,7 +110,8 @@ function labelRegions(wall, nx, ny) {
  */
 export function buildUnitRaster(scene, resolution = 190) {
   if (typeof document === 'undefined') return null
-  if (!scene?.ready || !scene.contacts.length || !scene.units.length) return null
+  const anyDike = Boolean(scene?.dikes?.list?.length)
+  if (!scene?.ready || (!scene.contacts.length && !anyDike) || (!scene.units.length && !anyDike)) return null
   if (!scene.dem?.valid) return null
 
   const bbox = modelExtent(scene)
@@ -120,10 +124,21 @@ export function buildUnitRaster(scene, resolution = 190) {
 
   const contacts = scene.contacts
   const units = scene.units
+  // Los diques se votan junto a las unidades, en los índices que siguen a la
+  // pila: un nodo donde aflora un dique vota por él y no por la unidad que la
+  // pila diría, porque ahí la roca de caja ya no aflora. Con las paredes del
+  // dique rasterizadas como muros, la región que gana el dique es exactamente
+  // la banda entre sus dos trazas —y se estrecha y desaparece con ella donde
+  // el dique se acuña—.
+  const dikes = (scene.dikes?.list || []).filter((d) => !isHidden(d.dike))
+  const paints = [
+    ...units.map((u) => ({ id: u.id, color: isHidden(u) ? null : u.color })),
+    ...dikes.map((d) => ({ id: d.id, color: d.color || '#b91c1c' })),
+  ]
   // Una unidad apagada no entra en la tabla de colores: su región queda
   // transparente y deja ver lo que hay debajo, pero se sigue votando igual y
   // sigue separando a sus vecinas, así que el resto del mapa no se mueve.
-  const colors = new Map(units.filter((u) => !isHidden(u)).map((u) => [u.id, hexToRgb(u.color)]))
+  const colors = new Map(paints.filter((p) => p.color).map((p) => [p.id, hexToRgb(p.color)]))
   const inFrame = frameTest(scene)
 
   const wall = rasterizeTraces(scene, bbox, nx, ny, cell)
@@ -142,7 +157,7 @@ export function buildUnitRaster(scene, resolution = 190) {
   // Voto de unidad por región: cada nodo dice qué unidad aflora en él según la
   // pila estratigráfica, y la región entera se queda con la más votada.
   const votes = new Map()
-  const unitIndex = new Map(units.map((u, i) => [u.id, i]))
+  const paintIndex = new Map(paints.map((p, i) => [p.id, i]))
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const r = region[j * nx + i]
@@ -151,23 +166,30 @@ export function buildUnitRaster(scene, resolution = 190) {
       const y = bbox.minY + j * cell
       if (inFrame && !inFrame(x, y)) continue
       const z = scene.dem.elevationAt(x, y)
-      const stack = scene.stackAt(x, y).z
-      if (!stack.some((v) => v != null)) continue
-      const unit = outcroppingUnit(contacts, stack, z, units)
-      if (!unit) continue
-      const ui = unitIndex.get(unit.id)
+      let id = null
+      for (let k = dikes.length - 1; k >= 0 && id == null; k--) {
+        if (dikes[k].outcropsAt(x, y)) id = dikes[k].id
+      }
+      if (id == null) {
+        const stack = scene.stackAt(x, y).z
+        if (!stack.some((v) => v != null)) continue
+        id = outcroppingUnit(contacts, stack, z, units)?.id ?? null
+      }
+      if (id == null) continue
+      const ui = paintIndex.get(id)
+      if (ui == null) continue
       let tally = votes.get(r)
-      if (!tally) votes.set(r, (tally = new Int32Array(units.length)))
+      if (!tally) votes.set(r, (tally = new Int32Array(paints.length)))
       tally[ui]++
     }
   }
 
-  const unitOfRegion = new Int16Array(count).fill(-1)
+  const paintOfRegion = new Int16Array(count).fill(-1)
   for (const [r, tally] of votes) {
     let best = -1
     let bestN = 0
     for (let u = 0; u < tally.length; u++) if (tally[u] > bestN) ((bestN = tally[u]), (best = u))
-    unitOfRegion[r] = best
+    paintOfRegion[r] = best
   }
 
   const canvas = document.createElement('canvas')
@@ -177,7 +199,7 @@ export function buildUnitRaster(scene, resolution = 190) {
   const img = ctx.createImageData(nx, ny)
 
   const paint = (ui, o) => {
-    const col = ui >= 0 ? colors.get(units[ui].id) : null
+    const col = ui >= 0 ? colors.get(paints[ui].id) : null
     if (!col) {
       img.data[o + 3] = 0
       return
@@ -201,7 +223,7 @@ export function buildUnitRaster(scene, resolution = 190) {
       }
       const r = region[k]
       if (r >= 0) {
-        paint(unitOfRegion[r], o)
+        paint(paintOfRegion[r], o)
         continue
       }
       // Celda de traza: toma el color de la región vecina más presente, para
@@ -213,8 +235,8 @@ export function buildUnitRaster(scene, resolution = 190) {
           const jj = j + dj
           if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue
           const rr = region[jj * nx + ii]
-          if (rr >= 0 && unitOfRegion[rr] >= 0) {
-            ui = unitOfRegion[rr]
+          if (rr >= 0 && paintOfRegion[rr] >= 0) {
+            ui = paintOfRegion[rr]
             break
           }
         }

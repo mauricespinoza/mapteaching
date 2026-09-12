@@ -53,6 +53,7 @@ const EN = {
   'Curva de nivel': 'Contour line',
   Contacto: 'Contact',
   Falla: 'Fault',
+  Dique: 'Dike',
   'Contorno estr.': 'Structure cont.',
   'Escala gráfica': 'Graphic scale',
   Espesor: 'Thickness',
@@ -79,6 +80,7 @@ const EN = {
   Contactos: 'Contacts',
   'Unidades de los contactos': 'Contact unit labels',
   Fallas: 'Faults',
+  Diques: 'Dikes',
   'Contornos estructurales': 'Structure contours',
   'Rótulos de los contornos': 'Contour labels',
   'Rumbo y manteo': 'Strike and dip',
@@ -181,6 +183,10 @@ const EN = {
   'Crea unidades para generar contactos': 'Create units to generate contacts',
   'Trazando falla': 'Tracing fault',
   'Se creará una falla nueva al trazar': 'A new fault will be created when you trace',
+  Trazando: 'Tracing',
+  trazas: 'traces',
+  'Se creará un dique nuevo al trazar: una línea por cada pared':
+    'A new dike will be created when you trace: one line per wall',
   'Traza el contorno estructural de': 'Trace the structure contour of',
   'y dale su cota': 'and give it its elevation',
   'Traza una recta de cota constante: al soltar eliges superficie y cota':

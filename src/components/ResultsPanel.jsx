@@ -88,6 +88,7 @@ export default function ResultsPanel({ scene, project, dispatch }) {
               )
             )}
             {r.surf.inherited && <InheritedNote info={r.surf.inherited} />}
+            {r.kind === 'dique' && r.body && <DikeNote body={r.body} />}
             {r.surf.manualContours?.length > 0 && (
               <p className="mb-1.5 rounded-lg bg-sky-50 px-2 py-1.5 text-[11px] leading-relaxed text-sky-900">
                 <b>
@@ -206,6 +207,42 @@ function InheritedNote({ info }) {
           ⚠ Los datos de este contacto no encajan bien con un espesor constante: revisa la traza o impón la
           actitud a mano.
         </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Qué se sabe del cuerpo del dique. Lo importante no es el espesor sino de
+ * dónde sale: medido entre las dos paredes, declarado a falta de una, o
+ * variable porque las dos convergen y el dique se acuña.
+ */
+function DikeNote({ body }) {
+  return (
+    <div className="mb-1.5 rounded-lg bg-rose-50 px-2 py-1.5 text-[11px] leading-relaxed text-rose-900">
+      {!Number.isFinite(body.thickness) ? (
+        <>
+          <b>Espesor sin medir.</b> Las dos paredes están en el mapa, pero no hay cruces con curvas de nivel en
+          la segunda con los que fijar la separación entre ambas.
+        </>
+      ) : body.declared ? (
+        <>
+          <b>Espesor declarado.</b> Sólo una pared está digitalizada, así que la otra se construye paralela a
+          ella a los <b>{fmtDistance(body.thickness)}</b> de la ficha. Digitaliza la segunda pared y el espesor
+          pasa a medirse.
+        </>
+      ) : body.tapered ? (
+        <>
+          <b>El dique se acuña.</b> Las dos paredes no son paralelas: sus datos no encajan con un espesor
+          constante (desajuste {fmtDistance(body.fit?.rms || 0)}), así que manda lo medido y el cuerpo termina
+          donde las dos superficies se cruzan. Ahí no se dibuja ni en el mapa, ni en el perfil, ni en el 3D.
+        </>
+      ) : (
+        <>
+          <b>Espesor constante</b> de <b>{fmtDistance(body.thickness)}</b>, medido perpendicular a las paredes
+          con {body.fit?.n ?? 0} punto{body.fit?.n === 1 ? '' : 's'} de la segunda (desajuste{' '}
+          {fmtDistance(body.fit?.rms || 0)}). Sus datos encajan con dos paredes paralelas, así que no se acuña.
+        </>
       )}
     </div>
   )

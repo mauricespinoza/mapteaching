@@ -34,6 +34,19 @@ export function snapTargets(project) {
       }
     }
   }
+  // Las paredes de un dique son justamente lo que se quiere medir con la regla:
+  // el ancho entre ellas, tomado perpendicular, es su espesor verdadero.
+  if (open('dikes')) {
+    for (const d of project.dikes || []) {
+      for (const w of d.walls) {
+        for (const tr of w.traces) {
+          if (tr.pts.length >= 2) {
+            out.push({ kind: 'dike', id: d.id, wallId: w.id, traceId: tr.id, name: `${d.name} · ${w.name}`, pts: tr.pts })
+          }
+        }
+      }
+    }
+  }
   return out
 }
 
@@ -95,8 +108,14 @@ export function reading(project, scene, m) {
   // Espesor verdadero: sólo tiene sentido si la medida es perpendicular al
   // rumbo del contacto en el que se ancló y ese contacto tiene manteo resuelto.
   let thickness = null
-  if (m.orthogonal && m.anchor?.kind === 'contact' && scene?.ready) {
-    const surf = scene.contactSurfaceAt(m.anchor.id, A[0], A[1])
+  if (m.orthogonal && scene?.ready && (m.anchor?.kind === 'contact' || m.anchor?.kind === 'dike')) {
+    // En un dique la superficie es la pared en la que se ancló la regla: el
+    // ancho perpendicular entre las dos paredes es su espesor verdadero, igual
+    // que el ancho de un afloramiento lo es para una capa.
+    const surf =
+      m.anchor.kind === 'dike'
+        ? scene.dikeWallSurfaces?.get(m.anchor.wallId)
+        : scene.contactSurfaceAt(m.anchor.id, A[0], A[1])
     const att = surf?.attitudeAt ? surf.attitudeAt(A[0], A[1]) : surf?.mean
     if (att && Number.isFinite(att.dip)) {
       thickness = { dip: att.dip, value: meters * Math.sin(att.dip * RAD) }

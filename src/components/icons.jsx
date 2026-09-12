@@ -103,6 +103,21 @@ export function SectionLineIcon({ size = 24, strokeWidth = 2, className = '', ..
 }
 
 /**
+ * Dique: la banda entre sus **dos paredes**, que es como se dibuja en un mapa
+ * y como se digitaliza aquí —una línea por borde—, y no una línea sola. Se
+ * estrecha hacia la punta porque eso es lo que hace un dique: acuñarse.
+ */
+export function DikeIcon({ size = 24, strokeWidth = 2, className = '', ...rest }) {
+  return (
+    <svg width={size} height={size} strokeWidth={strokeWidth} className={className} {...base} {...rest}>
+      <path d="M6.2 21.5 13.4 3.2" />
+      <path d="M12.6 21.5 15.4 3.2" />
+      <path d="M13.4 3.2 15.4 3.2" strokeWidth={Math.max(strokeWidth - 0.6, 0.9)} />
+    </svg>
+  )
+}
+
+/**
  * Ejes de pliegues: el cierre en horquilla de un contacto plegado visto en
  * planta, con su traza axial pasando por la charnela. Es la figura con la que
  * se reconoce un pliegue en el mapa —lo que dibuja esta capa—, y no se

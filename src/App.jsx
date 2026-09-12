@@ -45,9 +45,9 @@ import ModelPanel from './components/ModelPanel.jsx'
 import DigitizePanel from './components/DigitizePanel.jsx'
 import Stereonet from './components/Stereonet.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
-import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, FoldAxisIcon, GeoMapLogo } from './components/icons.jsx'
+import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, FoldAxisIcon, DikeIcon, GeoMapLogo } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
-import { newProject, newSection, newWell, newPiercingPair, newStructureContour, uid, countVertices } from './lib/model.js'
+import { newProject, newSection, newWell, newPiercingPair, newStructureContour, newDike, nextDikeWall, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
 import { buildSampleProject } from './lib/sample.js'
 import { EXAMPLES, loadExample } from './lib/examples.js'
@@ -70,6 +70,7 @@ const LAYER_TOGGLES = [
   { k: 'contacts', label: 'Contactos', icon: PenLine },
   { k: 'contactLabels', label: 'Unidades de los contactos', icon: Tags },
   { k: 'faults', label: 'Fallas', icon: FaultIcon },
+  { k: 'dikes', label: 'Diques', icon: DikeIcon },
   // Un solo interruptor para los contornos estructurales: son la misma
   // construcción sobre un contacto y sobre una falla, y tenerlos en dos
   // botones separados obligaba a acordarse de encender el segundo para ver
@@ -99,6 +100,7 @@ const DEFAULT_SHOW = {
   contacts: true,
   contactLabels: true,
   faults: true,
+  dikes: true,
   structureContours: true,
   structureLabels: true,
   attitudes: true,
@@ -162,7 +164,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [penOnly, setPenOnly] = useState(true)
   const [selection, setSelection] = useState(null)
-  const [activeIds, setActiveIds] = useState({ contact: null, fault: null })
+  const [activeIds, setActiveIds] = useState({ contact: null, fault: null, dike: null })
   // Rasgo al que se añade el próximo contorno estructural dibujado a mano.
   const [scTarget, setScTarget] = useState(null)
   const [view, setView] = useState(null)
@@ -251,12 +253,14 @@ export default function App() {
       dispatch({ type: 'trace.delete', kind: 'contact', id: sel.id, traceId: sel.traceId })
     else if (sel.kind === 'fault' && sel.traceId)
       dispatch({ type: 'trace.delete', kind: 'fault', id: sel.id, traceId: sel.traceId })
+    else if (sel.kind === 'dike' && sel.traceId)
+      dispatch({ type: 'trace.delete', kind: 'dike', id: sel.id, wallId: sel.wallId, traceId: sel.traceId })
     else if (sel.kind === 'section') dispatch({ type: 'section.delete', id: sel.id })
     else if (sel.kind === 'well') dispatch({ type: 'well.delete', id: sel.id })
     else if (sel.kind === 'model') dispatch({ type: 'model.delete', id: sel.id })
     else if (sel.kind === 'sc') {
       if (sel.manualId) {
-        dispatch({ type: 'sc.delete', kind: sel.featureKind, id: sel.id, scId: sel.manualId })
+        dispatch({ type: 'sc.delete', kind: sel.featureKind, id: sel.id, wallId: sel.wallId, scId: sel.manualId })
       } else {
         // Un contorno calculado no es un dato que borrar sin más: es el
         // resultado del ajuste, y el ajuste lo vuelve a poner en cuanto se
@@ -269,6 +273,7 @@ export default function App() {
           type: 'sc.add',
           kind: sel.featureKind,
           id: sel.id,
+          wallId: sel.wallId,
           items: [newStructureContour(sel.elevation, [sel.it.a, sel.it.b], { excluded: true })],
         })
       }
@@ -378,6 +383,20 @@ export default function App() {
           setActiveIds((s) => ({ ...s, fault: id }))
         }
         dispatch({ type: 'trace.add', kind: 'fault', id, pts })
+      } else if (tool === 'dike') {
+        // Un dique se dibuja por sus dos bordes, así que el trazo va a la
+        // pared que menos tenga: el primero a una, el segundo a la otra. La
+        // ficha del panel deja mandarlo a la que se quiera.
+        let d = (project.dikes || []).find((x) => x.id === activeIds.dike) || project.dikes?.[0]
+        if (!d) {
+          d = newDike(project)
+          dispatch({ type: 'dike.add', dike: d })
+          setActiveIds((s2) => ({ ...s2, dike: d.id }))
+        }
+        const wall = activeIds.dikeWall
+          ? d.walls.find((w) => w.id === activeIds.dikeWall) || nextDikeWall(d)
+          : nextDikeWall(d)
+        dispatch({ type: 'trace.add', kind: 'dike', id: d.id, wallId: wall.id, pts })
       }
     },
     [tool, activeIds, project]
@@ -397,10 +416,12 @@ export default function App() {
         dispatch({ type: 'section.add', section: s })
         setSectionId(s.id)
       } else if (tool === 'scontour') {
+        const firstDikeWall = project.dikes?.[0]?.walls?.[0]
         const target =
           scTarget ||
           (activeIds.contact && { kind: 'contact', id: activeIds.contact }) ||
-          (project.contacts[0] && { kind: 'contact', id: project.contacts[0].id })
+          (project.contacts[0] && { kind: 'contact', id: project.contacts[0].id }) ||
+          (firstDikeWall && { kind: 'dike', id: project.dikes[0].id, wallId: firstDikeWall.id })
         if (!target) {
           setDialog({
             kind: 'info',
@@ -822,6 +843,10 @@ export default function App() {
                     if (hit?.kind === 'sc' && hit.featureKind === 'fault')
                       setActiveIds((s) => ({ ...s, fault: hit.id }))
                     if (hit?.kind === 'fault') setActiveIds((s) => ({ ...s, fault: hit.id }))
+                    if (hit?.kind === 'dike')
+                      setActiveIds((s) => ({ ...s, dike: hit.id, dikeWall: hit.wallId || null }))
+                    if (hit?.kind === 'sc' && hit.featureKind === 'dike')
+                      setActiveIds((s) => ({ ...s, dike: hit.id, dikeWall: hit.wallId || null }))
                     if (hit?.kind === 'section') setSectionId(hit.id)
                     if (hit?.kind === 'well') setWellId(hit.id)
                   }}
@@ -1006,22 +1031,31 @@ export default function App() {
           <Field label={t('Superficie a la que pertenece')}>
             <select
               className={inputCls}
-              value={`${dialog.target.kind}:${dialog.target.id}`}
+              value={`${dialog.target.kind}:${dialog.target.id}:${dialog.target.wallId || ''}`}
               onChange={(e) => {
-                const [kind, id] = e.target.value.split(':')
-                setDialog({ ...dialog, target: { kind, id } })
+                const [kind, id, wallId] = e.target.value.split(':')
+                setDialog({ ...dialog, target: { kind, id, wallId: wallId || null } })
               }}
             >
               {project.contacts.map((c) => (
-                <option key={c.id} value={`contact:${c.id}`}>
+                <option key={c.id} value={`contact:${c.id}:`}>
                   {c.name}
                 </option>
               ))}
               {project.faults.map((f) => (
-                <option key={f.id} value={`fault:${f.id}`}>
+                <option key={f.id} value={`fault:${f.id}:`}>
                   {f.name} ({t('falla')})
                 </option>
               ))}
+              {/* Un dique no es una superficie sino dos: el contorno pertenece
+                  a una de sus paredes, y hay que decir a cuál. */}
+              {(project.dikes || []).flatMap((d) =>
+                d.walls.map((w) => (
+                  <option key={w.id} value={`dike:${d.id}:${w.id}`}>
+                    {d.name} · {w.name}
+                  </option>
+                ))
+              )}
             </select>
           </Field>
           <div className="mt-2">
@@ -1233,6 +1267,7 @@ export default function App() {
       type: 'sc.add',
       kind: target.kind,
       id: target.id,
+      wallId: target.wallId,
       items: [newStructureContour(elevation, [a, b])],
     })
     setLastScZ(elevation)
@@ -1280,8 +1315,17 @@ function statusText(t, tool, project, activeIds, scene, scTarget) {
     const f = project.faults.find((x) => x.id === activeIds.fault) || project.faults[0]
     return f ? `${t('Trazando falla')}: ${f.name}` : t('Se creará una falla nueva al trazar')
   }
+  if (tool === 'dike') {
+    const d = (project.dikes || []).find((x) => x.id === activeIds.dike) || project.dikes?.[0]
+    if (!d) return t('Se creará un dique nuevo al trazar: una línea por cada pared')
+    const wall = nextDikeWall(d)
+    return `${t('Trazando')} ${d.name}: ${wall?.name || ''} (${d.walls
+      .map((w) => w.traces.length)
+      .join(' + ')} ${t('trazas')})`
+  }
   if (tool === 'scontour') {
-    const list = scTarget?.kind === 'fault' ? project.faults : project.contacts
+    const list =
+      scTarget?.kind === 'fault' ? project.faults : scTarget?.kind === 'dike' ? project.dikes || [] : project.contacts
     const target = scTarget ? list.find((x) => x.id === scTarget.id) : null
     return target
       ? `${t('Traza el contorno estructural de')} ${target.name} ${t('y dale su cota')}`

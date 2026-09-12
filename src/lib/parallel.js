@@ -68,8 +68,13 @@ const RAD = Math.PI / 180
 const MAX_DIP = 80
 const MAX_K = 1 / Math.cos(MAX_DIP * RAD)
 
-/** Factor 1/cos δ a partir del gradiente de la superficie. */
-const slopeFactor = (a, b) => Math.min(MAX_K, Math.sqrt(1 + a * a + b * b))
+/**
+ * Factor 1/cos δ a partir del gradiente de la superficie: lo que convierte un
+ * espesor verdadero (perpendicular a las capas) en el desnivel que le
+ * corresponde. Lo usan también los diques, que son dos superficies paralelas
+ * separadas un espesor (`dikes.js`).
+ */
+export const slopeFactor = (a, b) => Math.min(MAX_K, Math.sqrt(1 + a * a + b * b))
 
 // Hasta dónde se da por buena la forma que el propio contacto midió, en
 // múltiplos de la separación entre sus contornos estructurales. Dentro de
