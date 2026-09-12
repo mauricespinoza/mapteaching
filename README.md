@@ -880,7 +880,7 @@ para usar, que se abren siempre como copia nueva:
 - **Dike pinch-out**: ejercicio sintético (sin imagen, generado por código
   como el de arranque) con la misma serie inclinada y falla normal, más un
   dique andesítico de manteo 80° cuyas dos paredes convergen hacia el norte
-  hasta acuñarse. Trae tres perfiles, uno de ellos cortando el dique donde
+  hasta acuñarse. Trae dos perfiles, uno de ellos cortando el dique donde
   todavía tiene espesor.
 
 Los modelos de prueba son proyectos exportados de la propia app que viven en

@@ -28,7 +28,7 @@ export const EXAMPLES = [
     id: 'dike-pinch-out',
     name: 'Dike pinch-out',
     summary: 'Ejercicio sintético: la misma serie inclinada y falla normal del ejemplo base, más un dique andesítico de manteo empinado cuyas dos paredes convergen hacia el norte.',
-    detail: 'Sin imagen: relieve y trazas generados por código, como el ejercicio de arranque. El dique se acuña donde sus dos paredes se cruzan, y trae un tercer perfil que lo corta donde aún tiene espesor.',
+    detail: 'Sin imagen: relieve y trazas generados por código, como el ejercicio de arranque. El dique se acuña donde sus dos paredes se cruzan, y trae un segundo perfil que lo corta donde aún tiene espesor.',
     url: asset('dike-pinch-out.mapteaching.json'),
   },
 ]
