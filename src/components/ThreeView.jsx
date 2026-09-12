@@ -3,7 +3,7 @@ import { Download } from 'lucide-react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { toWorldList, toImage } from '../lib/georef.js'
-import { kinematicsOf, newStructureContour, isHidden } from '../lib/model.js'
+import { faultColorOf, newStructureContour, isHidden } from '../lib/model.js'
 import { contourSegment } from '../lib/structure.js'
 import { frameTest, modelExtent } from '../lib/models.js'
 import { buildWellModel } from '../lib/wells.js'
@@ -273,7 +273,7 @@ export default function ThreeView({ project, scene, image, dispatch }) {
         }
       }
       for (const fw of scene.faultWorld) {
-        const color = new THREE.Color(kinematicsOf(fw.fault.kinematics).color)
+        const color = new THREE.Color(faultColorOf(project, fw.fault.kinematics))
         for (const tr of fw.traces) {
           for (const run of clipRuns(tr, inFrame)) {
             const pts = run.map((p) => P(p[0], p[1], dem.elevationAt(p[0], p[1]) + zRange * 0.006))
@@ -383,7 +383,7 @@ export default function ThreeView({ project, scene, image, dispatch }) {
     if (show.faults) {
       for (const fw of scene.faultWorld) {
         const surf = scene.faultSurfaces.get(fw.id)
-        const color = new THREE.Color(kinematicsOf(fw.fault.kinematics).color)
+        const color = new THREE.Color(faultColorOf(project, fw.fault.kinematics))
         // Hasta dónde sube el plano. Una falla sellada por una discordancia se
         // detiene en ella: se movió antes, la erosión la decapitó y la
         // cobertura se depositó encima sin romperse, así que por arriba no hay

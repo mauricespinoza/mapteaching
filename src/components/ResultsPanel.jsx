@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Download, Move3d, Ruler, Rows3, Target, Trash2 } from 'lucide-react'
 import { surfaceSummary } from '../lib/scene.js'
 import { fmtDistance } from '../lib/georef.js'
-import { kinematicsOf } from '../lib/model.js'
+import { faultColorOf } from '../lib/model.js'
 import { faultSlip } from '../lib/slip.js'
 import { regularContours } from '../lib/scregular.js'
 import { frameTest } from '../lib/models.js'
@@ -47,7 +47,7 @@ export default function ResultsPanel({ scene, project, dispatch }) {
             <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
               <span
                 className="inline-block h-3 w-3 rounded-full"
-                style={{ background: r.kind === 'falla' ? kinematicsOf(r.kinematics).color : r.color || '#0f172a' }}
+                style={{ background: r.kind === 'falla' ? faultColorOf(project, r.kinematics) : r.color || '#0f172a' }}
               />
               <span className="text-sm font-semibold text-slate-800">{r.name}</span>
               {r.block != null && <span className="text-xs text-slate-500">bloque {r.block}</span>}
@@ -613,7 +613,7 @@ function SlipSection({ scene, project }) {
             <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
               <span
                 className="inline-block h-3 w-3 rounded-full"
-                style={{ background: kinematicsOf(f.kinematics).color }}
+                style={{ background: faultColorOf(project, f.kinematics) }}
               />
               <span className="text-sm font-semibold text-slate-800">{f.name}</span>
               <span className="text-xs text-slate-500">{f.attitude.quadrant}</span>

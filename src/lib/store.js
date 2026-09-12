@@ -52,6 +52,11 @@ function apply(project, action) {
       }
     case 'settings':
       return { ...p, settings: { ...p.settings, ...action.patch } }
+    case 'symbols':
+      return {
+        ...p,
+        settings: { ...p.settings, symbols: { ...(p.settings.symbols || {}), ...action.patch } },
+      }
     case 'georef':
       return { ...p, georef: { ...p.georef, ...action.patch } }
 

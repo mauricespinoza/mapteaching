@@ -14,7 +14,7 @@ import { polylineIntersections, dist, bboxOf } from './geom.js'
 import {
   sortedUnits,
   sortedContacts,
-  kinematicsOf,
+  faultColorOf,
   contactOrder,
   faultCutsContact,
   contactPackages,
@@ -977,7 +977,7 @@ export function structureContourItems(scene) {
   }
   for (const f of scene.project.faults) {
     const surf = scene.faultSurfaces.get(f.id)
-    if (surf) collect('fault', f, kinematicsOf(f.kinematics).color, null, surf)
+    if (surf) collect('fault', f, faultColorOf(scene.project, f.kinematics), null, surf)
   }
   for (const dw of scene.dikeWorld || []) {
     for (const w of dw.walls) {

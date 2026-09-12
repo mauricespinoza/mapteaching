@@ -44,6 +44,7 @@ import HelpPanel from './components/HelpPanel.jsx'
 import ModelPanel from './components/ModelPanel.jsx'
 import DigitizePanel from './components/DigitizePanel.jsx'
 import Stereonet from './components/Stereonet.jsx'
+import SymbolsPanel from './components/SymbolsPanel.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
 import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, FoldAxisIcon, DikeIcon, GeoMapLogo } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
@@ -915,6 +916,7 @@ export default function App() {
                 ['modelos', 'Modelos', Layers3],
                 ['resultados', 'Datos', Table],
                 ['estereograma', 'Estereograma', Compass],
+                ['simbolos', 'Símbolos', Palette],
                 ['ayuda', 'Guía', BookOpen],
               ].map(([id, label, Icon]) => (
                 <button
@@ -970,6 +972,7 @@ export default function App() {
                   <Stereonet scene={scene} />
                 </div>
               )}
+              {panel === 'simbolos' && <SymbolsPanel project={project} dispatch={dispatch} />}
               {panel === 'ayuda' && <HelpPanel project={project} dispatch={dispatch} />}
             </div>
           )}

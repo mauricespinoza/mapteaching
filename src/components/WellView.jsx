@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react'
 import { Download, Plus, Trash2 } from 'lucide-react'
 import { buildWellModel } from '../lib/wells.js'
-import { newWell, kinematicsOf } from '../lib/model.js'
+import { newWell, faultColorOf } from '../lib/model.js'
 import { fmtDistance, octant } from '../lib/georef.js'
 import { downloadSvg, downloadSvgAsPng } from '../lib/exportFile.js'
 
@@ -175,7 +175,7 @@ export default function WellView({ project, scene, dispatch, selectedId, onSelec
                         <td className="py-1">
                           <span
                             className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-middle"
-                            style={{ background: m.kind === 'falla' ? kinematicsOf(m.kinematics).color : m.color }}
+                            style={{ background: m.kind === 'falla' ? faultColorOf(project, m.kinematics) : m.color }}
                           />
                           {m.name}
                         </td>

@@ -54,6 +54,40 @@ export const KINEMATICS = [
 
 export const kinematicsOf = (id) => KINEMATICS.find((k) => k.id === id) || KINEMATICS[8]
 
+/**
+ * Simbología del proyecto: lo que un mapa a mano decide en la leyenda —de qué
+ * color va cada cosa, cuán grueso el trazo— y que aquí, en vez de fijo en el
+ * código, lo elige quien enseña o quien aprende desde la pestaña «Símbolos».
+ *
+ * `faultColors` sólo guarda las **excepciones** a `KINEMATICS`: una falla cuya
+ * cinemática no está aquí sigue con el color de siempre. `widths` es un
+ * multiplicador por capa (1 = el grosor de toda la vida); las capas que no
+ * aparecen tampoco cambian. Así un proyecto guardado antes de que existiera
+ * esta pestaña se ve exactamente igual que siempre.
+ */
+export const DEFAULT_SYMBOLS = {
+  faultColors: {},
+  foldAxisColor: '#dc2626',
+  widths: {},
+}
+
+export const symbolsOf = (project) => ({
+  ...DEFAULT_SYMBOLS,
+  ...(project?.settings?.symbols || {}),
+  faultColors: { ...DEFAULT_SYMBOLS.faultColors, ...(project?.settings?.symbols?.faultColors || {}) },
+  widths: { ...DEFAULT_SYMBOLS.widths, ...(project?.settings?.symbols?.widths || {}) },
+})
+
+/** Color con el que se dibuja una falla de esta cinemática en este proyecto. */
+export const faultColorOf = (project, kinematicsId) =>
+  symbolsOf(project).faultColors[kinematicsId] || kinematicsOf(kinematicsId).color
+
+/** Color con el que se dibuja el eje de un pliegue en este proyecto. */
+export const foldAxisColorOf = (project) => symbolsOf(project).foldAxisColor
+
+/** Multiplicador de grosor de línea de una capa (`contacts`, `faults`, `dikes`, `foldAxes`, `contours`, `structureContours`). */
+export const widthScale = (project, key) => symbolsOf(project).widths[key] ?? 1
+
 export function newProject(name = 'Ejercicio sin título') {
   const now = new Date().toISOString()
   return {
@@ -105,6 +139,9 @@ export function newProject(name = 'Ejercicio sin título') {
         models: { opacity: 1, locked: false },
       },
       blockCell: 0, // 0 = automático
+      // Ver `symbolsOf`: colores de falla y grosores son excepciones sobre
+      // los valores de siempre, así que empieza vacío.
+      symbols: { ...DEFAULT_SYMBOLS },
     },
   }
 }

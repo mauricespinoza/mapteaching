@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Download, Image as ImageIcon, MoveHorizontal } from 'lucide-react'
 import { buildSectionModel } from '../lib/section.js'
-import { kinematicsOf, isHidden } from '../lib/model.js'
+import { kinematicsOf, faultColorOf, isHidden } from '../lib/model.js'
 import { fmtDistance, octant } from '../lib/georef.js'
 import { downloadSvg, downloadSvgAsPng } from '../lib/exportFile.js'
 
@@ -248,13 +248,13 @@ export default function SectionView({ project, scene, section, dispatch }) {
             ))}
             {/* Fallas */}
             {model.faults.map((f, i) => {
-              const kin = kinematicsOf(f.kinematics)
+              const color = faultColorOf(project, f.kinematics)
               return (
                 <g key={`${f.faultId}-${i}`}>
                   {/* Sigue la superficie de la falla, no una recta: si sus
                       contornos estructurales dicen que se tuerce, se tuerce. */}
                   <polyline points={poly(f.path || f.line)} fill="none" stroke="#111827" strokeWidth="3.4" />
-                  <polyline points={poly(f.path || f.line)} fill="none" stroke={kin.color} strokeWidth="2" />
+                  <polyline points={poly(f.path || f.line)} fill="none" stroke={color} strokeWidth="2" />
                   {slipArrows(f, X, Y)}
                 </g>
               )

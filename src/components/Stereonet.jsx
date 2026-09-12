@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { kinematicsOf } from '../lib/model.js'
+import { faultColorOf } from '../lib/model.js'
 import { surfaceSummary } from '../lib/scene.js'
 import { foldAxes } from '../lib/folds.js'
 
@@ -70,7 +70,7 @@ function collect(scene) {
   const rows = surfaceSummary(scene)
   for (const r of rows) {
     const unit = r.kind === 'contacto' ? scene.units.find((u) => u.id === contactUpper(scene, r.id)) : null
-    const color = r.kind === 'falla' ? kinematicsOf(r.kinematics).color : unit?.color || r.color || '#0f172a'
+    const color = r.kind === 'falla' ? faultColorOf(scene.project, r.kinematics) : unit?.color || r.color || '#0f172a'
     const atts = r.surf.folded
       ? r.surf.domainAttitudes.filter((d) => d.dip != null).map((d, i) => ({ ...d, limb: i }))
       : r.surf.mean

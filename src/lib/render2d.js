@@ -2,7 +2,7 @@
 // pantalla; `view` transforma píxeles de imagen → pantalla.
 
 import { toImage, basis, fmtDistance } from './georef.js'
-import { kinematicsOf, isHidden, isLabelHidden } from './model.js'
+import { kinematicsOf, isHidden, isLabelHidden, faultColorOf, foldAxisColorOf, widthScale } from './model.js'
 import { norm, perp, dist } from './geom.js'
 
 export const toScreen = (view, p) => [p[0] * view.scale + view.tx, p[1] * view.scale + view.ty]
@@ -320,7 +320,7 @@ export function render(ctx, opts) {
         : false
       const live = edit?.preview && edit.kind === 'contour' && edit.id === c.id ? edit.preview : c.pts
       ctx.strokeStyle = selected ? '#dc2626' : index ? '#92400e' : '#b45309'
-      ctx.lineWidth = selected ? 2.6 : index ? 1.8 : 1.1
+      ctx.lineWidth = (selected ? 2.6 : index ? 1.8 : 1.1) * widthScale(project, 'contours')
       ctx.globalAlpha = 0.95 * alphaOf('contours')
       path(ctx, view, live)
       ctx.stroke()
@@ -356,7 +356,10 @@ export function render(ctx, opts) {
         Number(Boolean(b.manualId)) - Number(Boolean(a.manualId))
     )
     for (const it of scOrder) {
-      drawStructureContour(ctx, view, it, { selected: selection?.kind === 'sc' && selection.key === it.key })
+      drawStructureContour(ctx, view, it, {
+        selected: selection?.kind === 'sc' && selection.key === it.key,
+        widthK: widthScale(project, 'structureContours'),
+      })
     }
   }
 
@@ -370,7 +373,7 @@ export function render(ctx, opts) {
       for (const tr of c.traces) {
         const live = edit?.preview && edit.id === c.id && edit.traceId === tr.id ? edit.preview : tr.pts
         ctx.strokeStyle = c.color || '#0f172a'
-        ctx.lineWidth = selected ? 4.5 : 3
+        ctx.lineWidth = (selected ? 4.5 : 3) * widthScale(project, 'contacts')
         ctx.lineJoin = 'round'
         ctx.lineCap = 'round'
         ctx.setLineDash(dashFor(c.type))
@@ -393,7 +396,7 @@ export function render(ctx, opts) {
     const fw = scene?.faultWorld || []
     for (const f of fw) {
       ctx.strokeStyle = '#94a3b8'
-      ctx.lineWidth = 1.2
+      ctx.lineWidth = 1.2 * widthScale(project, 'faults')
       ctx.setLineDash([4, 4])
       f.traces.forEach((tr, i) => {
         const bar = f.barriers?.[i]
@@ -408,23 +411,24 @@ export function render(ctx, opts) {
       })
       ctx.setLineDash([])
     }
+    const faultW = widthScale(project, 'faults')
     for (const f of project.faults) {
-      const kin = kinematicsOf(f.kinematics)
+      const color = faultColorOf(project, f.kinematics)
       const selected = selection?.kind === 'fault' && selection.id === f.id
       const surf = scene?.faultSurfaces?.get(f.id)
       for (const tr of f.traces) {
         const live = edit?.preview && edit.id === f.id && edit.traceId === tr.id ? edit.preview : tr.pts
         ctx.strokeStyle = selected ? '#111827' : '#1f2937'
-        ctx.lineWidth = selected ? 6 : 4.5
+        ctx.lineWidth = (selected ? 6 : 4.5) * faultW
         ctx.lineJoin = 'round'
         ctx.lineCap = 'round'
         path(ctx, view, live)
         ctx.stroke()
-        ctx.strokeStyle = kin.color
-        ctx.lineWidth = selected ? 3.4 : 2.4
+        ctx.strokeStyle = color
+        ctx.lineWidth = (selected ? 3.4 : 2.4) * faultW
         path(ctx, view, live)
         ctx.stroke()
-        drawFaultSymbols(ctx, view, scene, live, f, kin, surf)
+        drawFaultSymbols(ctx, view, scene, live, f, color, surf)
       }
     }
     ctx.restore()
@@ -441,18 +445,19 @@ export function render(ctx, opts) {
     for (const d of project.dikes || []) {
       if (isHidden(d)) continue
       const selected = selection?.kind === 'dike' && selection.id === d.id
+      const dikeW = widthScale(project, 'dikes')
       for (const w of d.walls) {
         for (const tr of w.traces) {
           const live =
             edit?.preview && edit.id === d.id && edit.traceId === tr.id ? edit.preview : tr.pts
           ctx.strokeStyle = '#1f2937'
-          ctx.lineWidth = selected ? 5.2 : 3.8
+          ctx.lineWidth = (selected ? 5.2 : 3.8) * dikeW
           ctx.lineJoin = 'round'
           ctx.lineCap = 'round'
           path(ctx, view, live)
           ctx.stroke()
           ctx.strokeStyle = d.color || '#b91c1c'
-          ctx.lineWidth = selected ? 3.2 : 2.2
+          ctx.lineWidth = (selected ? 3.2 : 2.2) * dikeW
           path(ctx, view, live)
           ctx.stroke()
         }
@@ -479,7 +484,8 @@ export function render(ctx, opts) {
 
   // --- Ejes de pliegue (antiformes y sinformes) ---
   if (show.foldAxes && foldAxes?.length) {
-    for (const ax of foldAxes) drawFoldAxis(ctx, view, ax)
+    const foldSym = { color: foldAxisColorOf(project), widthK: widthScale(project, 'foldAxes') }
+    for (const ax of foldAxes) drawFoldAxis(ctx, view, ax, foldSym)
   }
 
   // --- Marco del área de trabajo ---
@@ -1004,13 +1010,13 @@ function drawVertices(ctx, view, pts, color) {
  * rótulo lleva el rasgo al que pertenece y la cota que representa, que es lo
  * que distingue un contorno de otro cuando se cruzan varios en el mapa.
  */
-function drawStructureContour(ctx, view, it, { selected = false } = {}) {
+function drawStructureContour(ctx, view, it, { selected = false, widthK = 1 } = {}) {
   const a = toScreen(view, it.a)
   const b = toScreen(view, it.b)
   const manual = Boolean(it.manualId)
   if (selected) {
     ctx.strokeStyle = 'rgba(14,165,233,0.35)'
-    ctx.lineWidth = 9
+    ctx.lineWidth = 9 * widthK
     ctx.setLineDash([])
     ctx.beginPath()
     ctx.moveTo(a[0], a[1])
@@ -1024,7 +1030,7 @@ function drawStructureContour(ctx, view, it, { selected = false } = {}) {
   // una hipótesis del estudiante, y debe verse como tal aunque mande sobre el
   // cálculo. Va además más grueso, para que no se pierda entre los otros.
   ctx.strokeStyle = it.color
-  ctx.lineWidth = manual ? 2.6 : 1.8
+  ctx.lineWidth = (manual ? 2.6 : 1.8) * widthK
   ctx.setLineDash(manual ? [10, 6] : [])
   ctx.beginPath()
   ctx.moveTo(a[0], a[1])
@@ -1089,13 +1095,12 @@ function drawStructureContourLabel(ctx, view, it, { selected = false, taken = []
  * bajan hacia el eje—, más una flecha de inmersión en el extremo hundido
  * cuando el pliegue no es prácticamente horizontal.
  */
-function drawFoldAxis(ctx, view, ax) {
+function drawFoldAxis(ctx, view, ax, { color = '#dc2626', widthK = 1 } = {}) {
   const a = toScreen(view, ax.aImg)
   const b = toScreen(view, ax.bImg)
-  const color = '#dc2626' // rojo intenso: un eje de pliegue tiene que resaltar sobre curvas y contactos
   ctx.save()
   ctx.strokeStyle = color
-  ctx.lineWidth = 2.2
+  ctx.lineWidth = 2.2 * widthK
   ctx.setLineDash([])
   ctx.beginPath()
   ctx.moveTo(a[0], a[1])
@@ -1110,7 +1115,7 @@ function drawFoldAxis(ctx, view, ax) {
   const barb = 12
   const spread = 32 * RAD
   const wings = (p, out) => {
-    ctx.lineWidth = 1.8
+    ctx.lineWidth = 1.8 * widthK
     for (const s of [1, -1]) {
       const ang = s * spread
       const wx = out[0] * Math.cos(ang) - out[1] * Math.sin(ang)
@@ -1130,7 +1135,7 @@ function drawFoldAxis(ctx, view, ax) {
   if (ax.plunge > 3) {
     const L = 20
     const tip = [b[0] + u[0] * L, b[1] + u[1] * L]
-    ctx.lineWidth = 2
+    ctx.lineWidth = 2 * widthK
     ctx.beginPath()
     ctx.moveTo(b[0], b[1])
     ctx.lineTo(tip[0], tip[1])
@@ -1197,7 +1202,7 @@ function drawAttitude(ctx, view, scene, world, pair, color) {
   })
 }
 
-function drawFaultSymbols(ctx, view, scene, pts, fault, kin, surf) {
+function drawFaultSymbols(ctx, view, scene, pts, fault, color, surf) {
   const att = fault.manual || surf?.mean
   const kind = fault.kinematics || 'indeterminada'
   const screen = pts.map((p) => toScreen(view, p))
@@ -1222,7 +1227,7 @@ function drawFaultSymbols(ctx, view, scene, pts, fault, kin, surf) {
     if (dipSide && side[0] * dipSide[0] + side[1] * dipSide[1] < 0) side = [-side[0], -side[1]]
     while (acc <= segLen) {
       const p = [a[0] + dir[0] * acc, a[1] + dir[1] * acc]
-      drawFaultTick(ctx, p, dir, side, kind, kin.color)
+      drawFaultTick(ctx, p, dir, side, kind, color)
       acc += step
     }
     acc -= segLen
