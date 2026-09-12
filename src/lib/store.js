@@ -178,6 +178,15 @@ function apply(project, action) {
         ...it,
         traces: [...it.traces, { id: uid('tr'), pts: action.pts }],
       }))
+    // Varias trazas nuevas de una vez, en un solo paso de deshacer: es lo que
+    // pide «Extender hasta el borde» (ver extendFaultTrace en faults.js), que
+    // puede añadir más de un tramo si la prolongación se corta en dos por el
+    // marco de trabajo o por dónde la sella una discordancia.
+    case 'trace.addMany':
+      return editFeature(p, action, (it) => ({
+        ...it,
+        traces: [...it.traces, ...action.list.map((pts) => ({ id: uid('tr'), pts }))],
+      }))
     case 'trace.delete':
       return editFeature(p, action, (it) => ({
         ...it,

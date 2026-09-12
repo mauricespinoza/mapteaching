@@ -552,6 +552,29 @@ planta; como sólo depende de (x, y), se propaga buzamiento abajo igual que hace
 un plano. Con la corrección, el plano pasa por su traza con 0,2 m de desvío
 medio.
 
+#### Prolongar la traza hasta el borde
+
+La prolongación que cierra la partición en bloques (más arriba) es un recurso
+del motor, no un dato: una recta que sólo sirve para no dejar un lado de la
+falla sin muro, dibujada fina y punteada para que se note que no es geología.
+El botón **Extender hasta el borde**, en la ficha de cada falla, es la manera
+de convertir eso en trazo de verdad: en vez de una recta, calcula dónde la
+**superficie de falla ya resuelta** —la misma que sale de sus contornos
+estructurales— vuelve a cortar el terreno más allá de lo digitalizado. Con
+relieve de por medio esa prolongación serpentea como serpentea la traza real,
+porque es la misma cuenta con la que sale la traza real (la isolínea de nivel
+cero de «superficie menos terreno»), y no una recta de rumbo.
+
+Si la falla está **sellada por una discordancia**, la prolongación respeta ese
+acuñamiento hacia arriba: donde la cobertura no se ha erosionado —el terreno
+queda por encima de la discordancia— la falla no puede aflorar, y esa parte del
+área queda fuera de la cuenta. El resultado puede salir partido en varios
+tramos sueltos en vez de uno solo, y eso no es un defecto: son las **ventanas
+de erosión**, los sitios donde la cobertura se ha rebajado lo bastante como
+para dejar ver otra vez la falla que hay debajo. El botón añade cada tramo
+nuevo como una traza más de la falla —edición normal, deshace con Ctrl+Z—, y
+no repite lo que ya estaba digitalizado.
+
 #### Salto de falla: separación no es salto
 
 En **Datos → Salto de las fallas**. La *separación* es lo que el mapa mide —cuánto

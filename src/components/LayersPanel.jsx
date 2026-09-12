@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import {
   Plus,
   Trash2,
   Pencil,
   ArrowUp,
   ArrowDown,
+  ArrowUpRight,
   Eraser,
   Lock,
   Unlock,
@@ -28,6 +30,7 @@ import {
   isHidden,
 } from '../lib/model.js'
 import { fmtDistance } from '../lib/georef.js'
+import { extendFaultTrace } from '../lib/faultExtend.js'
 
 /** Panel lateral con todas las entidades del proyecto. */
 /**
@@ -432,98 +435,17 @@ export default function LayersPanel({
         }
       >
         <ul className="space-y-2">
-          {project.faults.map((f) => {
-            const surf = scene?.faultSurfaces?.get(f.id)
-            return (
-              <li
-                key={f.id}
-                className={`rounded-lg border p-2 ${
-                  selection?.kind === 'fault' && selection.id === f.id ? 'border-orange-400 bg-orange-50' : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <input
-                    className="flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300"
-                    value={f.name}
-                    onChange={(e) => dispatch({ type: 'fault.update', id: f.id, patch: { name: e.target.value } })}
-                  />
-                  <Btn variant="primary" onClick={() => draw('fault', f.id)}>
-                    <Pencil size={13} /> Trazar
-                  </Btn>
-                  <Btn variant="ghost" onClick={() => dispatch({ type: 'fault.delete', id: f.id })}>
-                    <Trash2 size={13} />
-                  </Btn>
-                </div>
-                <select
-                  className={`${inputCls} mt-1.5`}
-                  value={f.kinematics}
-                  onChange={(e) => dispatch({ type: 'fault.update', id: f.id, patch: { kinematics: e.target.value } })}
-                >
-                  {KINEMATICS.map((k) => (
-                    <option key={k.id} value={k.id}>
-                      {k.label}
-                    </option>
-                  ))}
-                </select>
-                {/* Hasta dónde llega la falla en el tiempo. Una falla antigua
-                    truncada por una discordancia movió lo que hay bajo ella y
-                    nada de la cobertura: eligiendo aquí esa superficie, la
-                    falla deja de partir en dos los contactos desde ella hacia
-                    arriba —en el mapa, en el perfil y en el 3D—. */}
-                <Field
-                  label="Sellada por"
-                  hint="La falla no desplaza esa superficie ni nada por encima de ella."
-                >
-                  <select
-                    className={inputCls}
-                    value={f.sealedByContactId || ''}
-                    onChange={(e) =>
-                      dispatch({
-                        type: 'fault.update',
-                        id: f.id,
-                        patch: { sealedByContactId: e.target.value || null },
-                      })
-                    }
-                  >
-                    <option value="">Automático: lo decide el mapa</option>
-                    {contacts.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                        {c.type === 'discordante' ? ' (discordancia)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {/* Qué decidió el mapa, cuando no se eligió a mano: la traza de
-                    una falla truncada por una discordancia sólo corre sobre las
-                    rocas de debajo, y de ahí se deduce hasta dónde llega. */}
-                {!f.sealedByContactId && scene?.faultSeal && (
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {scene.faultSeal(f.id) ? (
-                      <>
-                        Su traza no cruza la cobertura: se sella en{' '}
-                        <b>{contacts.find((c) => c.id === scene.faultSeal(f.id))?.name}</b>.
-                      </>
-                    ) : (
-                      'Su traza corta todo el mapa: desplaza la pila entera.'
-                    )}
-                  </p>
-                )}
-                <ManualAttitude
-                  value={f.manual}
-                  onChange={(manual) => dispatch({ type: 'fault.update', id: f.id, patch: { manual } })}
-                />
-                <ManualContours feature={f} kind="fault" dispatch={dispatch} />
-                {surf && (
-                  <p className="mt-1 text-[11px] text-slate-600">
-                    {surf.mean ? `${surf.mean.quadrant} (${surf.mean.dipDirNotation})` : 'sin actitud'} ·{' '}
-                    {f.traces.length} traza(s)
-                    {surf.quality !== 'ok' && <span className="ml-1 text-amber-600">⚠ {qualityText(surf.quality)}</span>}
-                  </p>
-                )}
-              </li>
-            )
-          })}
+          {project.faults.map((f) => (
+            <FaultCard
+              key={f.id}
+              fault={f}
+              scene={scene}
+              dispatch={dispatch}
+              selection={selection}
+              contacts={contacts}
+              draw={draw}
+            />
+          ))}
         </ul>
       </Collapsible>
 
@@ -653,6 +575,119 @@ export default function LayersPanel({
  * tiene **dos** superficies —sus paredes— y que el espesor entre ellas es un
  * resultado, no un ajuste: sale de comparar las dos, y es lo que se acuña.
  */
+function FaultCard({ fault: f, scene, dispatch, selection, contacts, draw }) {
+  const [status, setStatus] = useState(null)
+  const surf = scene?.faultSurfaces?.get(f.id)
+  const extend = () => {
+    const list = extendFaultTrace(f, scene)
+    if (!list) {
+      setStatus('No hay más por dónde prolongarla: ya llega al borde del área, o se sella antes.')
+      return
+    }
+    dispatch({ type: 'trace.addMany', kind: 'fault', id: f.id, list })
+    setStatus(`+${list.length} tramo${list.length > 1 ? 's' : ''} añadido${list.length > 1 ? 's' : ''}.`)
+  }
+  return (
+    <li
+      className={`rounded-lg border p-2 ${
+        selection?.kind === 'fault' && selection.id === f.id ? 'border-orange-400 bg-orange-50' : 'border-slate-200'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <input
+          className="flex-1 rounded border border-transparent px-1 py-0.5 text-sm hover:border-slate-300"
+          value={f.name}
+          onChange={(e) => dispatch({ type: 'fault.update', id: f.id, patch: { name: e.target.value } })}
+        />
+        <Btn variant="primary" onClick={() => draw('fault', f.id)}>
+          <Pencil size={13} /> Trazar
+        </Btn>
+        <Btn variant="ghost" onClick={() => dispatch({ type: 'fault.delete', id: f.id })}>
+          <Trash2 size={13} />
+        </Btn>
+      </div>
+      <select
+        className={`${inputCls} mt-1.5`}
+        value={f.kinematics}
+        onChange={(e) => dispatch({ type: 'fault.update', id: f.id, patch: { kinematics: e.target.value } })}
+      >
+        {KINEMATICS.map((k) => (
+          <option key={k.id} value={k.id}>
+            {k.label}
+          </option>
+        ))}
+      </select>
+      {/* Hasta dónde llega la falla en el tiempo. Una falla antigua
+          truncada por una discordancia movió lo que hay bajo ella y
+          nada de la cobertura: eligiendo aquí esa superficie, la
+          falla deja de partir en dos los contactos desde ella hacia
+          arriba —en el mapa, en el perfil y en el 3D—. */}
+      <Field
+        label="Sellada por"
+        hint="La falla no desplaza esa superficie ni nada por encima de ella."
+      >
+        <select
+          className={inputCls}
+          value={f.sealedByContactId || ''}
+          onChange={(e) =>
+            dispatch({
+              type: 'fault.update',
+              id: f.id,
+              patch: { sealedByContactId: e.target.value || null },
+            })
+          }
+        >
+          <option value="">Automático: lo decide el mapa</option>
+          {contacts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+              {c.type === 'discordante' ? ' (discordancia)' : ''}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {/* Qué decidió el mapa, cuando no se eligió a mano: la traza de
+          una falla truncada por una discordancia sólo corre sobre las
+          rocas de debajo, y de ahí se deduce hasta dónde llega. */}
+      {!f.sealedByContactId && scene?.faultSeal && (
+        <p className="mt-1 text-[11px] text-slate-500">
+          {scene.faultSeal(f.id) ? (
+            <>
+              Su traza no cruza la cobertura: se sella en{' '}
+              <b>{contacts.find((c) => c.id === scene.faultSeal(f.id))?.name}</b>.
+            </>
+          ) : (
+            'Su traza corta todo el mapa: desplaza la pila entera.'
+          )}
+        </p>
+      )}
+      <ManualAttitude
+        value={f.manual}
+        onChange={(manual) => dispatch({ type: 'fault.update', id: f.id, patch: { manual } })}
+      />
+      <ManualContours feature={f} kind="fault" dispatch={dispatch} />
+      {surf && (
+        <p className="mt-1 text-[11px] text-slate-600">
+          {surf.mean ? `${surf.mean.quadrant} (${surf.mean.dipDirNotation})` : 'sin actitud'} ·{' '}
+          {f.traces.length} traza(s)
+          {surf.quality !== 'ok' && <span className="ml-1 text-amber-600">⚠ {qualityText(surf.quality)}</span>}
+        </p>
+      )}
+      {/* Prolonga la traza siguiendo la propia superficie de la falla —no una
+          recta de rumbo— hasta el borde del área, cortándose antes donde una
+          discordancia la sella y la cobertura no se ha erosionado. Es la
+          misma cuenta con la que sale la traza real, aplicada más allá de lo
+          digitalizado. */}
+      <div className="mt-1.5">
+        <Btn variant="ghost" disabled={!surf?.defined} onClick={extend} title="Prolonga la traza hasta el borde del área de trabajo, siguiendo la superficie ya resuelta">
+          <ArrowUpRight size={13} /> Extender hasta el borde
+        </Btn>
+        {status && <p className="mt-1 text-[11px] text-slate-500">{status}</p>}
+      </div>
+    </li>
+  )
+}
+
 function DikeCard({ dike, scene, dispatch, selection, setTool, setActiveIds, onSelect }) {
   const body = (scene?.dikes?.list || []).find((x) => x.id === dike.id) || null
   const selected = selection?.kind === 'dike' && selection.id === dike.id
