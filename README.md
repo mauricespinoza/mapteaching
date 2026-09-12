@@ -877,6 +877,11 @@ para usar, que se abren siempre como copia nueva:
   de mapa (curvas de nivel, diez unidades plegadas, nueve contactos —uno
   discordante—, dos fallas normales y dos perfiles), con la escala ya
   calibrada.
+- **Dike pinch-out**: ejercicio sintético (sin imagen, generado por código
+  como el de arranque) con la misma serie inclinada y falla normal, más un
+  dique andesítico de manteo 80° cuyas dos paredes convergen hacia el norte
+  hasta acuñarse. Trae tres perfiles, uno de ellos cortando el dique donde
+  todavía tiene espesor.
 
 Los modelos de prueba son proyectos exportados de la propia app que viven en
 `public/examples/` y se descargan sólo al elegirlos; para añadir otro basta con
