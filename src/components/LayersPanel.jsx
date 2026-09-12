@@ -402,8 +402,8 @@ export default function LayersPanel({
                         {s.structureContours.filter((x) => x.fit).length} contornos
                         {s.inherited ? (
                           <span className="ml-1 text-sky-700">
-                            ↳ sigue la geometría de «{s.inherited.name}» · espesor{' '}
-                            {fmtDistance(s.inherited.thickness)}
+                            ↳ {s.inherited.partial ? 'fuera de sus contornos sigue' : 'sigue'} la geometría de «
+                            {s.inherited.name}» · espesor {fmtDistance(s.inherited.thickness)}
                           </span>
                         ) : (
                           s.quality !== 'ok' && (

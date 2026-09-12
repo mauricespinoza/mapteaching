@@ -31,6 +31,19 @@
 // toma prestada la forma en profundidad, siempre que los datos del contacto
 // encajen con un espesor constante; si la contradicen, mandan ellos.
 //
+// Y un tercero: el contacto que sí midió su propio pliegue, pero sólo en parte
+// del mapa. Medir cómo varía el manteo no es medirlo en todas partes, y pasado
+// el último contorno estructural la superficie propia deja de estar sujeta a
+// nada: media vuelta más allá de la charnela se aparta cientos de metros de la
+// de encima, la cruza, y la regla de superposición (`scene.js: truncate`) acaba
+// acuñando la unidad contra su propio techo. En una serie concordante eso no
+// existe. Así que la herencia deja de ser «todo o nada» y pasa a ser un
+// **relevo**: sobre sus contornos manda lo medido y lejos de ellos manda la
+// superficie paralela, con una transición suave en medio (`ownSupport`). Es la
+// misma regla de siempre, aplicada punto a punto en vez de contacto a contacto:
+// donde no hay contornos estructurales que resuelvan la geometría, la unidad de
+// abajo sigue a la de encima con espesor constante.
+//
 // La herencia va **sólo hacia abajo**, hacia las capas más antiguas. Que un
 // contacto esté plegado obliga a las capas de debajo a repetir ese pliegue —son
 // las que el pliegue arrastró consigo—, pero no dice nada de las de encima: una
@@ -44,7 +57,7 @@
 // son paralelas a ella.
 
 import { attitudeFromGradient } from './structure.js'
-import { resample } from './geom.js'
+import { resample, pointSegment } from './geom.js'
 import { isUnconformable } from './model.js'
 
 const RAD = Math.PI / 180
@@ -57,6 +70,78 @@ const MAX_K = 1 / Math.cos(MAX_DIP * RAD)
 
 /** Factor 1/cos δ a partir del gradiente de la superficie. */
 const slopeFactor = (a, b) => Math.min(MAX_K, Math.sqrt(1 + a * a + b * b))
+
+// Hasta dónde se da por buena la forma que el propio contacto midió, en
+// múltiplos de la separación entre sus contornos estructurales. Dentro de
+// `SUPPORT_NEAR` manda entero lo medido; a partir de `SUPPORT_FAR` no queda
+// nada suyo y manda la geometría prestada. Un contorno más allá del último
+// medido es todavía una extrapolación razonable; tres es ya inventar.
+const SUPPORT_NEAR = 1
+const SUPPORT_FAR = 3
+
+/** Transición suave 1 → 0 (smoothstep), sin quiebros en el contacto dibujado. */
+function fade(d, near, far) {
+  if (!(far > near)) return d <= near ? 1 : 0
+  if (d <= near) return 1
+  if (d >= far) return 0
+  const u = (d - near) / (far - near)
+  return 1 - u * u * (3 - 2 * u)
+}
+
+/**
+ * Separación típica entre los contornos estructurales de una superficie,
+ * medida perpendicular a ellos. Es la distancia a la que el mapa vuelve a
+ * decir algo de esa superficie, y por tanto la escala natural con la que medir
+ * «cerca» y «lejos» de sus datos.
+ */
+export function contourReach(surf) {
+  const s = (surf?.nodes || []).map((n) => n.s).sort((a, b) => a - b)
+  const gaps = []
+  for (let i = 1; i < s.length; i++) {
+    const g = s[i] - s[i - 1]
+    if (g > 1e-6) gaps.push(g)
+  }
+  if (!gaps.length) return 0
+  gaps.sort((a, b) => a - b)
+  return gaps[Math.floor(gaps.length / 2)]
+}
+
+/**
+ * Dónde tiene el contacto datos propios con los que resolver su geometría:
+ * devuelve un peso 1 sobre sus contornos estructurales, que baja a 0 al
+ * alejarse de ellos.
+ *
+ * No son los puntos sueltos sino los **contornos**: una recta de cota conocida
+ * resuelve la superficie a lo largo de todo su trazado, no sólo donde la traza
+ * cortó la curva de nivel. Por eso la distancia se mide al segmento y no a la
+ * nube de cruces.
+ *
+ * Devuelve `null` cuando la superficie no tiene ningún contorno resuelto: ahí
+ * no hay nada propio que conservar y la geometría prestada vale en todas partes.
+ */
+export function ownSupport(surf, reach) {
+  if (!(reach > 0)) return null
+  const segs = []
+  for (const sc of surf?.structureContours || []) {
+    if (!sc.fit || !Number.isFinite(sc.tmin) || !Number.isFinite(sc.tmax)) continue
+    const { c, dir } = sc.fit
+    segs.push([
+      [c[0] + dir[0] * sc.tmin, c[1] + dir[1] * sc.tmin],
+      [c[0] + dir[0] * sc.tmax, c[1] + dir[1] * sc.tmax],
+    ])
+  }
+  if (!segs.length) return null
+  const near = reach * SUPPORT_NEAR
+  const far = reach * SUPPORT_FAR
+  return (x, y) => {
+    let d = Infinity
+    for (const [a, b] of segs) {
+      const r = pointSegment([x, y], a, b).d
+      if (r < d) d = r
+    }
+    return fade(d, near, far)
+  }
+}
 
 /**
  * Ajusta el espesor verdadero que separa una superficie de referencia de un
@@ -100,14 +185,29 @@ export function fitParallelOffset(reference, points) {
  * Con `info.upgrade` el contacto sí tenía contornos suficientes para medir *un*
  * manteo, pero no para saber cómo varía: entonces sus medidas se respetan tal
  * cual y lo único que se toma prestado es la forma en profundidad.
+ *
+ * Con `info.support` —el peso que devuelve `ownSupport`— la sustitución deja de
+ * ser total y pasa a ser un **relevo**: sobre sus propios contornos manda la
+ * superficie medida y lejos de ellos manda la prestada, con una transición
+ * suave en medio. Es la regla geológica aplicada donde de verdad hace falta:
+ * donde no hay contornos estructurales que resuelvan la geometría, la unidad
+ * de abajo sigue a la de encima con espesor constante, en vez de extrapolar un
+ * pliegue propio que nadie midió y acabar cortando a su techo.
  */
 export function parallelSurface(base, reference, fit, info = {}) {
   const step = Math.max(base?.gradStep || 0, reference?.gradStep || 0, 1e-6)
+  const support = info.support || null
 
   function elevationAt(x, y) {
     const s = reference.sampleAt(x, y)
     if (!s || !Number.isFinite(s.z)) return null
-    return s.z - fit.offset * slopeFactor(s.a, s.b)
+    const z = s.z - fit.offset * slopeFactor(s.a, s.b)
+    if (!support) return z
+    const w = support(x, y)
+    if (w <= 0) return z
+    const own = base.elevationAt(x, y)
+    if (!Number.isFinite(own)) return z
+    return w >= 1 ? own : own * w + z * (1 - w)
   }
 
   // El manteo de la superficie desplazada no es el de la referencia en el mismo
@@ -157,6 +257,10 @@ export function parallelSurface(base, reference, fit, info = {}) {
     defined: true,
     inherited: {
       ...info,
+      // La función de peso no viaja en la ficha: lo que interesa contar es que
+      // la geometría prestada sólo manda lejos de los contornos propios.
+      support: undefined,
+      partial: Boolean(support),
       thickness: Math.abs(fit.offset),
       offset: fit.offset,
       below: fit.offset >= 0,
@@ -199,13 +303,16 @@ const canReference = (surf) =>
 const needsGeometry = (contact, surf) =>
   Boolean(surf && !surf.inherited && surf.quality !== 'ok' && !contact?.manual)
 
+/** ¿Está el contacto resuelto por sus propios datos? */
+const selfResolved = (contact, surf) =>
+  Boolean(surf && !surf.inherited && !contact?.manual && surf.quality === 'ok')
+
 /**
  * ¿Tiene el contacto contornos suficientes para un manteo, pero no para saber
  * cómo varía? Es el caso de una traza que sólo corta curvas en un tramo: da un
  * limbo y nada más, y se resuelve como un plano.
  */
-const singleDip = (contact, surf) =>
-  Boolean(surf && !surf.inherited && !contact?.manual && surf.quality === 'ok' && !surf.folded)
+const singleDip = (contact, surf) => selfResolved(contact, surf) && !surf.folded
 
 /**
  * Un plano bajo un contacto plegado: el manteo constante es peor respuesta que
@@ -214,6 +321,22 @@ const singleDip = (contact, surf) =>
  */
 const flatUnderFold = (contact, surf, reference) =>
   singleDip(contact, surf) && Boolean(reference?.folded)
+
+/**
+ * ¿Hay algo que **completarle** a un contacto que midió su propio pliegue?
+ *
+ * Medir cómo varía el manteo no es medirlo en todas partes. Un contacto se
+ * ajusta a sus contornos y fuera de ellos extrapola, y extrapolar un pliegue es
+ * lo que se va de las manos: a media vuelta de la charnela la superficie propia
+ * se aparta cientos de metros de la de encima, la cruza, y la regla de
+ * superposición acaba acuñando la unidad contra su propio techo —que es
+ * justamente lo que no puede pasar en una serie concordante—.
+ *
+ * Un plano no tiene ese problema: su extrapolación es una recta y sigue siendo
+ * la medida. Por eso esto es sólo para el contacto plegado, y por eso lo medido
+ * no se toca: lo prestado entra únicamente donde sus contornos no llegan.
+ */
+const completesFold = (contact, surf) => selfResolved(contact, surf) && Boolean(surf.folded)
 
 /**
  * Reparte la geometría resuelta entre los contactos que no la tienen.
@@ -243,9 +366,14 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
    * misma geometría desplazada, así que apoyarse en la primera evita encadenar
    * evaluaciones (cada eslabón costaría cinco veces el anterior) sin cambiar el
    * resultado, porque el espesor se ajusta contra ella directamente.
+   *
+   * La excepción es la referencia sólo **completada**: ésa no es un desplazado
+   * rígido de su origen —sobre sus propios contornos manda lo que midió—, así
+   * que saltársela cambiaría la forma que se copia. Se usa tal cual, y la
+   * cadena se paga.
    */
   const rootOf = (surf, contact) =>
-    surf.inherited
+    surf.inherited && !surf.inherited.partial
       ? { surface: surf.inherited.root, contactId: surf.inherited.contactId, name: surf.inherited.name }
       : { surface: surf, contactId: contact.id, name: contact.name }
 
@@ -269,9 +397,10 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
     for (const [surf, blocksOfSurf] of shared) {
       const block = blocksOfSurf[0]
       const unresolved = needsGeometry(contact, surf)
-      // Un contacto ya resuelto sólo cambia de geometría en el caso de «hay
-      // manteo, pero no su variación», y sólo si el vecino está plegado.
-      if (!unresolved && !singleDip(contact, surf)) continue
+      // Un contacto ya resuelto toma prestada la forma entera sólo si midió
+      // un único manteo bajo un vecino plegado; si midió el pliegue, sólo se
+      // le completa lo que le falta fuera de sus contornos.
+      if (!unresolved && !selfResolved(contact, surf)) continue
       const obs = offsetObservations(surf, dem, step)
       if (!obs) continue
       for (let j = i + 1; j < contacts.length; j++) {
@@ -286,7 +415,16 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
         if (canReference(ref)) {
           const root = rootOf(ref, between)
           const upgrade = !unresolved
-          if (upgrade && !flatUnderFold(contact, surf, root.surface)) break
+          const complete = upgrade && completesFold(contact, surf)
+          if (upgrade && !complete && !flatUnderFold(contact, surf, root.surface)) break
+          // Lo medido no se tira cuando de verdad describe la forma: en un
+          // contacto que resolvió su propio pliegue, la geometría prestada
+          // entra únicamente donde sus contornos no alcanzan (`ownSupport`).
+          // Con un solo manteo medido no hay forma que conservar y la prestada
+          // vale en todo el bloque; y si no se sabe hasta dónde alcanzan sus
+          // contornos, no hay relevo que hacer y se le deja lo suyo.
+          const support = complete ? ownSupport(surf, contourReach(surf)) : null
+          if (complete && !support) break
           const fit = fitParallelOffset(root.surface, obs.points)
           // Si los datos propios no encajan con un espesor constante respecto
           // del vecino, mandan ellos: la geometría prestada sería una hipótesis
@@ -299,6 +437,7 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
               root: root.surface,
               block,
               upgrade,
+              support,
               source: obs.source,
             })
             for (const b of blocksOfSurf) byBlock.set(b, heredada)
@@ -308,6 +447,7 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
               referenceId: root.contactId,
               offset: fit.offset,
               upgrade,
+              partial: Boolean(complete),
             })
           }
           break

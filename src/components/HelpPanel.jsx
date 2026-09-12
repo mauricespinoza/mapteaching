@@ -97,7 +97,7 @@ export default function HelpPanel({ project, dispatch }) {
           no, el panel dice a qué profundidad quedó <b>enterrado</b>.
         </li>
         <li>
-          La capa <b>Ejes de pliegues</b> dibuja el eje de cada antiforme y sinforme con su simbología clásica
+          La capa <b>Fold axes</b> dibuja el eje de cada antiforme y sinforme con su simbología clásica
           —espigas que se abren hacia fuera del trazo si los limbos bajan alejándose del eje, y se cierran hacia
           dentro si bajan hacia él, más una flecha de inmersión cuando el pliegue se hunde—, calculado
           directamente de los dominios de manteo: uno por paquete de capas concordantes, aunque lo aporten varias.
@@ -146,7 +146,11 @@ export default function HelpPanel({ project, dispatch }) {
           constante</b>. Así, bajo un pliegue, las capas inferiores se pliegan igual en vez de aplanarse. El
           espesor no se inventa: se ajusta con los pocos datos que la unidad sí tiene. Lo mismo vale para una
           traza que sólo corta curvas en un tramo: da un manteo, pero no cómo varía, así que conserva su medida
-          y toma prestada la forma en profundidad. La herencia va <b>sólo hacia abajo</b>, hacia las capas más
+          y toma prestada la forma en profundidad. Y lo mismo, punto a punto, cuando una unidad <b>sí midió su
+          pliegue pero sólo en parte del mapa</b>: donde llegan sus contornos estructurales manda lo medido, y
+          más allá —donde ya no hay nada que sujete su geometría— sigue a la unidad de encima con el mismo
+          espesor, en vez de extrapolar un pliegue que nadie midió y acabar acuñándose contra su propio techo.
+          La herencia va <b>sólo hacia abajo</b>, hacia las capas más
           antiguas: un pliegue arrastra consigo a las capas de debajo, pero las de encima pueden estar en
           discordancia sobre él y no seguirlo, así que una unidad que sólo tenga vecinos resueltos por debajo se
           queda sin resolver. También se corta en las discordancias y en los contactos intrusivos, y no cruza

@@ -81,12 +81,10 @@ const EN = {
   Fallas: 'Faults',
   'Contornos estructurales': 'Structure contours',
   'Rótulos de los contornos': 'Contour labels',
-  'Contornos estructurales de las fallas': 'Fault structure contours',
   'Rumbo y manteo': 'Strike and dip',
-  'Ejes de pliegues': 'Fold axes',
+  // «Fold axes» va en inglés en las dos lenguas: es el término con el que se
+  // rotula el eje de un pliegue en cualquier mapa, y así lo pidió la cátedra.
   'Trazas de perfil': 'Section lines',
-  'Contactos proyectados': 'Projected contacts',
-  'Relieve sombreado': 'Hillshade',
   'Relleno de unidades': 'Unit fill',
   'Modelos sintéticos': 'Synthetic models',
 

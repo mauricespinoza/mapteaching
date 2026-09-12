@@ -178,7 +178,12 @@ function InheritedNote({ info }) {
   const shaky = Number.isFinite(info.rms) && info.rms > Math.max(0.25 * info.thickness, 1)
   return (
     <div className="mb-1.5 rounded-lg bg-sky-50 px-2 py-1.5 text-[11px] leading-relaxed text-sky-900">
-      {info.upgrade ? (
+      {info.partial ? (
+        <>
+          <b>Pliegue medido, completado fuera de sus contornos.</b> Donde tiene contornos estructurales manda lo
+          que midió; más allá no hay nada que sujete su geometría, así que sigue el pliegue de{' '}
+        </>
+      ) : info.upgrade ? (
         <>
           <b>Manteo medido, forma prestada.</b> Sus contornos estructurales dan un manteo, pero no cómo varía: la
           geometría en profundidad sigue el pliegue de{' '}

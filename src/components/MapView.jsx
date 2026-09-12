@@ -145,10 +145,6 @@ export default function MapView({
     () => (show.structureContours && scene?.ready ? structureContourItems(scene) : []),
     [scene, show.structureContours]
   )
-  const scVisible = useMemo(
-    () => scItems.filter((it) => it.kind !== 'fault' || show.faultStructureContours),
-    [scItems, show.faultStructureContours]
-  )
 
   // Ejes de pliegue: un cálculo aparte sobre los mismos dominios estructurales
   // que ya resuelve la escena, así que sólo se recalculan si cambia ésta.
@@ -160,9 +156,9 @@ export default function MapView({
   const scDrawn = useMemo(
     () =>
       scDraft
-        ? scVisible.map((it) => (it.key === scDraft.key ? { ...it, a: scDraft.pts[0], b: scDraft.pts[1] } : it))
-        : scVisible,
-    [scVisible, scDraft]
+        ? scItems.map((it) => (it.key === scDraft.key ? { ...it, a: scDraft.pts[0], b: scDraft.pts[1] } : it))
+        : scItems,
+    [scItems, scDraft]
   )
 
   /**
@@ -181,7 +177,7 @@ export default function MapView({
     (p, tolPx = 14) => {
       const tol = tolPx / view.scale
       const near = []
-      for (const it of scVisible) {
+      for (const it of scItems) {
         const d = pointPolyline(p, [it.a, it.b]).d
         if (d <= tol) near.push({ it, d })
       }
@@ -197,7 +193,7 @@ export default function MapView({
       }
       return near[0]
     },
-    [scVisible, view.scale, selection?.key]
+    [scItems, view.scale, selection?.key]
   )
 
   /**
@@ -663,7 +659,7 @@ export default function MapView({
       // demás, porque suelen caer justo encima de las trazas.
       const tolSc = touchTol(ev, 14) / view.scale
       if (selection?.kind === 'sc') {
-        const cur = scVisible.find((x) => x.key === selection.key) || selection.it
+        const cur = scItems.find((x) => x.key === selection.key) || selection.it
         if (cur) {
           const handle = dist(p, cur.a) <= tolSc ? 'a' : dist(p, cur.b) <= tolSc ? 'b' : null
           if (handle) {

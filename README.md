@@ -306,7 +306,7 @@ alejándose del eje) y se cierran hacia dentro en un sinforme (los limbos bajan
 hacia el eje), más una flecha de inmersión cuando el eje no es prácticamente
 horizontal—.
 
-La capa **Ejes de pliegues** (Capas del mapa) calcula esa recta directamente
+La capa **Fold axes** (barra de capas del mapa) calcula esa recta directamente
 de los planos de dominio, sin ajustar nada nuevo: dos dominios cuentan como
 charnela real sólo si su manteo difiere más de 8° y si la recta que sale de
 sus dos planos cae cerca de los datos de los dos —así una coincidencia de
@@ -379,6 +379,12 @@ estructural** (`Fm. Cerro Blanco… · 800 m`), que es lo que permite distinguir
 cuando se cruzan varios en el mapa; los rótulos se reparten sin pisarse y se
 pueden apagar con el botón *Rótulos estr.*. Los contornos calculados se dibujan
 punteados; los puestos a mano, en trazo continuo y con sus extremos como manijas.
+
+Un **único interruptor** de la barra de capas enciende y apaga los contornos
+estructurales, los de los contactos y los de las fallas juntos: son la misma
+construcción sobre una superficie u otra, y tenerlos en dos botones separados
+obligaba a acordarse de encender el segundo para ver media respuesta del
+ejercicio.
 
 Un contorno dibujado a mano **sustituye a lo calculado en esa cota** —y sólo en
 esa cota, y sólo en su bloque de falla—: los cruces de la traza con esa curva de
@@ -457,6 +463,23 @@ propios encajan con un espesor constante (dentro de media equidistancia), el
 contacto conserva sus medidas —su rumbo y manteo son datos del mapa— y toma
 prestada sólo la **forma en profundidad**. Si sus datos contradicen el pliegue,
 mandan ellos: la geometría prestada sería una hipótesis peor que la medida.
+
+Y un tercero, que es el que más se ve en los ejercicios con pliegue: un contacto
+que **sí midió su propio pliegue, pero sólo en parte del mapa**. Medir cómo
+varía el manteo no es medirlo en todas partes, y pasado su último contorno
+estructural la superficie deja de estar sujeta a nada: media vuelta más allá de
+la charnela se aparta cientos de metros de la de encima, la cruza, y la regla de
+superposición acaba **acuñando la unidad contra su propio techo**, que en una
+serie concordante no ocurre. Por eso la herencia no es «todo o nada» sino un
+**relevo punto a punto**: sobre sus propios contornos manda lo medido, lejos de
+ellos manda la superficie paralela al contacto de encima, y en medio hay una
+transición suave. El listón de «lejos» es la separación entre sus contornos
+estructurales: hasta una de distancia manda entero lo suyo, y a partir de tres
+ya no queda nada de ello. Es la misma regla de siempre —donde no hay contornos
+estructurales que resuelvan la geometría, la unidad de abajo sigue a la de
+encima con espesor constante—, sólo que aplicada donde de verdad faltan datos y
+no contacto por contacto. El panel **Resultados** lo distingue: «pliegue medido,
+completado fuera de sus contornos».
 
 Dos límites deliberados: la herencia **se corta en las discordancias y en los
 contactos intrusivos** (bajo una inconformidad las capas están truncadas, así

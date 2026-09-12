@@ -344,7 +344,6 @@ export function render(ctx, opts) {
   if (show.structureContours && scene?.ready) {
     const visible = (scItems || []).filter(
       (it) =>
-        (it.kind !== 'fault' || show.faultStructureContours) &&
         !hiddenFeatures.has(it.featureId) &&
         !(show.onlySelectedSC && selection?.kind === 'contact' && selection.id !== it.featureId)
     )

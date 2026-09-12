@@ -17,12 +17,10 @@ import {
   Image as ImageIcon,
   Layers3,
   Trash2,
-  Mountain,
   RefreshCw,
   Maximize2,
   Minimize2,
   Menu,
-  Waves,
   Tag,
   Tags,
   PenLine,
@@ -30,7 +28,6 @@ import {
   Compass,
   Palette,
   Frame,
-  Target,
   Globe,
   ScanLine,
 } from 'lucide-react'
@@ -48,7 +45,7 @@ import ModelPanel from './components/ModelPanel.jsx'
 import DigitizePanel from './components/DigitizePanel.jsx'
 import Stereonet from './components/Stereonet.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
-import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, GeoMapLogo } from './components/icons.jsx'
+import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, FoldAxisIcon, GeoMapLogo } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
 import { newProject, newSection, newWell, newPiercingPair, newStructureContour, uid, countVertices } from './lib/model.js'
 import { buildScene } from './lib/scene.js'
@@ -73,16 +70,17 @@ const LAYER_TOGGLES = [
   { k: 'contacts', label: 'Contactos', icon: PenLine },
   { k: 'contactLabels', label: 'Unidades de los contactos', icon: Tags },
   { k: 'faults', label: 'Fallas', icon: FaultIcon },
+  // Un solo interruptor para los contornos estructurales: son la misma
+  // construcción sobre un contacto y sobre una falla, y tenerlos en dos
+  // botones separados obligaba a acordarse de encender el segundo para ver
+  // media respuesta del ejercicio.
   { k: 'structureContours', label: 'Contornos estructurales', icon: StructureContourIcon },
   { k: 'structureLabels', label: 'Rótulos de los contornos', icon: Type },
-  { k: 'faultStructureContours', label: 'Contornos estructurales de las fallas', icon: FaultIcon },
   { k: 'attitudes', label: 'Rumbo y manteo', icon: Compass },
-  { k: 'foldAxes', label: 'Ejes de pliegues', icon: Waves },
+  { k: 'foldAxes', label: 'Fold axes', icon: FoldAxisIcon },
   { k: 'sections', label: 'Trazas de perfil', icon: Spline },
   { k: 'wells', label: 'Pozos', icon: Crosshair },
   { k: 'piercings', label: 'Piercing Points', icon: PiercingIcon },
-  { k: 'projected', label: 'Contactos proyectados', icon: Target },
-  { k: 'hillshade', label: 'Relieve sombreado', icon: Mountain },
   { k: 'unitFill', label: 'Relleno de unidades', icon: Palette },
   { k: 'models', label: 'Modelos sintéticos', icon: Layers3 },
 ]
@@ -103,12 +101,16 @@ const DEFAULT_SHOW = {
   faults: true,
   structureContours: true,
   structureLabels: true,
-  faultStructureContours: false,
   attitudes: true,
   foldAxes: true,
   sections: true,
   wells: true,
   piercings: true,
+  // Sin interruptor en la barra: el relieve sombreado y los contactos llevados
+  // al otro bloque no son una respuesta que convenga esconder —el primero es
+  // el fondo sobre el que se lee todo lo demás y el segundo sólo aparece
+  // cuando hay puntos de perforación resueltos—, y cada botón de más en la
+  // barra es uno menos que cabe en la tablet.
   projected: true,
   hillshade: true,
   models: true,
@@ -570,8 +572,8 @@ export default function App() {
         className={`${fullscreen ? 'hidden' : 'flex'} flex-wrap items-center gap-2 border-b border-slate-800/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-3 py-2 text-slate-100 shadow-sm`}
       >
         <div className="flex items-center gap-2">
-          <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl shadow">
-            <GeoMapLogo size={36} />
+          <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl shadow">
+            <GeoMapLogo size={44} />
           </span>
           <span className="hidden flex-col leading-tight sm:flex">
             <span className="text-[15px] font-bold tracking-tight">
