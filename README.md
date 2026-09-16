@@ -404,6 +404,18 @@ cuando se cruzan varios en el mapa; los rótulos se reparten sin pisarse y se
 pueden apagar con el botón *Rótulos estr.*. Los contornos calculados se dibujan
 punteados; los puestos a mano, en trazo continuo y con sus extremos como manijas.
 
+#### Qué se ve al abrir
+
+La barra de capas del mapa arranca con **el mapa geológico y nada más**: las
+curvas de nivel, las unidades pintadas, las fallas y las trazas de perfil. Todo
+lo demás son respuestas del motor o rótulos sobre ellas —los contornos
+estructurales y sus cotas, los símbolos de rumbo y manteo, los ejes de pliegue,
+los rótulos de unidades de cada contacto, los piercing points, los pozos— y se
+encienden con su botón en cuanto hacen falta. Encendidas todas a la vez, lo
+primero que se ve al abrir un ejercicio es el mapa tapado por su propia
+solución, que en una clase es justo lo que no interesa: primero el mapa, después
+lo que se deduce de él.
+
 Un **único interruptor** de la barra de capas enciende y apaga los contornos
 estructurales, los de los contactos y los de las fallas juntos: son la misma
 construcción sobre una superficie u otra, y tenerlos en dos botones separados
@@ -962,6 +974,17 @@ ejercicio sintético generado por código (`sample.js`) —tres unidades con man
 25° al ESE cortadas por una falla normal de 70°W con 320 m de salto—, útil para
 comprobar que el método recupera la geometría original.
 
+### 12. About
+
+La pestaña **About** del panel lateral tiene la versión publicada, el sello del
+build que ese dispositivo tiene cargado —lo que distingue dos tablets que dicen
+la misma versión pero una se quedó con el archivo viejo en la caché—, el autor y
+su correo de contacto, con qué está hecha la app y el **registro de cambios**
+completo, versión a versión. Vive dentro de la app y no en un archivo aparte
+porque se usa desde el navegador, muchas veces en un equipo prestado y sin acceso
+al repositorio: un historial que hay que ir a buscar a otra parte, para quien la
+usa, no existe.
+
 ---
 
 ## Atajos
@@ -1008,6 +1031,7 @@ src/lib/
   marching.js    isolíneas (usado por el generador de ejercicios)
   sample.js      ejercicio sintético de demostración
   examples.js    catálogo de ejemplos (sintéticos y modelos de prueba en public/examples/)
+  about.js       versión, autoría, herramientas y registro de cambios (pestaña About)
   models.js      modelos sintéticos: plano, serie de capas y tren de pliegues
   terrain.js     curvas de nivel de topografías típicas y de un DEM importado
   render2d.js    dibujo del mapa en canvas

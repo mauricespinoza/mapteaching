@@ -14,6 +14,7 @@ import {
   Layers,
   Table,
   BookOpen,
+  Info,
   Image as ImageIcon,
   Layers3,
   Trash2,
@@ -45,6 +46,7 @@ import ModelPanel from './components/ModelPanel.jsx'
 import DigitizePanel from './components/DigitizePanel.jsx'
 import Stereonet from './components/Stereonet.jsx'
 import SymbolsPanel from './components/SymbolsPanel.jsx'
+import AboutPanel from './components/AboutPanel.jsx'
 import { Modal, Field, inputCls, Btn } from './components/ui.jsx'
 import { FaultIcon, ContourIcon, StructureContourIcon, PiercingIcon, FoldAxisIcon, DikeIcon, GeoMapLogo } from './components/icons.jsx'
 import { reducer, initialState } from './lib/store.js'
@@ -95,20 +97,31 @@ const ARROWS = {
   ArrowDown: [0, 1],
 }
 
+/**
+ * Qué se ve al abrir la app: **el mapa geológico y nada más** —las curvas de
+ * nivel, las unidades pintadas, las fallas y las trazas de perfil—.
+ *
+ * Todo lo demás son respuestas del motor o rótulos sobre ellas: los contornos
+ * estructurales, sus cotas, los símbolos de rumbo y manteo, los ejes de pliegue,
+ * los piercing points. Encendidas todas a la vez, lo primero que se ve al abrir
+ * un ejercicio es el mapa tapado por su propia solución, y en una clase eso es
+ * justo lo que no interesa: primero el mapa, después lo que se deduce de él.
+ * Cada capa se enciende con su botón de la barra en cuanto hace falta.
+ */
 const DEFAULT_SHOW = {
   contours: true,
-  contourLabels: true,
-  contacts: true,
-  contactLabels: true,
+  contourLabels: false,
+  contacts: false,
+  contactLabels: false,
   faults: true,
-  dikes: true,
-  structureContours: true,
-  structureLabels: true,
-  attitudes: true,
-  foldAxes: true,
+  dikes: false,
+  structureContours: false,
+  structureLabels: false,
+  attitudes: false,
+  foldAxes: false,
   sections: true,
-  wells: true,
-  piercings: true,
+  wells: false,
+  piercings: false,
   // Sin interruptor en la barra: el relieve sombreado y los contactos llevados
   // al otro bloque no son una respuesta que convenga esconder —el primero es
   // el fondo sobre el que se lee todo lo demás y el segundo sólo aparece
@@ -116,7 +129,7 @@ const DEFAULT_SHOW = {
   // barra es uno menos que cabe en la tablet.
   projected: true,
   hillshade: true,
-  models: true,
+  models: false,
   unitFill: true,
   onlySelectedSC: false,
 }
@@ -915,33 +928,44 @@ export default function App() {
             panelOpen ? 'w-[320px] md:w-[360px]' : 'w-11'
           }`}
         >
-          <div className="flex items-center gap-1 border-b border-slate-200 px-1.5 py-1.5">
+          {/* Las pestañas del panel van en rejilla y no en una fila: con siete
+              no caben en los 320 px de una tablet en vertical y los rótulos se
+              quedaban en una letra. Con el icono encima del rótulo cada celda
+              es estrecha y el nombre sigue completo. */}
+          <div className="flex items-start gap-1 border-b border-slate-200 px-1.5 py-1.5">
             <button
-              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+              className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
               onClick={() => setPanelOpen((o) => !o)}
               title={panelOpen ? t('Ocultar panel') : t('Mostrar panel')}
             >
               <Layers size={16} />
             </button>
-            {panelOpen &&
-              [
-                ['capas', 'Capas', Layers],
-                ['modelos', 'Modelos', Layers3],
-                ['resultados', 'Datos', Table],
-                ['estereograma', 'Estereograma', Compass],
-                ['simbolos', 'Símbolos', Palette],
-                ['ayuda', 'Guía', BookOpen],
-              ].map(([id, label, Icon]) => (
-                <button
-                  key={id}
-                  onClick={() => setPanel(id)}
-                  className={`flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold ${
-                    panel === id ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <Icon size={14} /> {t(label)}
-                </button>
-              ))}
+            {panelOpen && (
+              <div className="grid min-w-0 flex-1 grid-cols-4 gap-1">
+                {[
+                  ['capas', 'Capas', Layers],
+                  ['modelos', 'Modelos', Layers3],
+                  ['resultados', 'Datos', Table],
+                  ['estereograma', 'Estereograma', Compass],
+                  ['simbolos', 'Símbolos', Palette],
+                  ['ayuda', 'Guía', BookOpen],
+                  ['about', 'About', Info],
+                ].map(([id, label, Icon]) => (
+                  <button
+                    key={id}
+                    onClick={() => setPanel(id)}
+                    title={t(label)}
+                    aria-label={t(label)}
+                    className={`flex min-w-0 flex-col items-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-semibold ${
+                      panel === id ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Icon size={15} className="shrink-0" />
+                    <span className="w-full truncate text-center leading-none">{t(label)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           {panelOpen && (
             <div className="min-h-0 flex-1 overflow-hidden">
@@ -987,6 +1011,7 @@ export default function App() {
               )}
               {panel === 'simbolos' && <SymbolsPanel project={project} dispatch={dispatch} />}
               {panel === 'ayuda' && <HelpPanel project={project} dispatch={dispatch} />}
+              {panel === 'about' && <AboutPanel />}
             </div>
           )}
         </aside>
