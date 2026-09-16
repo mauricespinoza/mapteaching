@@ -84,6 +84,25 @@ export const slopeFactor = (a, b) => Math.min(MAX_K, Math.sqrt(1 + a * a + b * b
 const SUPPORT_NEAR = 1
 const SUPPORT_FAR = 3
 
+/**
+ * Mínimo suave de un conjunto de distancias.
+ *
+ * El mínimo de toda la vida tiene un quiebro en cada mediatriz —allí cambia
+ * cuál es el contorno más próximo— y ese quiebro viaja entero al peso y, con
+ * él, a la superficie: es la misma arruga que ya se corrigió en el campo de
+ * planos de los dominios (`domains.js`). La distancia a un segmento sí es
+ * derivable fuera de él, así que basta con sustituir el `min` por su versión
+ * suave para que el relevo no deje costuras.
+ */
+function softMin(ds, r) {
+  let m = Infinity
+  for (const d of ds) if (d < m) m = d
+  if (!(r > 0) || !Number.isFinite(m) || ds.length < 2) return m
+  let sum = 0
+  for (const d of ds) sum += Math.exp(-(d - m) / r)
+  return m - r * Math.log(sum)
+}
+
 /** Transición suave 1 → 0 (smoothstep), sin quiebros en el contacto dibujado. */
 function fade(d, near, far) {
   if (!(far > near)) return d <= near ? 1 : 0
@@ -138,13 +157,14 @@ export function ownSupport(surf, reach) {
   if (!segs.length) return null
   const near = reach * SUPPORT_NEAR
   const far = reach * SUPPORT_FAR
+  // Anchura del mínimo suave: una fracción del alcance, lo bastante estrecha
+  // para que la distancia siga siendo la del contorno más próximo y lo bastante
+  // ancha para redondear el cambio de uno a otro.
+  const soft = reach * 0.25
+  const ds = new Array(segs.length)
   return (x, y) => {
-    let d = Infinity
-    for (const [a, b] of segs) {
-      const r = pointSegment([x, y], a, b).d
-      if (r < d) d = r
-    }
-    return fade(d, near, far)
+    for (let i = 0; i < segs.length; i++) ds[i] = pointSegment([x, y], segs[i][0], segs[i][1]).d
+    return fade(softMin(ds, soft), near, far)
   }
 }
 
@@ -200,34 +220,56 @@ export function fitParallelOffset(reference, points) {
  * pliegue propio que nadie midió y acabar cortando a su techo.
  */
 export function parallelSurface(base, reference, fit, info = {}) {
-  const step = Math.max(base?.gradStep || 0, reference?.gradStep || 0, 1e-6)
   const support = info.support || null
 
-  function elevationAt(x, y) {
+  /**
+   * Cota y **manteo de las capas** en un punto, que no son lo mismo.
+   *
+   * El manteo que se publica aquí es el de la referencia —dos superficies
+   * paralelas tienen la misma actitud—, y no la pendiente de la superficie que
+   * se dibuja. La distinción decide la estabilidad de toda la cadena.
+   *
+   * Un modelo de pliegue publica el manteo de sus **limbos** (la mezcla de los
+   * planos de los dominios, `domains.js: domainPlaneField`): nunca más empinado
+   * que lo que el mapa midió. La cota que ese mismo modelo dibuja se funde entre
+   * limbo y limbo, y en esa fusión la superficie se empina más que cualquiera de
+   * ellos —es el redondeo de la charnela—. Leer la pendiente de la cota con
+   * diferencias finitas, como se hacía, convertía ese redondeo en un manteo de
+   * 70° donde todos los limbos miden 45°, y `e/cos δ` lo multiplicaba: en el
+   * ejemplo «Fold & inclined normal fault» el techo de la Unidad 1 salía 280 m
+   * por debajo de su referencia donde el espesor ajustado son 71 m, y eso es un
+   * pico. Encadenado —una superficie completada que sirve de referencia a la
+   * siguiente— cada eslabón volvía a derivar el anterior y el pico crecía.
+   *
+   * Con el manteo de la referencia el desplazamiento vertical queda acotado por
+   * lo que el mapa sostiene, que es justo lo que significa «espesor verdadero
+   * constante»: la unidad de abajo repite la forma de la de encima, no la
+   * amplifica.
+   */
+  function frameAt(x, y) {
     const s = reference.sampleAt(x, y)
     if (!s || !Number.isFinite(s.z)) return null
     const z = s.z - fit.offset * slopeFactor(s.a, s.b)
-    if (!support) return z
+    if (!support) return { z, a: s.a, b: s.b }
     const w = support(x, y)
-    if (w <= 0) return z
-    const own = base.elevationAt(x, y)
-    if (!Number.isFinite(own)) return z
-    return w >= 1 ? own : own * w + z * (1 - w)
+    if (w <= 0) return { z, a: s.a, b: s.b }
+    const own = base.sampleAt ? base.sampleAt(x, y) : null
+    if (!own || !Number.isFinite(own.z)) return { z, a: s.a, b: s.b }
+    if (w >= 1) return { z: own.z, a: own.a, b: own.b }
+    return {
+      z: own.z * w + z * (1 - w),
+      a: own.a * w + s.a * (1 - w),
+      b: own.b * w + s.b * (1 - w),
+    }
   }
 
-  // El manteo de la superficie desplazada no es el de la referencia en el mismo
-  // punto: en la charnela de un pliegue paralelo el radio de curvatura cambia.
-  // Se toma, por tanto, el gradiente de la superficie que realmente se dibuja.
+  function elevationAt(x, y) {
+    const f = frameAt(x, y)
+    return f ? f.z : null
+  }
+
   function sampleAt(x, y) {
-    const z = elevationAt(x, y)
-    if (!Number.isFinite(z)) return { z: null, a: 0, b: 0 }
-    const xp = elevationAt(x + step, y)
-    const xm = elevationAt(x - step, y)
-    const yp = elevationAt(x, y + step)
-    const ym = elevationAt(x, y - step)
-    const a = Number.isFinite(xp) && Number.isFinite(xm) ? (xp - xm) / (2 * step) : 0
-    const b = Number.isFinite(yp) && Number.isFinite(ym) ? (yp - ym) / (2 * step) : 0
-    return { z, a, b }
+    return frameAt(x, y) || { z: null, a: 0, b: 0 }
   }
 
   const attitudeAt = (x, y) => {

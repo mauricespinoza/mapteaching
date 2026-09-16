@@ -505,6 +505,20 @@ encima con espesor constante—, sólo que aplicada donde de verdad faltan datos
 no contacto por contacto. El panel **Resultados** lo distingue: «pliegue medido,
 completado fuera de sus contornos».
 
+El manteo con el que se hace la cuenta es el de los **limbos** de la superficie
+de referencia —la actitud que el mapa midió—, no la pendiente del dibujo. No es
+lo mismo: el modelo de pliegue funde un limbo con el siguiente para redondear la
+charnela, y en esa fusión la superficie dibujada se empina más que cualquiera de
+los limbos que la componen. Leyendo esa pendiente con diferencias finitas, `e /
+cos δ` la multiplicaba y el contacto heredado salía con un pico donde su
+referencia sólo tiene una charnela: en «Fold & inclined normal fault», hasta 280 m
+por debajo de su referencia donde el espesor ajustado son 71. Encadenado —un
+contacto completado que sirve de referencia al siguiente— cada eslabón volvía a
+derivar al anterior y el pico crecía. Con el manteo de los limbos el
+desplazamiento queda acotado por lo que el mapa sostiene, que es justo lo que
+significa espesor verdadero constante: la unidad de abajo **repite** la forma de
+la de encima, no la amplifica.
+
 Dos límites deliberados: la herencia **se corta en las discordancias y en los
 contactos intrusivos** (bajo una inconformidad las capas están truncadas, así
 que no son paralelas a ella; sobre ella, en cambio, sí), y **no cruza una
@@ -887,6 +901,17 @@ el ejercicio de prueba, el manteo se desplomaba de 25° a 9°—. Se reescribe s
 el bloque que se movió: al otro lado de la falla la superficie es otra y no se ha
 tocado. Borrar los contornos a mano del rasgo devuelve el mando a lo medido sobre
 el mapa.
+
+Un **dique** se dibuja como el volumen cerrado que es: sus dos paredes, el
+**techo** por donde aflora —el terreno, no una cota fija—, el **piso** donde el
+fondo del modelo atraviesa el cuerpo y las **cabeceras** donde lo corta el borde
+del área de trabajo. Las dos últimas son condiciones de intersección, no de
+existencia: el piso sólo se dibuja donde `muro ≤ fondo ≤ techo` y no en todo lo
+que el dique abarca en planta —dos paredes empinadas se separan sobre medio mapa
+aunque el cuerpo, a la cota del fondo, siga siendo la misma banda estrecha, y sin
+esa condición el fondo del modelo aparecía tapizado de intrusivo—. Donde el dique
+se acuña antes de llegar al terreno o al fondo no hace falta tapa ninguna: las
+dos paredes ya se han juntado y el volumen cierra solo.
 
 Cada superficie de contacto se recorta **en el punto exacto** en que la limita
 cada cosa, no en el borde de la celda de la malla: la topografía (por encima ya

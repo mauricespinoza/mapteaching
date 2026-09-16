@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { toWorldList, toImage } from '../lib/georef.js'
 import { faultColorOf, newStructureContour, isHidden } from '../lib/model.js'
 import { contourSegment } from '../lib/structure.js'
-import { frameTest, modelExtent } from '../lib/models.js'
+import { frameTest, modelExtent, areaOutline } from '../lib/models.js'
 import { buildWellModel } from '../lib/wells.js'
 import { contactMeshes, faultSheetMesh, dikeCapMeshes } from '../lib/surfaces3d.js'
 import { buildGempyBundle, safeName } from '../lib/gempy.js'
@@ -166,6 +166,9 @@ export default function ThreeView({ project, scene, image, dispatch }) {
     // Marco de trabajo: fuera de él no se construye nada, para que el modelo
     // termine exactamente donde el usuario acotó el ejercicio.
     const inFrame = frameTest(scene)
+    // Contorno del área: por donde el modelo queda cortado y, por tanto, por
+    // donde hay que cerrar los cuerpos que lo cruzan.
+    const outline = areaOutline(scene)
     const cx = (bbox.minX + bbox.maxX) / 2
     const cy = (bbox.minY + bbox.maxY) / 2
     const zRange = Math.max(1, dem.zmax - dem.zmin)
@@ -473,11 +476,12 @@ export default function ThreeView({ project, scene, image, dispatch }) {
             }
           }
         }
-        // Tapas: el techo (donde aflora) y el piso (donde el modelo lo corta
-        // en profundidad). Sin ellas las dos paredes se ven como dos láminas
-        // sueltas, con el hueco del cuerpo a la vista entre medio.
-        const caps = dikeCapMeshes(d, scene, { zBottom, inFrame, resolution: 70 })
-        for (const cap of ['roof', 'floor']) {
+        // Tapas: el techo (donde aflora), el piso (donde el fondo del modelo
+        // atraviesa el cuerpo) y las cabeceras (donde lo corta el borde del
+        // área). Sin ellas las dos paredes se ven como dos láminas sueltas, con
+        // el hueco del cuerpo a la vista entre medio.
+        const caps = dikeCapMeshes(d, scene, { zBottom, inFrame, resolution: 70, outline })
+        for (const cap of ['roof', 'floor', 'ends']) {
           const tris = caps[cap]
           if (!tris) continue
           const geo = new THREE.BufferGeometry()

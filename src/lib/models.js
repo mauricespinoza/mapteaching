@@ -298,6 +298,83 @@ export function modelExtent(scene) {
 }
 
 /**
+ * Recorte de un polígono convexo por otro (Sutherland–Hodgman). El polígono que
+ * recorta se orienta en sentido antihorario para que «dentro» sea siempre a la
+ * izquierda de cada arista.
+ */
+function clipConvex(subject, clip) {
+  let area = 0
+  for (let i = 0; i < clip.length; i++) {
+    const a = clip[i]
+    const b = clip[(i + 1) % clip.length]
+    area += a[0] * b[1] - b[0] * a[1]
+  }
+  const ring = area < 0 ? [...clip].reverse() : clip
+  let poly = subject
+  for (let i = 0; i < ring.length && poly.length; i++) {
+    const a = ring[i]
+    const b = ring[(i + 1) % ring.length]
+    const side = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+    const out = []
+    for (let k = 0; k < poly.length; k++) {
+      const cur = poly[k]
+      const prev = poly[(k - 1 + poly.length) % poly.length]
+      const sc = side(cur)
+      const sp = side(prev)
+      const cut = () => {
+        const t = sp / (sp - sc)
+        return [prev[0] + (cur[0] - prev[0]) * t, prev[1] + (cur[1] - prev[1]) * t]
+      }
+      if (sc >= 0) {
+        if (sp < 0) out.push(cut())
+        out.push(cur)
+      } else if (sp >= 0) {
+        out.push(cut())
+      }
+    }
+    poly = out
+  }
+  return poly
+}
+
+/**
+ * Contorno del área de trabajo en coordenadas mundo: el polígono por cuyo borde
+ * el modelo queda cortado.
+ *
+ * Es la intersección de la rejilla sobre la que se construye todo —el `bbox` de
+ * la escena— con el marco de trabajo, que en el mapa es un rectángulo de
+ * píxeles y en el terreno puede salir girado si el Norte no es vertical. Lo
+ * necesita quien tenga que **tapar** el modelo por ahí: un cuerpo cortado por
+ * el borde del área se ve hueco si nadie cierra esa cara (ver
+ * `surfaces3d.js: dikeCapMeshes`).
+ */
+export function areaOutline(scene) {
+  const b = scene?.bbox
+  if (!b) return null
+  const rect = [
+    [b.minX, b.minY],
+    [b.maxX, b.minY],
+    [b.maxX, b.maxY],
+    [b.minX, b.maxY],
+  ]
+  const frame = scene.project?.frame
+  if (!frame?.a || !frame?.b) return rect
+  const x0 = Math.min(frame.a[0], frame.b[0])
+  const x1 = Math.max(frame.a[0], frame.b[0])
+  const y0 = Math.min(frame.a[1], frame.b[1])
+  const y1 = Math.max(frame.a[1], frame.b[1])
+  const corners = [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1],
+  ].map((px) => toWorldPt(scene, px))
+  if (corners.some((c) => !Number.isFinite(c[0]) || !Number.isFinite(c[1]))) return rect
+  const poly = clipConvex(rect, corners)
+  return poly.length >= 3 ? poly : rect
+}
+
+/**
  * Prueba de pertenencia al área de trabajo, en coordenadas mundo. Devuelve
  * null si no hay marco definido (todo el mapa es válido).
  */

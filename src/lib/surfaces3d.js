@@ -45,17 +45,32 @@ const mixVertex = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t)
  *
  * El techo sigue el **terreno**, no una cota fija —un dique aflora en la
  * superficie, allí donde el relieve corta su cuerpo— y sólo existe donde de
- * verdad lo corta: `low(x,y) ≤ terreno ≤ high(x,y)`. El piso es plano, en
- * `zBottom` —el mismo fondo que usan las fallas—, y sólo existe donde el
- * dique sigue abierto a esa profundidad: `high(x,y) > low(x,y)`. Donde el
- * dique se acuña antes de llegar al terreno o al piso, las dos paredes ya se
- * han juntado y el volumen cierra solo, sin tapa: por eso ninguna de las dos
- * hace falta en la punta.
+ * verdad lo corta: `low(x,y) ≤ terreno ≤ high(x,y)`. El piso es igual pero
+ * contra el fondo del modelo: `low(x,y) ≤ zBottom ≤ high(x,y)`, es decir sólo
+ * donde el plano del fondo **atraviesa** el cuerpo. Preguntar únicamente si el
+ * dique sigue abierto (`high > low`) tapizaba el fondo entero del área: dos
+ * paredes empinadas se separan en planta sobre medio mapa aunque el cuerpo, a
+ * la cota del fondo, sea la misma banda estrecha de siempre —en el ejemplo
+ * «Dike pinch-out», 39 de los 44 km² del área—. Donde el dique se acuña antes
+ * de llegar al terreno o al fondo, las dos paredes ya se han juntado y el
+ * volumen cierra solo, sin tapa: por eso ninguna de las dos hace falta en la
+ * punta.
+ *
+ * Y las **cabeceras**: donde el cuerpo llega al borde del área de trabajo no se
+ * acuña, se corta, y sin nada que lo cierre se ve el interior del dique —la
+ * cara de dentro de la pared de enfrente— desde fuera del modelo. Son dos
+ * cortinas verticales, una por cada tramo del contorno del área que el dique
+ * cruza, entre el muro y el techo del cuerpo y acotadas por el terreno y el
+ * fondo, exactamente como las otras dos tapas.
  */
-export function dikeCapMeshes(dikeRes, scene, { zBottom, inFrame = null, resolution = 70 } = {}) {
+export function dikeCapMeshes(
+  dikeRes,
+  scene,
+  { zBottom, inFrame = null, resolution = 70, outline = null } = {}
+) {
   const { low, high } = dikeRes || {}
   const { bbox, dem } = scene
-  if (!low?.defined || !high?.defined || !dem?.valid) return { roof: null, floor: null }
+  if (!low?.defined || !high?.defined || !dem?.valid) return { roof: null, floor: null, ends: null }
   const N = resolution
   const dx = (bbox.maxX - bbox.minX) / N
   const dy = (bbox.maxY - bbox.minY) / N
@@ -90,7 +105,7 @@ export function dikeCapMeshes(dikeRes, scene, { zBottom, inFrame = null, resolut
   }
   const floorCrit = (k) => {
     if (!inside[k] || !Number.isFinite(zl[k]) || !Number.isFinite(zh[k])) return LOOSE
-    return zh[k] - zl[k]
+    return Math.min(zBottom - zl[k], zh[k] - zBottom)
   }
   const buildCap = (zAt, crit) => {
     const tris = []
@@ -112,9 +127,56 @@ export function dikeCapMeshes(dikeRes, scene, { zBottom, inFrame = null, resolut
     }
     return tris.length ? tris : null
   }
+  /**
+   * Tramo vertical visible del cuerpo en un punto del contorno: del muro al
+   * techo, recortado por el terreno y por el fondo del modelo. `null` donde no
+   * hay cuerpo que cerrar.
+   */
+  const columnAt = (x, y) => {
+    const a = low.elevationAt(x, y)
+    const b = high.elevationAt(x, y)
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null
+    const top = dem.elevationAt(x, y)
+    if (!Number.isFinite(top)) return null
+    const hi = Math.min(b, top)
+    const lo = Math.max(a, zBottom)
+    return hi > lo ? [lo, hi] : null
+  }
+
+  const buildEnds = () => {
+    if (!outline || outline.length < 2) return null
+    const step = Math.max((bbox.maxX - bbox.minX) / N, (bbox.maxY - bbox.minY) / N) / 2
+    const tris = []
+    const quad = (p, q) => {
+      for (const v of [
+        [p[0], p[1], p[2]], [q[0], q[1], q[2]], [q[0], q[1], q[3]],
+        [p[0], p[1], p[2]], [q[0], q[1], q[3]], [p[0], p[1], p[3]],
+      ]) tris.push(v[0], v[1], v[2])
+    }
+    for (let e = 0; e < outline.length; e++) {
+      const a = outline[e]
+      const b = outline[(e + 1) % outline.length]
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+      if (!(len > 0)) continue
+      const n = Math.max(2, Math.ceil(len / step))
+      let prev = null
+      for (let i = 0; i <= n; i++) {
+        const t = i / n
+        const x = a[0] + (b[0] - a[0]) * t
+        const y = a[1] + (b[1] - a[1]) * t
+        const col = columnAt(x, y)
+        const cur = col ? [x, y, col[0], col[1]] : null
+        if (prev && cur) quad(prev, cur)
+        prev = cur
+      }
+    }
+    return tris.length ? tris : null
+  }
+
   return {
     roof: buildCap((k) => gz[k], roofCrit),
     floor: buildCap(() => zBottom, floorCrit),
+    ends: buildEnds(),
   }
 }
 

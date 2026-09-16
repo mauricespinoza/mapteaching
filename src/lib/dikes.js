@@ -53,23 +53,19 @@ import { fitParallelOffset, offsetObservations, parallelSurface, slopeFactor } f
  */
 function offsetSurface(reference, offset) {
   const step = Math.max(reference?.gradStep || 0, 1e-6)
-  const elevationAt = (x, y) => {
-    const s = reference.sampleAt(x, y)
-    if (!s || !Number.isFinite(s.z)) return null
-    return s.z - offset * slopeFactor(s.a, s.b)
-  }
+  // El manteo que se publica es el de la referencia: dos paredes paralelas
+  // tienen la misma actitud. Leerlo por diferencias finitas de la cota ya
+  // desplazada sería derivar el propio dibujo y amplificarlo por el espesor,
+  // que es de donde salían los picos de las superficies heredadas
+  // (`parallel.js: frameAt`).
   const sampleAt = (x, y) => {
-    const z = elevationAt(x, y)
-    if (!Number.isFinite(z)) return { z: null, a: 0, b: 0 }
-    const xp = elevationAt(x + step, y)
-    const xm = elevationAt(x - step, y)
-    const yp = elevationAt(x, y + step)
-    const ym = elevationAt(x, y - step)
-    return {
-      z,
-      a: Number.isFinite(xp) && Number.isFinite(xm) ? (xp - xm) / (2 * step) : 0,
-      b: Number.isFinite(yp) && Number.isFinite(ym) ? (yp - ym) / (2 * step) : 0,
-    }
+    const s = reference.sampleAt(x, y)
+    if (!s || !Number.isFinite(s.z)) return { z: null, a: 0, b: 0 }
+    return { z: s.z - offset * slopeFactor(s.a, s.b), a: s.a, b: s.b }
+  }
+  const elevationAt = (x, y) => {
+    const s = sampleAt(x, y)
+    return Number.isFinite(s.z) ? s.z : null
   }
   return {
     defined: true,
