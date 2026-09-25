@@ -27,7 +27,7 @@
 // ninguna geometría. Quien quiera después llevarlo a un CRS, le suma el offset a
 // las dos columnas y ya está; el LÉEME del paquete lo explica.
 
-import { sortedContacts, sortedUnits } from './model.js'
+import { contactPackages, isUnconformable, sortedContacts, sortedUnits } from './model.js'
 import { frameTest, modelExtent } from './models.js'
 
 /** Nombre utilizable como identificador en GemPy y en un nombre de archivo. */
@@ -60,6 +60,56 @@ function uniqueNames(items) {
 }
 
 /**
+ * Nombre de un elemento de GemPy tal cual va en los CSV: se respeta el que tiene
+ * la unidad en el mapa —espacios y tildes incluidos, que es lo que se lee en la
+ * leyenda—, y sólo se quita lo que rompería una tabla separada por comas.
+ */
+function elementName(name, fallback) {
+  const s = String(name || '')
+    .replace(/[,"\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return s || fallback
+}
+
+/**
+ * Nombre de cada superficie **en GemPy**, que no es el del contacto sino el de
+ * la unidad que queda encima.
+ *
+ * GemPy le da al volumen que queda sobre una superficie el nombre de esa
+ * superficie, y llama `basement` a lo que queda bajo la más antigua. Con el
+ * nombre del contacto, la leyenda del modelo muestra contactos —«Unidad_1_
+ * Unidad_2»— donde tiene que decir unidades. Así que cada contacto se llama
+ * como su unidad de arriba.
+ *
+ * Las excepciones: las fallas conservan el suyo, y si dos contactos tienen la
+ * misma unidad de arriba —una cobertura discordante sobre dos unidades
+ * distintas— esos se quedan con el nombre del contacto, porque en GemPy el
+ * nombre es la identidad y con uno solo se fundirían en una superficie.
+ */
+function gempyNames(contacts, faults, names, unitName) {
+  const upperCount = new Map()
+  for (const c of contacts) {
+    if (c.upperUnitId) upperCount.set(c.upperUnitId, (upperCount.get(c.upperUnitId) || 0) + 1)
+  }
+  const out = new Map()
+  // `basement` lo pone GemPy; nadie más puede llamarse así.
+  const used = new Set(['basement'])
+  const claim = (id, base) => {
+    let name = base
+    for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base}_${n}`
+    used.add(name.toLowerCase())
+    out.set(id, name)
+  }
+  for (const f of faults) claim(f.id, names.get(f.id))
+  for (const c of contacts) {
+    const upper = upperCount.get(c.upperUnitId) === 1 ? unitName(c.upperUnitId) : null
+    claim(c.id, upper ? elementName(upper, names.get(c.id)) : names.get(c.id))
+  }
+  return out
+}
+
+/**
  * Todo lo que se exporta, reunido: qué superficies hay, con qué nombre, sus
  * puntos y sus orientaciones. El resto de las funciones de este módulo se
  * limitan a darle formato.
@@ -71,6 +121,10 @@ export function gempyData(scene) {
     ...contacts.map((c) => ({ id: c.id, name: c.name, kind: 'contact' })),
     ...faults.map((f) => ({ id: f.id, name: f.name, kind: 'fault' })),
   ])
+  const units = sortedUnits(scene.project)
+  const unitById = new Map(units.map((u) => [u.id, u]))
+  const gNames = gempyNames(contacts, faults, names, (id) => unitById.get(id)?.name)
+  const packages = contactPackages(scene.project)
   const inFrame = frameTest(scene)
   const keep = (p) => !inFrame || inFrame(p[0], p[1])
   // El origen local de la app es la esquina de la imagen, y el área de trabajo
@@ -106,9 +160,14 @@ export function gempyData(scene) {
       id: c.id,
       kind: 'contact',
       name: names.get(c.id),
+      gempyName: gNames.get(c.id),
       label: c.name,
       color: c.color,
+      // En GemPy el color es el del volumen de encima, o sea, el de la unidad.
+      gempyColor: unitById.get(c.upperUnitId)?.color || c.color,
       type: c.type,
+      pkg: packages.get(c.id) || 0,
+      folded: [...byBlock.values()].some((surf) => surf.folded),
       lowerUnitId: c.lowerUnitId,
       upperUnitId: c.upperUnitId,
       points,
@@ -130,8 +189,11 @@ export function gempyData(scene) {
       id: f.id,
       kind: 'fault',
       name: names.get(f.id),
+      gempyName: gNames.get(f.id),
       label: f.name,
       color: '#444444',
+      gempyColor: '#444444',
+      folded: Boolean(surf.folded),
       kinematics: f.kinematics,
       points,
       orientations,
@@ -139,7 +201,7 @@ export function gempyData(scene) {
     })
   }
 
-  return { surfaces, contacts, faults, units: sortedUnits(scene.project), shift, extent: ext }
+  return { surfaces, contacts, faults, units, shift, extent: ext }
 }
 
 /**
@@ -213,15 +275,16 @@ function meanFallback(byBlock, shift) {
 /**
  * `surface_points.csv`.
  *
- * La columna del nombre se escribe dos veces, como `formation` y como
- * `surface`: GemPy la ha llamado de las dos maneras según la versión, y una
- * columna de más no le estorba a nadie mientras que la que falta rompe la
- * lectura.
+ * El nombre va **una sola vez**, en `formation`, que es como lo llaman tanto
+ * GemPy 2 como GemPy 3. Repetirlo como `surface` rompe la 3: al leer, renombra
+ * `surface` a `formation`, quedan dos columnas con el mismo nombre y falla. Por
+ * lo mismo ninguna otra columna puede llamarse como algo que GemPy renombra
+ * (`surface`, `x`, `Azimuth`, `G_x`…).
  */
 export function surfacePointsCsv(data) {
-  const rows = ['X,Y,Z,formation,surface']
+  const rows = ['X,Y,Z,formation']
   for (const s of data.surfaces) {
-    for (const p of s.points) rows.push(`${num(p[0])},${num(p[1])},${num(p[2])},${s.name},${s.name}`)
+    for (const p of s.points) rows.push(`${num(p[0])},${num(p[1])},${num(p[2])},${s.gempyName}`)
   }
   return rows.join('\n') + '\n'
 }
@@ -232,7 +295,7 @@ export function surfacePointsCsv(data) {
  * pila en esta app, así que el polo apunta al techo en todas.
  */
 export function orientationsCsv(data) {
-  const rows = ['X,Y,Z,azimuth,dip,polarity,formation,surface,origen']
+  const rows = ['X,Y,Z,azimuth,dip,polarity,formation,origen']
   for (const s of data.surfaces) {
     const list = s.orientations.length ? s.orientations : s.fallback ? [s.fallback] : []
     for (const a of list) {
@@ -240,7 +303,7 @@ export function orientationsCsv(data) {
         ? 'actitud media de la superficie'
         : `${a.manual ? 'contornos a mano' : 'contornos'} ${a.cotas[0]}-${a.cotas[1]} m`
       rows.push(
-        `${num(a.x)},${num(a.y)},${num(a.z)},${num(a.dipDir, 1)},${num(a.dip, 1)},1,${s.name},${s.name},${origen}`
+        `${num(a.x)},${num(a.y)},${num(a.z)},${num(a.dipDir, 1)},${num(a.dip, 1)},1,${s.gempyName},${origen}`
       )
     }
   }
@@ -266,9 +329,37 @@ export function modelJson(project, scene, data, opts = {}) {
   const zMax = Math.round(dem.zmax + (dem.zmax - dem.zmin) * 0.05)
   const contactos = data.surfaces.filter((s) => s.kind === 'contact')
   const fallas = data.surfaces.filter((s) => s.kind === 'fault')
-  const unitName = (id) => data.units.find((u) => u.id === id)?.name || null
+  const unitOf = (id) => data.units.find((u) => u.id === id) || null
+  const unitName = (id) => unitOf(id)?.name || null
+
+  // Una serie estratigráfica por paquete: cada discordancia abre uno nuevo, y
+  // en GemPy una discordancia es justamente el límite entre dos series —la de
+  // arriba erosiona a la de abajo—. Sin discordancias es una sola serie.
+  const paquetes = [...new Set(contactos.map((c) => c.pkg))].sort((a, b) => a - b)
+  const estratigrafia = paquetes
+    .map((pkg, i) => {
+      const cs = contactos.filter((c) => c.pkg === pkg)
+      const serie = {
+        nombre: paquetes.length > 1 ? `Estratigrafia_${i + 1}` : 'Estratigrafia',
+        es_falla: false,
+        // De la más joven a la más antigua, que es como las pide GemPy.
+        superficies: cs.map((c) => c.gempyName).reverse(),
+      }
+      // La app sólo sabe que la base del paquete es una inconformidad: una
+      // superficie labrada, que corta lo de abajo. Eso es «erosiva» (ERODE). Si
+      // no se sabe, se omite y GemPy pone ERODE por su cuenta.
+      if (i > 0 && cs[0].type === 'discordante') serie.relacion = 'erosiva'
+      return serie
+    })
+    .reverse()
+
+  // Lo que queda bajo el contacto más antiguo de la última serie: en GemPy es
+  // `basement`, y sin color propio saldría con el que GemPy elija.
+  const base = contactos.find((c) => c.pkg === paquetes[0])
+  const baseUnit = base ? unitOf(base.lowerUnitId) : null
 
   return {
+    version_formato: 2,
     nombre: project.name,
     generado: new Date().toISOString(),
     generado_por: 'MapTeaching',
@@ -288,28 +379,30 @@ export function modelJson(project, scene, data, opts = {}) {
     },
     extent: [0, Math.round(ext.maxX - ext.minX), 0, Math.round(ext.maxY - ext.minY), zMin, zMax],
     resolution: opts.resolution || [50, 50, 50],
-    // Una serie estratigráfica con todos los contactos concordantes, y una
-    // serie por falla: en GemPy cada falla es su propia serie y desplaza a las
-    // que vienen después.
+    // La mesa de realidad aumentada recalcula el modelo entero en cada cuadro,
+    // y a 50³ no llega.
+    resolution_mesa: [20, 20, 20],
+    // Una serie por falla —en GemPy cada falla es su propia serie y desplaza a
+    // las que vienen después— y después la pila, de la más joven a la más
+    // antigua.
     series: [
       ...fallas.map((f) => ({
         nombre: `Falla_${f.name}`,
         es_falla: true,
-        superficies: [f.name],
+        superficies: [f.gempyName],
         cinematica: f.kinematics || null,
       })),
-      {
-        nombre: 'Estratigrafia',
-        es_falla: false,
-        // De la más joven a la más antigua, que es como las pide GemPy.
-        superficies: contactos.map((c) => c.name).reverse(),
-      },
+      ...estratigrafia,
     ],
+    basamento: baseUnit ? { unidad: baseUnit.name, color: baseUnit.color } : null,
     superficies: data.surfaces.map((s) => ({
       nombre: s.name,
+      elemento_gempy: s.gempyName,
       etiqueta: s.label,
       tipo: s.kind === 'fault' ? 'falla' : s.type || 'concordante',
       color: s.color,
+      color_elemento: s.gempyColor,
+      plegada: Boolean(s.folded),
       unidad_abajo: s.kind === 'contact' ? unitName(s.lowerUnitId) : null,
       unidad_arriba: s.kind === 'contact' ? unitName(s.upperUnitId) : null,
       n_puntos: s.points.length,
@@ -322,36 +415,122 @@ export function modelJson(project, scene, data, opts = {}) {
 }
 
 /**
- * Relieve en ESRI ASCII Grid: lo lee GemPy para poner la topografía, y lo lee
- * QGIS como ráster sin más. Las filas van de norte a sur, que es al revés que
- * la grilla del modelo de elevación.
+ * Relieve en ESRI ASCII Grid: lo lee el guion de GemPy para poner la
+ * topografía, y lo lee QGIS como ráster sin más. Las filas van de norte a sur,
+ * que es al revés que la grilla del modelo de elevación.
+ *
+ * Cubre **exactamente** el cubo del modelo en planta —`xllcorner` y
+ * `yllcorner` son su esquina, y ancho y alto son los suyos— y no lleva ni un
+ * NODATA: GemPy pone un punto de topografía por celda y no sabe qué hacer con
+ * un -9999. Las celdas que caen fuera del marco de trabajo (un marco girado
+ * respecto del norte deja esquinas fuera) toman la cota del vecino válido más
+ * cercano.
+ *
+ * Como las celdas del formato son cuadradas y el cubo no tiene por qué serlo,
+ * se busca un número de columnas cerca de la resolución del relieve con el que
+ * también las filas cierren justas. El ancho cierra exacto; el alto, con un
+ * desajuste de una fracción de celda en el borde norte —en el peor caso media
+ * celda, en la práctica bastante menos—.
  *
  * Para la mesa de realidad aumentada esto sobra: allí la topografía es la
  * arena, y el módulo corta el modelo contra lo que lee el sensor.
  */
-export function demAsc(scene, shift = [0, 0]) {
+export function demAsc(scene, shift = [0, 0], extent = null) {
   const d = scene.dem
   if (!d?.valid) return null
+  const [x0, x1, y0, y1] = extent || [
+    d.bbox.minX + shift[0],
+    d.bbox.maxX + shift[0],
+    d.bbox.minY + shift[1],
+    d.bbox.maxY + shift[1],
+  ]
+  const { ncols, nrows, cell } = demGrid(x1 - x0, y1 - y0, d.cell)
+  const inFrame = frameTest(scene)
+  const z = new Float64Array(ncols * nrows).fill(NaN)
+  for (let j = 0; j < nrows; j++) {
+    for (let i = 0; i < ncols; i++) {
+      // Centro de la celda, de vuelta en coordenadas de la app.
+      const x = x0 + (i + 0.5) * cell - shift[0]
+      const y = y0 + (j + 0.5) * cell - shift[1]
+      if (inFrame && !inFrame(x, y)) continue
+      const v = d.elevationAt(x, y)
+      if (Number.isFinite(v)) z[j * ncols + i] = v
+    }
+  }
+  if (!fillNearest(z, ncols, nrows)) return null
   const out = [
-    `ncols ${d.nx}`,
-    `nrows ${d.ny}`,
-    `xllcorner ${(d.bbox.minX + shift[0]).toFixed(3)}`,
-    `yllcorner ${(d.bbox.minY + shift[1]).toFixed(3)}`,
-    `cellsize ${d.cell.toFixed(4)}`,
+    `ncols ${ncols}`,
+    `nrows ${nrows}`,
+    `xllcorner ${x0.toFixed(3)}`,
+    `yllcorner ${y0.toFixed(3)}`,
+    `cellsize ${cell.toFixed(6)}`,
     'NODATA_value -9999',
   ]
-  const inFrame = frameTest(scene)
-  for (let j = d.ny - 1; j >= 0; j--) {
-    const row = new Array(d.nx)
-    for (let i = 0; i < d.nx; i++) {
-      const x = d.bbox.minX + i * d.cell
-      const y = d.bbox.minY + j * d.cell
-      const z = d.z[j * d.nx + i]
-      row[i] = inFrame && !inFrame(x, y) ? '-9999' : Number.isFinite(z) ? z.toFixed(2) : '-9999'
-    }
+  for (let j = nrows - 1; j >= 0; j--) {
+    const row = new Array(ncols)
+    for (let i = 0; i < ncols; i++) row[i] = z[j * ncols + i].toFixed(2)
     out.push(row.join(' '))
   }
   return out.join('\n') + '\n'
+}
+
+/**
+ * Columnas, filas y lado de celda para cubrir `w × h` con celdas cuadradas de
+ * lado parecido a `target`: el ancho cierra justo, y de los candidatos se
+ * queda con el que deja el alto más cerca de un número entero de celdas.
+ */
+export function demGrid(w, h, target) {
+  const n0 = Math.max(2, Math.round(w / Math.max(target, 1e-9)))
+  let best = null
+  for (let n = Math.max(2, Math.floor(n0 * 0.8)); n <= Math.ceil(n0 * 1.25); n++) {
+    const cell = w / n
+    const rows = Math.max(2, Math.round(h / cell))
+    const miss = Math.abs(rows * cell - h) / cell
+    if (!best || miss < best.miss - 1e-9) best = { ncols: n, nrows: rows, cell, miss }
+  }
+  return best
+}
+
+/**
+ * Rellena los NaN de una grilla con el valor del vecino válido más cercano
+ * (por pasos de grilla, en las ocho direcciones). Devuelve false si no había
+ * ningún valor del que partir.
+ */
+function fillNearest(z, nx, ny) {
+  let queue = []
+  for (let k = 0; k < z.length; k++) if (Number.isFinite(z[k])) queue.push(k)
+  if (!queue.length) return false
+  if (queue.length === z.length) return true
+  while (queue.length) {
+    const next = []
+    const fresh = new Map()
+    for (const k of queue) {
+      const i = k % nx
+      const j = (k - i) / nx
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          const ii = i + di
+          const jj = j + dj
+          if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue
+          const kk = jj * nx + ii
+          if (Number.isFinite(z[kk])) continue
+          // Todos los vecinos válidos de este frente cuentan igual: se
+          // promedian, para no dejar escalones según el orden de la cola.
+          const f = fresh.get(kk)
+          if (f) {
+            f.sum += z[k]
+            f.n++
+          } else {
+            fresh.set(kk, { sum: z[k], n: 1 })
+            next.push(kk)
+          }
+        }
+      }
+    }
+    for (const [kk, f] of fresh) z[kk] = f.sum / f.n
+    queue = next
+  }
+  return true
 }
 
 /** Una capa GeoJSON de líneas, en las mismas coordenadas locales. */
@@ -427,21 +606,30 @@ export function geoJsonLayers(scene, data) {
  * la topografía, y nada de eso está en los CSV. Aquí va escrito con los nombres
  * y el orden que este ejercicio tiene de verdad.
  *
- * La API de GemPy cambió bastante entre la 2 y la 3; esto está escrito para la
- * 3. Si la versión instalada es otra, lo que hay que retocar son las tres
- * llamadas del final: los datos de los CSV siguen valiendo igual.
+ * Escrito para GemPy 3 (probado con gempy 2025.2 y gempy_viewer 2025.1) y con
+ * lo mínimo instalado: arma las tablas a mano en vez de usar `ImporterHelper`,
+ * y lee el `dem.asc` con numpy en vez de `set_topography_from_file`, que pide
+ * `subsurface` y `rasterio`.
  */
 export function pythonScript(model) {
-  const q = (s) => `"${String(s).replace(/"/g, '\\"')}"`
+  const q = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
   const fallas = model.series.filter((s) => s.es_falla)
   const mapping = model.series
     .map((s) => `    ${q(s.nombre)}: [${s.superficies.map(q).join(', ')}],`)
     .join('\n')
-  const colores = model.superficies.map((s) => `    ${q(s.nombre)}: ${q(s.color)},`).join('\n')
+  const colores = model.superficies
+    .filter((s) => s.tipo !== 'falla')
+    .map((s) => `    ${q(s.elemento_gempy)}: ${q(s.color_elemento)},`)
+    .join('\n')
+  const base = model.basamento
   return `"""Modelo GemPy generado por MapTeaching a partir de «${model.nombre}».
 
-Escrito para GemPy 3. Si tienes la 2.x, los CSV sirven igual: lo que cambia son
-las llamadas de construcción del final (ver la documentación de tu versión).
+Escrito para GemPy 3 (gempy 2025.2, gempy_viewer 2025.1). No necesita
+subsurface ni rasterio: las tablas y el relieve se leen con pandas y numpy.
+
+Cada superficie lleva el nombre de la unidad que queda ENCIMA de ella, que es
+como GemPy nombra los volúmenes; lo que queda bajo la más antigua es
+\`basement\`${base ? ` (aquí, ${base.unidad})` : ''}.
 
 Coordenadas: metros locales, X al Este, Y al Norte, Z sobre el nivel del mar.
 No hay CRS y no hace falta: GemPy trabaja con números, y la mesa de realidad
@@ -451,10 +639,12 @@ esto a un sistema de referencia, súmale el offset a las dos columnas:
     sp[["X", "Y"]] += [E0, N0]
 """
 
+import numpy as np
+import pandas as pd
 import gempy as gp
-import gempy_viewer as gpv
 
 RUTA = "."
+NOMBRE = ${q(model.nombre)}
 
 EXTENT = ${JSON.stringify(model.extent)}       # [xmin, xmax, ymin, ymax, zmin, zmax] en metros
 RESOLUCION = ${JSON.stringify(model.resolution)}   # celdas del cubo; súbela cuando el modelo ya salga bien
@@ -467,63 +657,101 @@ ${mapping}
 
 FALLAS = [${fallas.map((s) => q(s.nombre)).join(', ')}]
 
+# Color de cada unidad, el mismo del mapa. El de lo que queda bajo el contacto
+# más antiguo va aparte, porque GemPy lo llama basement.
 COLORES = {
 ${colores}
 }
+COLOR_BASAMENTO = ${base?.color ? q(base.color) : 'None'}
 
 
-def construir():
+def construir(resolucion=RESOLUCION, topografia=True):
+    sp = pd.read_csv(f"{RUTA}/surface_points.csv")
+    ori = pd.read_csv(f"{RUTA}/orientations.csv")
+    # Dirección de manteo y manteo -> vector normal (polo hacia el techo).
+    az, dip = np.radians(ori.azimuth), np.radians(ori.dip)
+    puntos = gp.data.SurfacePointsTable.from_arrays(
+        x=sp.X.values, y=sp.Y.values, z=sp.Z.values, names=sp.formation.values)
+    orient = gp.data.OrientationsTable.from_arrays(
+        x=ori.X.values, y=ori.Y.values, z=ori.Z.values,
+        G_x=(np.sin(dip) * np.sin(az) * ori.polarity).values,
+        G_y=(np.sin(dip) * np.cos(az) * ori.polarity).values,
+        G_z=(np.cos(dip) * ori.polarity).values,
+        names=ori.formation.values, name_id_map=puntos.name_id_map)
     modelo = gp.create_geomodel(
-        project_name=${q(model.nombre)},
-        extent=EXTENT,
-        resolution=RESOLUCION,
-        importer_helper=gp.data.ImporterHelper(
-            path_to_orientations=f"{RUTA}/orientations.csv",
-            path_to_surface_points=f"{RUTA}/surface_points.csv",
-        ),
-    )
-
+        project_name=NOMBRE, extent=EXTENT, resolution=resolucion,
+        structural_frame=gp.data.StructuralFrame.from_data_tables(puntos, orient))
     gp.map_stack_to_surfaces(gempy_model=modelo, mapping_object=SERIES)
     if FALLAS:
         gp.set_is_fault(modelo, FALLAS)
-
+    pintar(modelo)
     # Topografía desde el relieve que se interpoló de las curvas de nivel.
     # En la mesa de realidad aumentada esto sobra: allí la topografía es la
     # arena, y el módulo corta el modelo contra lo que lee el sensor.
-    try:
-        gp.set_topography_from_file(grid=modelo.grid, filepath=f"{RUTA}/dem.asc")
-    except Exception as e:  # noqa: BLE001
-        print("Sin topografía:", e)
-
-    pintar(modelo)
+    if topografia:
+        poner_topografia(modelo, f"{RUTA}/dem.asc")
     gp.compute_model(modelo)
+    verificar_orden(modelo)
     return modelo
 
 
 def pintar(modelo):
-    """Los colores de las unidades del mapa, para que el modelo se lea igual.
-
-    La forma de tocar el color cambia entre versiones de GemPy, así que si no
-    encaja no se interrumpe nada: el modelo sale igual, con otros colores.
-    """
+    """Los colores de las unidades del mapa, para que el modelo se lea igual."""
     for nombre, color in COLORES.items():
-        try:
-            modelo.structural_frame.get_element_by_name(nombre).color = color
-        except Exception:  # noqa: BLE001
-            pass
+        modelo.structural_frame.get_element_by_name(nombre).color = color
+    if COLOR_BASAMENTO:
+        modelo.structural_frame.basement_color = COLOR_BASAMENTO
+
+
+def poner_topografia(modelo, ruta):
+    """Lee el dem.asc (ESRI ASCII Grid) a mano y lo pone como topografía."""
+    lineas = open(ruta).read().splitlines()
+    cab = {l.split()[0].lower(): float(l.split()[1]) for l in lineas[:6]}
+    z = np.loadtxt(lineas[6:])[::-1]                      # fila 0 = sur
+    cs = cab["cellsize"]
+    xs = cab["xllcorner"] + cs * (np.arange(z.shape[1]) + 0.5)
+    ys = cab["yllcorner"] + cs * (np.arange(z.shape[0]) + 0.5)
+    X, Y = np.meshgrid(xs, ys)
+    valores = np.stack([X.T, Y.T, z.T], axis=-1)          # GemPy usa índices [ix, iy]
+    modelo.grid.topography = gp.data.Topography(
+        _regular_grid=modelo.grid.regular_grid, values_2d=valores)
+    gp.set_active_grid(modelo.grid, [gp.data.Grid.GridTypes.TOPOGRAPHY])
+
+
+def verificar_orden(modelo):
+    """Avisa si GemPy reordenó alguna serie al calcular.
+
+    GemPy 3 reordena las superficies de cada serie según el campo escalar. Si
+    el orden calculado no es el del mapa, es que esos contactos se cruzan en el
+    modelo: suele faltar dato (orientaciones) en esa zona.
+    """
+    for g in modelo.structural_frame.structural_groups:
+        esperado = SERIES.get(g.name)
+        obtenido = [e.name for e in g.elements]
+        if esperado and obtenido != list(esperado):
+            print(f"AVISO serie {g.name}: orden del mapa {list(esperado)} "
+                  f"-> orden calculado {obtenido}. Esos contactos se cruzan en el modelo.")
 
 
 if __name__ == "__main__":
+    import gempy_viewer as gpv
+
     modelo = construir()
     print(modelo.structural_frame)
-    gpv.plot_2d(modelo, show_data=True)
-    gpv.plot_3d(modelo, show_topography=True, show_lith=True)
+    # Sin topografía en los perfiles: si no, gempy_viewer tapa de negro todo
+    # lo que queda por encima del relieve.
+    gpv.plot_2d(modelo, show_data=True, show_topography=False)
+    try:
+        gpv.plot_3d(modelo, show_topography=True, show_lith=True)
+    except ImportError as e:  # la vista 3D pide pyvista, que es opcional
+        print("Sin vista 3D:", e)
 `
 }
 
 /** El LÉEME que acompaña al paquete: qué es cada archivo y qué hacer con él. */
 export function readme(model, data) {
   const plegadasSinPanel = data.surfaces.filter((s) => s.fallback?.plegada)
+  const base = model.basamento
   const llanasSinPanel = data.surfaces.filter((s) => s.fallback && !s.fallback.plegada)
   const sinPila = data.surfaces.filter((s) => s.kind === 'contact' && (!s.lowerUnitId || !s.upperUnitId))
   const puntos = data.surfaces.reduce((a, s) => a + s.points.length, 0)
@@ -541,8 +769,8 @@ ${puntos} puntos de superficie y ${orientaciones} orientaciones, en ${model.supe
 |---|---|
 | \`surface_points.csv\` | Los puntos donde se sabe que pasa cada contacto: cada cruce de una traza con una curva de nivel. Es el dato primario del ejercicio. |
 | \`orientations.csv\` | Una actitud por panel estructural, situada en el centroide de los cruces que la sostienen. |
-| \`model.json\` | El cubo del modelo, el orden de las series, qué es falla y los colores. Lo que los CSV no dicen. |
-| \`dem.asc\` | El relieve interpolado de las curvas, en ESRI ASCII Grid. Para GemPy y para QGIS. |
+| \`model.json\` | El cubo del modelo, el orden de las series, qué es falla, qué superficie está plegada y los colores. Lo que los CSV no dicen. |
+| \`dem.asc\` | El relieve interpolado de las curvas, en ESRI ASCII Grid, recortado justo al cubo del modelo y sin celdas vacías. Para GemPy y para QGIS. |
 | \`gempy_model.py\` | Guion listo para correr, con las series y las fallas ya declaradas. |
 | \`gis/*.geojson\` | Trazas de contactos y fallas, y curvas de nivel. Para QGIS o GemGIS. |
 
@@ -554,6 +782,19 @@ la superficie verdadera con un desvío de **1 a 3 m** de mediana, con curvas de
 nivel cada 100 m. Las orientaciones aciertan el manteo con **2° a 13°** de error
 de mediana según lo apretado que sea el pliegue. Los avisos del final dicen qué
 mirar antes de fiarse.
+
+## Nombres: unidades, no contactos
+
+En los CSV cada contacto se llama como **la unidad que queda encima de él**
+(\`Unidad 2\` y no \`Unidad_1_Unidad_2\`), porque GemPy le pone al volumen
+que queda sobre una superficie el nombre de esa superficie. Así la leyenda del
+modelo muestra unidades.${
+    base
+      ? ` Lo que queda bajo el contacto más antiguo GemPy lo llama \`basement\`:
+aquí es **${base.unidad}**, y el guion le pone su color.`
+      : ''
+  } Las fallas conservan su nombre. En \`model.json\`, \`elemento_gempy\` dice
+qué nombre lleva cada superficie en GemPy.
 
 ## Coordenadas
 
@@ -571,13 +812,19 @@ el EPSG que corresponda.
 ## Cómo correrlo
 
 \`\`\`bash
-pip install gempy gempy_viewer
+pip install "gempy==2025.2.0" "gempy_viewer==2025.1.6"
 python gempy_model.py
 \`\`\`
 
-El guion está escrito para GemPy 3. Con la 2.x los CSV sirven igual —las
-columnas del nombre van repetidas como \`formation\` y como \`surface\` justo para
-eso—; lo que hay que adaptar son las llamadas de construcción.
+El guion está escrito para GemPy 3 y no necesita \`subsurface\` ni \`rasterio\`:
+lee las tablas con pandas y el relieve con numpy. Con la 2.x los CSV sirven
+igual —el nombre va en la columna \`formation\`, que es la que esperan las
+dos versiones—; lo que hay que adaptar son las llamadas de construcción.
+
+Si al calcular aparece un **AVISO** de que una serie cambió de orden, es que
+GemPy ha encontrado esos contactos cruzados en el modelo y los ha reordenado
+según su campo escalar: la estratigrafía que sale ya no es la del mapa. Suele
+faltar dato —orientaciones— donde se cruzan.
 
 ## De aquí a la mesa de realidad aumentada
 
@@ -586,7 +833,9 @@ Una vez que \`construir()\` devuelve un modelo calculado, el módulo de GemPy de
 cual: le pasas el \`geo_model\` y las dimensiones de la caja, y él se encarga de
 remapear el extent al volumen físico y de cortar el modelo contra la superficie
 de arena que lee el sensor. Por eso \`dem.asc\` no hace falta allí: la topografía
-la pone la arena.
+la pone la arena (\`construir(topografia=False)\`). Como la mesa recalcula el
+modelo en cada cuadro, conviene bajarle la resolución a la de
+\`resolution_mesa\` de \`model.json\`: \`construir(resolucion=${JSON.stringify(model.resolution_mesa)}, topografia=False)\`.
 
 Lo único que conviene mirar es la **relación de aspecto**: este modelo mide
 ${Math.round(model.extent[1] - model.extent[0])} × ${Math.round(model.extent[3] - model.extent[2])} m en planta
@@ -666,7 +915,7 @@ export function buildGempyBundle(project, scene, opts = {}) {
   const data = gempyData(scene)
   if (!data.surfaces.length) return null
   const model = modelJson(project, scene, data, opts)
-  const dem = demAsc(scene, data.shift)
+  const dem = demAsc(scene, data.shift, model.extent)
   return [
     { name: 'LEEME.md', text: readme(model, data) },
     { name: 'surface_points.csv', text: surfacePointsCsv(data) },
