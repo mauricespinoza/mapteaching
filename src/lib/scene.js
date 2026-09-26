@@ -757,7 +757,17 @@ export function buildScene(project) {
   // espesor constante. Va después del modelo de elevación porque, cuando un
   // contacto no cruza ninguna curva de nivel, el espesor se ajusta leyendo su
   // traza sobre el relieve.
-  const inherited = inheritContactGeometry({ contacts, contactSurfaces, dem, tol, side, zStep })
+  // La superficie paralela se construye sobre una malla (`offset.js`) que tiene
+  // que cubrir todo lo que se llegue a dibujar: el área con un margen, que es
+  // lo que abarca el 3D (`models.js: modelExtent`).
+  const margin = side * 0.08
+  const extent = {
+    minX: bbox.minX - margin,
+    minY: bbox.minY - margin,
+    maxX: bbox.maxX + margin,
+    maxY: bbox.maxY + margin,
+  }
+  const inherited = inheritContactGeometry({ contacts, contactSurfaces, dem, tol, side, zStep, extent })
 
   /**
    * Regla de superposición: **la superficie joven manda y la vieja se limita

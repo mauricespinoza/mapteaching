@@ -37,12 +37,14 @@
 // nada: media vuelta más allá de la charnela se aparta cientos de metros de la
 // de encima, la cruza, y la regla de superposición (`scene.js: truncate`) acaba
 // acuñando la unidad contra su propio techo. En una serie concordante eso no
-// existe. Así que la herencia deja de ser «todo o nada» y pasa a ser un
-// **relevo**: sobre sus contornos manda lo medido y lejos de ellos manda la
-// superficie paralela, con una transición suave en medio (`ownSupport`). Es la
-// misma regla de siempre, aplicada punto a punto en vez de contacto a contacto:
-// donde no hay contornos estructurales que resuelvan la geometría, la unidad de
-// abajo sigue a la de encima con espesor constante.
+// existe. Así que ese contacto también toma la forma del de encima, pero lo que
+// midió no se tira: cada dato suyo fija el **espesor** que hay junto a él, y el
+// espesor cambia con suavidad de un sitio a otro (`offset.js: thicknessField`).
+// Es la misma regla de siempre —la unidad de abajo sigue a la de encima con
+// espesor constante— salvo donde sus contornos estructurales dicen otra cosa.
+//
+// La superficie paralela se construye como desplazamiento **perpendicular** de
+// verdad, no bajando cada punto `e / cos δ` en vertical: ver `offset.js`.
 //
 // La herencia va **sólo hacia abajo**, hacia las capas más antiguas. Que un
 // contacto esté plegado obliga a las capas de debajo a repetir ese pliegue —son
@@ -57,7 +59,8 @@
 // son paralelas a ella.
 
 import { attitudeFromGradient } from './structure.js'
-import { resample, pointSegment } from './geom.js'
+import { resample } from './geom.js'
+import { referenceGrid, offsetGrid, sampleGrid, signedDistance, thicknessField } from './offset.js'
 import { isUnconformable } from './model.js'
 
 const RAD = Math.PI / 180
@@ -76,41 +79,17 @@ const MAX_K = 1 / Math.cos(MAX_DIP * RAD)
  */
 export const slopeFactor = (a, b) => Math.min(MAX_K, Math.sqrt(1 + a * a + b * b))
 
-// Hasta dónde se da por buena la forma que el propio contacto midió, en
-// múltiplos de la separación entre sus contornos estructurales. Dentro de
-// `SUPPORT_NEAR` manda entero lo medido; a partir de `SUPPORT_FAR` no queda
-// nada suyo y manda la geometría prestada. Un contorno más allá del último
-// medido es todavía una extrapolación razonable; tres es ya inventar.
-const SUPPORT_NEAR = 1
-const SUPPORT_FAR = 3
+// Anchura con la que puede cambiar el espesor de una capa, en separaciones
+// entre contornos estructurales.
+const THICKNESS_WIDTH = 1
 
-/**
- * Mínimo suave de un conjunto de distancias.
- *
- * El mínimo de toda la vida tiene un quiebro en cada mediatriz —allí cambia
- * cuál es el contorno más próximo— y ese quiebro viaja entero al peso y, con
- * él, a la superficie: es la misma arruga que ya se corrigió en el campo de
- * planos de los dominios (`domains.js`). La distancia a un segmento sí es
- * derivable fuera de él, así que basta con sustituir el `min` por su versión
- * suave para que el relevo no deje costuras.
- */
-function softMin(ds, r) {
-  let m = Infinity
-  for (const d of ds) if (d < m) m = d
-  if (!(r > 0) || !Number.isFinite(m) || ds.length < 2) return m
-  let sum = 0
-  for (const d of ds) sum += Math.exp(-(d - m) / r)
-  return m - r * Math.log(sum)
-}
-
-/** Transición suave 1 → 0 (smoothstep), sin quiebros en el contacto dibujado. */
-function fade(d, near, far) {
-  if (!(far > near)) return d <= near ? 1 : 0
-  if (d <= near) return 1
-  if (d >= far) return 0
-  const u = (d - near) / (far - near)
-  return 1 - u * u * (3 - 2 * u)
-}
+// Radio de redondeo de las charnelas, en fracción del espesor. La erosión
+// deja una arista bajo un antiforme más estrecho que el espesor (el arco
+// interior se cierra en un punto); con este radio se redondea, y la capa
+// engrosa un poco en esa charnela, como en los pliegues de verdad.
+const ROUND = 0.3
+// Pasadas de corrección del espesor contra los datos propios.
+const REFIT = 2
 
 /**
  * Separación típica entre los contornos estructurales de una superficie,
@@ -128,44 +107,6 @@ export function contourReach(surf) {
   if (!gaps.length) return 0
   gaps.sort((a, b) => a - b)
   return gaps[Math.floor(gaps.length / 2)]
-}
-
-/**
- * Dónde tiene el contacto datos propios con los que resolver su geometría:
- * devuelve un peso 1 sobre sus contornos estructurales, que baja a 0 al
- * alejarse de ellos.
- *
- * No son los puntos sueltos sino los **contornos**: una recta de cota conocida
- * resuelve la superficie a lo largo de todo su trazado, no sólo donde la traza
- * cortó la curva de nivel. Por eso la distancia se mide al segmento y no a la
- * nube de cruces.
- *
- * Devuelve `null` cuando la superficie no tiene ningún contorno resuelto: ahí
- * no hay nada propio que conservar y la geometría prestada vale en todas partes.
- */
-export function ownSupport(surf, reach) {
-  if (!(reach > 0)) return null
-  const segs = []
-  for (const sc of surf?.structureContours || []) {
-    if (!sc.fit || !Number.isFinite(sc.tmin) || !Number.isFinite(sc.tmax)) continue
-    const { c, dir } = sc.fit
-    segs.push([
-      [c[0] + dir[0] * sc.tmin, c[1] + dir[1] * sc.tmin],
-      [c[0] + dir[0] * sc.tmax, c[1] + dir[1] * sc.tmax],
-    ])
-  }
-  if (!segs.length) return null
-  const near = reach * SUPPORT_NEAR
-  const far = reach * SUPPORT_FAR
-  // Anchura del mínimo suave: una fracción del alcance, lo bastante estrecha
-  // para que la distancia siga siendo la del contorno más próximo y lo bastante
-  // ancha para redondear el cambio de uno a otro.
-  const soft = reach * 0.25
-  const ds = new Array(segs.length)
-  return (x, y) => {
-    for (let i = 0; i < segs.length; i++) ds[i] = pointSegment([x, y], segs[i][0], segs[i][1]).d
-    return fade(softMin(ds, soft), near, far)
-  }
 }
 
 /**
@@ -207,60 +148,112 @@ export function fitParallelOffset(reference, points) {
  * constante. Conserva los datos propios del contacto (sus puntos y sus
  * contornos, aunque sean insuficientes) y sustituye la geometría.
  *
- * Con `info.upgrade` el contacto sí tenía contornos suficientes para medir *un*
- * manteo, pero no para saber cómo varía: entonces sus medidas se respetan tal
- * cual y lo único que se toma prestado es la forma en profundidad.
+ * Con `info.upgrade` el contacto sí tenía contornos propios: sus medidas se
+ * respetan tal cual —el manteo que publica la ficha sigue siendo el suyo— y lo
+ * que se toma prestado es la forma en profundidad. Pero lo medido no se tira:
+ * cada dato del contacto dice qué espesor verdadero hay allí, y ese espesor
+ * manda cerca de él (`thicknessField`). Así la unidad conserva su espesor salvo
+ * donde sus contornos estructurales dicen otra cosa, y lo dicen con la suavidad
+ * con la que cambia el espesor de una capa, no de contorno a contorno.
  *
- * Con `info.support` —el peso que devuelve `ownSupport`— la sustitución deja de
- * ser total y pasa a ser un **relevo**: sobre sus propios contornos manda la
- * superficie medida y lejos de ellos manda la prestada, con una transición
- * suave en medio. Es la regla geológica aplicada donde de verdad hace falta:
- * donde no hay contornos estructurales que resuelvan la geometría, la unidad
- * de abajo sigue a la de encima con espesor constante, en vez de extrapolar un
- * pliegue propio que nadie midió y acabar cortando a su techo.
+ * Antes, en el contacto que medía su propio pliegue, lo propio y lo prestado se
+ * mezclaban **en cota**: sobre los contornos, su superficie; lejos, la paralela.
+ * Dos pliegues distintos fundidos con un peso que cambia deprisa son un tercero
+ * que no es ninguno de los dos: el espesor iba y venía por la franja de relevo
+ * y bajo las charnelas aparecían bollos. Mezclar espesores en vez de cotas no
+ * puede hacer eso: la forma es siempre la de la referencia.
+ *
+ * Con `info.extent` la superficie se construye como desplazamiento **normal**
+ * de verdad, sobre una malla del área (`offset.js`). Sin él —los diques, que
+ * son paredes planas— se desplaza cada punto en vertical `e / cos δ`, que sobre
+ * un plano es lo mismo.
  */
 export function parallelSurface(base, reference, fit, info = {}) {
-  const support = info.support || null
+  const obsPoints = info.points || null
+  const extent = info.extent || null
 
   /**
-   * Cota y **manteo de las capas** en un punto, que no son lo mismo.
-   *
-   * El manteo que se publica aquí es el de la referencia —dos superficies
-   * paralelas tienen la misma actitud—, y no la pendiente de la superficie que
-   * se dibuja. La distinción decide la estabilidad de toda la cadena.
-   *
-   * Un modelo de pliegue publica el manteo de sus **limbos** (la mezcla de los
-   * planos de los dominios, `domains.js: domainPlaneField`): nunca más empinado
-   * que lo que el mapa midió. La cota que ese mismo modelo dibuja se funde entre
-   * limbo y limbo, y en esa fusión la superficie se empina más que cualquiera de
-   * ellos —es el redondeo de la charnela—. Leer la pendiente de la cota con
-   * diferencias finitas, como se hacía, convertía ese redondeo en un manteo de
-   * 70° donde todos los limbos miden 45°, y `e/cos δ` lo multiplicaba: en el
-   * ejemplo «Fold & inclined normal fault» el techo de la Unidad 1 salía 280 m
-   * por debajo de su referencia donde el espesor ajustado son 71 m, y eso es un
-   * pico. Encadenado —una superficie completada que sirve de referencia a la
-   * siguiente— cada eslabón volvía a derivar el anterior y el pico crecía.
-   *
-   * Con el manteo de la referencia el desplazamiento vertical queda acotado por
-   * lo que el mapa sostiene, que es justo lo que significa «espesor verdadero
-   * constante»: la unidad de abajo repite la forma de la de encima, no la
-   * amplifica.
+   * Cota y manteo por el atajo vertical: `z_ref − e / cos δ`, con el manteo de
+   * la referencia —dos superficies paralelas tienen la misma actitud—. Sólo se
+   * usa fuera de la malla o cuando no la hay.
    */
-  function frameAt(x, y) {
+  const verticalAt = (x, y, e) => {
     const s = reference.sampleAt(x, y)
     if (!s || !Number.isFinite(s.z)) return null
-    const z = s.z - fit.offset * slopeFactor(s.a, s.b)
-    if (!support) return { z, a: s.a, b: s.b }
-    const w = support(x, y)
-    if (w <= 0) return { z, a: s.a, b: s.b }
-    const own = base.sampleAt ? base.sampleAt(x, y) : null
-    if (!own || !Number.isFinite(own.z)) return { z, a: s.a, b: s.b }
-    if (w >= 1) return { z: own.z, a: own.a, b: own.b }
-    return {
-      z: own.z * w + z * (1 - w),
-      a: own.a * w + s.a * (1 - w),
-      b: own.b * w + s.b * (1 - w),
+    return { z: s.z - e * slopeFactor(s.a, s.b), a: s.a, b: s.b }
+  }
+
+  let thickness = () => fit.offset
+  let meanThickness = fit.offset
+  let grid = null
+  let built = !extent
+
+  /**
+   * La malla, la primera vez que hace falta. Primero se mide cuánto dista cada
+   * dato propio de la referencia —perpendicular, no en cota—, con eso se
+   * decide el espesor en cada punto, y se erosiona la referencia con él.
+   */
+  function build() {
+    built = true
+    const e0 = fit.offset
+    // Margen para las bolas: el espesor que pueda pedir cualquier dato, sin
+    // pasar de tres veces el ajustado (un dato disparatado no puede obligar a
+    // una malla enorme).
+    const cap = Math.abs(e0) * 3 + 1
+    let maxT = Math.abs(e0)
+    const pre = []
+    if (obsPoints?.length) {
+      for (const p of obsPoints) {
+        const v = verticalAt(p[0], p[1], 0)
+        if (!v) continue
+        const vert = v.z - p[2]
+        if (Math.abs(vert) > maxT) maxT = Math.min(cap, Math.abs(vert))
+        pre.push(p)
+      }
     }
+    const round = Math.abs(e0) * ROUND
+    const ref = referenceGrid(reference, extent, maxT + round)
+    if (!ref) return
+    // El espesor medio sale de las distancias perpendiculares: es el que la
+    // erosión va a reproducir, no el desnivel del atajo vertical.
+    const obs = []
+    for (const p of pre) {
+      const d = signedDistance(ref.F, p[0], p[1], p[2])
+      if (Number.isFinite(d) && Math.sign(d) === Math.sign(e0 || d) && Math.abs(d) <= cap)
+        obs.push({ x: p[0], y: p[1], z: p[2], d })
+    }
+    if (obs.length) {
+      meanThickness = obs.reduce((s, o) => s + o.d, 0) / obs.length
+      thickness = () => meanThickness
+    }
+    if (!(obs.length && info.upgrade && info.width > 0)) {
+      grid = offsetGrid(ref, thickness, round)
+      return
+    }
+    // El campo de espesor promedia los datos vecinos, y el redondeo de las
+    // charnelas los aparta un poco más: la superficie no pasa del todo por lo
+    // medido. Se corrige volviendo a pedir a cada dato el espesor que le falta
+    // —el residuo en cota pasado a perpendicular— un par de veces, sin tocar la
+    // anchura: la forma sigue siendo la de la referencia.
+    const target = obs.map((o) => ({ ...o }))
+    for (let it = 0; it <= REFIT; it++) {
+      thickness = thicknessField(target, meanThickness, info.width)
+      grid = offsetGrid(ref, thickness, round)
+      if (it === REFIT) break
+      obs.forEach((o, k) => {
+        const g = sampleGrid(grid, o.x, o.y)
+        if (g) target[k].d += (g.z - o.z) / Math.sqrt(1 + g.a * g.a + g.b * g.b)
+      })
+    }
+  }
+
+  function frameAt(x, y) {
+    if (!built) build()
+    if (grid) {
+      const g = sampleGrid(grid, x, y)
+      if (g) return g
+    }
+    return verticalAt(x, y, grid ? thickness(x, y) : fit.offset)
   }
 
   function elevationAt(x, y) {
@@ -287,6 +280,32 @@ export function parallelSurface(base, reference, fit, info = {}) {
       ? { ...reference.mean, rms: null, inherited: true }
       : null
 
+  const inherited = {
+    ...info,
+    // Ni la malla ni los datos viajan en la ficha.
+    points: undefined,
+    extent: undefined,
+    partial: Boolean(info.partial),
+    // Espesor variable: la superficie no es un desplazado rígido de su
+    // referencia, así que quien herede de ella tiene que apoyarse en ella y no
+    // saltar a su origen (`rootOf`).
+    variable: Boolean(extent && info.upgrade && obsPoints?.length),
+    offset: fit.offset,
+    below: fit.offset >= 0,
+    rms: fit.rms,
+    n: fit.n,
+    folded: Boolean(reference.folded),
+  }
+  // El espesor que se cuenta es el perpendicular medio, que sólo se conoce al
+  // construir la malla: se calcula al pedirlo.
+  Object.defineProperty(inherited, 'thickness', {
+    enumerable: true,
+    get() {
+      if (!built) build()
+      return Math.abs(meanThickness)
+    },
+  })
+
   return {
     ...base,
     elevationAt,
@@ -302,19 +321,7 @@ export function parallelSurface(base, reference, fit, info = {}) {
     domainAttitudes: info.upgrade ? base.domainAttitudes : reference.domainAttitudes,
     quality: info.upgrade ? base.quality : 'heredada',
     defined: true,
-    inherited: {
-      ...info,
-      // La función de peso no viaja en la ficha: lo que interesa contar es que
-      // la geometría prestada sólo manda lejos de los contornos propios.
-      support: undefined,
-      partial: Boolean(support),
-      thickness: Math.abs(fit.offset),
-      offset: fit.offset,
-      below: fit.offset >= 0,
-      rms: fit.rms,
-      n: fit.n,
-      folded: Boolean(reference.folded),
-    },
+    inherited,
   }
 }
 
@@ -396,7 +403,15 @@ const completesFold = (contact, surf) => selfResolved(contact, surf) && Boolean(
  *
  * Muta `contactSurfaces` y devuelve la lista de herencias aplicadas.
  */
-export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1, side = 1000, zStep = 0 }) {
+export function inheritContactGeometry({
+  contacts,
+  contactSurfaces,
+  dem,
+  tol = 1,
+  side = 1000,
+  zStep = 0,
+  extent = null,
+}) {
   const applied = []
   if (!contacts?.length || !contactSurfaces) return applied
   const step = Math.max(tol * 6, side / 200)
@@ -414,13 +429,13 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
    * evaluaciones (cada eslabón costaría cinco veces el anterior) sin cambiar el
    * resultado, porque el espesor se ajusta contra ella directamente.
    *
-   * La excepción es la referencia sólo **completada**: ésa no es un desplazado
-   * rígido de su origen —sobre sus propios contornos manda lo que midió—, así
-   * que saltársela cambiaría la forma que se copia. Se usa tal cual, y la
-   * cadena se paga.
+   * La excepción es la referencia de espesor **variable**: ésa no es un
+   * desplazado rígido de su origen —cerca de sus datos manda el espesor que
+   * midió—, así que saltársela cambiaría la forma que se copia. Se usa tal cual:
+   * leerla es leer su malla, así que la cadena sale barata.
    */
   const rootOf = (surf, contact) =>
-    surf.inherited && !surf.inherited.partial
+    surf.inherited && !surf.inherited.variable
       ? { surface: surf.inherited.root, contactId: surf.inherited.contactId, name: surf.inherited.name }
       : { surface: surf, contactId: contact.id, name: contact.name }
 
@@ -464,14 +479,13 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
           const upgrade = !unresolved
           const complete = upgrade && completesFold(contact, surf)
           if (upgrade && !complete && !flatUnderFold(contact, surf, root.surface)) break
-          // Lo medido no se tira cuando de verdad describe la forma: en un
-          // contacto que resolvió su propio pliegue, la geometría prestada
-          // entra únicamente donde sus contornos no alcanzan (`ownSupport`).
-          // Con un solo manteo medido no hay forma que conservar y la prestada
-          // vale en todo el bloque; y si no se sabe hasta dónde alcanzan sus
-          // contornos, no hay relevo que hacer y se le deja lo suyo.
-          const support = complete ? ownSupport(surf, contourReach(surf)) : null
-          if (complete && !support) break
+          // Lo medido no se tira: cada dato propio fija el espesor que hay
+          // junto a él, y ese espesor cambia a lo largo de unos pocos contornos
+          // estructurales (`thicknessField`). Es la escala con la que el mapa
+          // puede decir que una capa engrosa; más fino sería copiar el ruido de
+          // la digitalización.
+          const reach = contourReach(surf)
+          const width = (reach > 0 ? reach : side / 20) * THICKNESS_WIDTH
           const fit = fitParallelOffset(root.surface, obs.points)
           // Si los datos propios no encajan con un espesor constante respecto
           // del vecino, mandan ellos: la geometría prestada sería una hipótesis
@@ -484,7 +498,10 @@ export function inheritContactGeometry({ contacts, contactSurfaces, dem, tol = 1
               root: root.surface,
               block,
               upgrade,
-              support,
+              partial: complete,
+              points: obs.points,
+              width,
+              extent,
               source: obs.source,
             })
             for (const b of blocksOfSurf) byBlock.set(b, heredada)

@@ -472,9 +472,25 @@ resolver solo, la app le da la geometría del contacto concordante resuelto más
 próximo **hacia el techo**, construyendo la superficie **paralela** a él
 (pliegue paralelo o concéntrico, clase 1B de Ramsay): la misma forma, desplazada
 un **espesor verdadero constante** medido perpendicular a las capas. En cota ese
-desplazamiento no es constante, vale `e / cos δ` con δ el manteo local, y por
-eso el contacto heredado se separa más en los flancos que en las charnelas,
-igual que un contacto real.
+desplazamiento no es constante —sobre un limbo plano vale `e / cos δ`, con δ el
+manteo—, y por eso el contacto heredado se separa más en los flancos que en las
+charnelas, igual que un contacto real.
+
+La superficie paralela se construye como lo que es: el lugar de los puntos que
+están **a distancia `e`** de la referencia. Es la envolvente de las esferas de
+radio `e` centradas en ella —una *erosión* morfológica por una bola—, calculada
+sobre una malla del área y leída con interpolación bicúbica. Bajar cada punto
+en vertical `e / cos δ` sólo es exacto sobre un limbo plano: en cuanto la
+referencia se curva, las normales de los dos flancos se cruzan antes de llegar
+al espesor y la cuenta punto a punto dibuja en el fondo de los sinformes un
+**doble valle** —la «cola de golondrina» de un desplazamiento mal hecho— y
+bollos allí donde la referencia se empina. La erosión no puede hacer eso: la
+capa de abajo mide exactamente `e` en perpendicular en todas partes, nunca es
+más empinada que la de arriba, y bajo un sinforme se abre en un arco más ancho.
+Bajo un antiforme estrecho el arco interior se cerraría en una arista; se
+redondea (una apertura con una bola de 0,3·`e`) y en esa charnela la capa queda
+algo más gruesa, que es lo que hacen los pliegues reales cuando el núcleo se
+queda sin sitio.
 
 La herencia va **sólo hacia abajo**, hacia las capas más antiguas, y nunca al
 revés. Que un contacto esté plegado obliga a las capas de debajo a repetir ese
@@ -506,30 +522,26 @@ varía el manteo no es medirlo en todas partes, y pasado su último contorno
 estructural la superficie deja de estar sujeta a nada: media vuelta más allá de
 la charnela se aparta cientos de metros de la de encima, la cruza, y la regla de
 superposición acaba **acuñando la unidad contra su propio techo**, que en una
-serie concordante no ocurre. Por eso la herencia no es «todo o nada» sino un
-**relevo punto a punto**: sobre sus propios contornos manda lo medido, lejos de
-ellos manda la superficie paralela al contacto de encima, y en medio hay una
-transición suave. El listón de «lejos» es la separación entre sus contornos
-estructurales: hasta una de distancia manda entero lo suyo, y a partir de tres
-ya no queda nada de ello. Es la misma regla de siempre —donde no hay contornos
-estructurales que resuelvan la geometría, la unidad de abajo sigue a la de
-encima con espesor constante—, sólo que aplicada donde de verdad faltan datos y
-no contacto por contacto. El panel **Resultados** lo distingue: «pliegue medido,
-completado fuera de sus contornos».
+serie concordante no ocurre. Por eso ese contacto también toma la **forma** del
+de encima, pero sin tirar lo que midió: cada uno de sus datos fija el **espesor**
+que hay junto a él, y el espesor cambia de un sitio a otro con suavidad —a lo
+largo de una separación entre contornos estructurales— y vuelve al espesor
+medio lejos de los datos. Así la unidad **conserva su espesor salvo donde sus
+contornos dicen otra cosa**, y la superficie pasa por lo medido (en «Fold &
+inclined normal fault», a 4,5 m de media con curvas cada 100 m). El panel
+**Resultados** lo distingue: «pliegue medido, completado fuera de sus
+contornos».
 
-El manteo con el que se hace la cuenta es el de los **limbos** de la superficie
-de referencia —la actitud que el mapa midió—, no la pendiente del dibujo. No es
-lo mismo: el modelo de pliegue funde un limbo con el siguiente para redondear la
-charnela, y en esa fusión la superficie dibujada se empina más que cualquiera de
-los limbos que la componen. Leyendo esa pendiente con diferencias finitas, `e /
-cos δ` la multiplicaba y el contacto heredado salía con un pico donde su
-referencia sólo tiene una charnela: en «Fold & inclined normal fault», hasta 280 m
-por debajo de su referencia donde el espesor ajustado son 71. Encadenado —un
-contacto completado que sirve de referencia al siguiente— cada eslabón volvía a
-derivar al anterior y el pico crecía. Con el manteo de los limbos el
-desplazamiento queda acotado por lo que el mapa sostiene, que es justo lo que
-significa espesor verdadero constante: la unidad de abajo **repite** la forma de
-la de encima, no la amplifica.
+Antes, lo propio y lo prestado se mezclaban **en cota**: sobre los contornos, la
+superficie medida; lejos, la paralela; y en medio, una transición. Dos pliegues
+distintos fundidos con un peso que cambia deprisa son un tercero que no es
+ninguno de los dos: el espesor iba y venía por la franja de relevo y en el fondo
+de los sinformes, hacia el borde del área, aparecían bollos. Mezclar
+**espesores** en vez de cotas no puede hacer eso, porque la forma es siempre la
+de la referencia. Medido sobre «Fold & inclined normal fault» (laplaciano máximo
+sobre una malla de 100×100), el techo de la Unidad 2 pasa de 53,5 a 11,5 m y el
+de la Unidad 1, de 65,8 a 14,9 m; en «Fold, fault & unconformity», el techo de
+la Unidad 1 pasa de 63,3 a 30,7 m.
 
 Dos límites deliberados: la herencia **se corta en las discordancias y en los
 contactos intrusivos** (bajo una inconformidad las capas están truncadas, así
