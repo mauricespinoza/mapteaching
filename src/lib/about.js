@@ -7,7 +7,7 @@
 // usa no existe. Cada entrada cuenta lo que se nota al usarla, no el commit.
 
 /** Versión publicada. Se mantiene a la par con la de `package.json`. */
-export const VERSION = '1.4.0'
+export const VERSION = '1.4.1'
 
 export const AUTHOR = {
   name: 'Mauricio Espinoza',
@@ -43,6 +43,16 @@ export const TOOLS = [
  * cortas, en el orden en que se notan al abrir la app.
  */
 export const CHANGELOG = [
+  {
+    version: '1.4.1',
+    date: '2026-09-26',
+    title: 'Pliegues heredados suaves y de espesor constante',
+    highlights: [
+      'Las unidades que siguen el pliegue de la de encima se construyen ahora a un espesor verdadero, medido perpendicular a las capas: se acaban el doble valle y los bollos en el fondo de los sinclinales, sobre todo hacia el borde del modelo.',
+      'Un contacto que midió su propio pliegue conserva lo medido como espesor, no como cota: la unidad mantiene su espesor salvo donde sus contornos estructurales dicen otra cosa, y la superficie ya no se arruga donde lo medido y lo prestado se relevan.',
+      'Bajo un anticlinal estrecho la charnela de la capa de abajo se redondea en vez de cerrarse en arista.',
+    ],
+  },
   {
     version: '1.4.0',
     date: '2026-09-16',
